@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Certicheck Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="styling.css"/>
+</head>
+<body>
+  <nav id="navbar">
+    <button class="nav-logo" onclick="window.location.href='index.html'" aria-label="Certicheck home">
+      <svg width="34" height="34" viewBox="0 0 36 36" fill="none">
+        <rect width="36" height="36" rx="8" fill="url(#logoGrad)"/>
+        <path d="M8 10L18 6L28 10L28 20L18 26L8 20L8 10Z" stroke="white" stroke-width="1.6" fill="none"/>
+        <path d="M18 6L18 26M8 10L28 20M28 10L8 20" stroke="white" stroke-width="1" opacity="0.5"/>
+        <defs>
+          <linearGradient id="logoGrad" x1="0" y1="0" x2="36" y2="36">
+            <stop offset="0%" stop-color="#7c3aed"/>
+            <stop offset="100%" stop-color="#4f46e5"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <span class="nav-brand">Certicheck Admin</span>
+    </button>
+    <div class="nav-actions">
+      <button class="btn-outline" onclick="window.location.href='index.html'">Main site</button>
+    </div>
+  </nav>
+
+  <div class="page-wrap" style="max-width:860px; margin:120px auto 80px;">
+    <div class="page-header">
+      <div class="page-tag">Admin Portal</div>
+      <h1 class="page-title">Issuer Approval <span class="gradient-text">Console</span></h1>
+      <p class="page-desc">Sign in with an admin account to approve applications, revoke certificates, and review audit events.</p>
+    </div>
+
+    <div class="form-card" id="adminLoginCard">
+      <form id="adminLoginForm">
+        <div class="field">
+          <label class="field-label" for="adminEmail">Admin Email</label>
+          <input class="field-input" id="adminEmail" type="email" placeholder="admin@certicheck.com" required />
+        </div>
+        <div class="field">
+          <label class="field-label" for="adminPassword">Admin Password</label>
+          <input class="field-input" id="adminPassword" type="password" placeholder="Enter your admin password" required />
+        </div>
+        <div class="form-actions" style="justify-content:flex-start; gap:12px;">
+          <button class="btn-primary" type="submit" id="adminLoginBtn">Sign In</button>
+        </div>
+      </form>
+      <div id="adminLoginError" style="color:#dc2626;margin-top:12px;display:none;"></div>
+    </div>
+
+    <div class="form-card" id="adminDashboard" style="display:none;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+        <div>
+          <div class="page-tag">Issuer Administration</div>
+          <p class="page-desc" style="margin:0;">Review pending approvals, rejected requests, certificate checks, revoked certificates, and admin activity.</p>
+        </div>
+        <div style="text-align:right;color:var(--text-secondary);" id="adminSummary"></div>
+      </div>
+
+      <div id="adminStatsGrid" style="margin-top:20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;"></div>
+      <div class="admin-tabs" id="adminTabs" style="margin-top:24px;"></div>
+      <div id="adminSectionIntro" class="page-desc" style="margin:12px 0 0 0;color:var(--text-secondary);"></div>
+
+      <div style="margin-top:20px; display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+        <button class="btn-primary" id="adminReturnBtn">Return to main page</button>
+        <button class="btn-ghost" id="adminLogoutBtn">Logout</button>
+      </div>
+      <div style="margin-top:8px;font-size:13px;color:var(--text-secondary);">Signed in as <strong id="adminWelcome">Admin</strong></div>
+
+      <div id="adminList" style="margin-top:20px;"></div>
+  </div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

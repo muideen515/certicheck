@@ -1,0 +1,1799 @@
+"use strict";
+
+const FAQ_DATA = [
+  {
+    category: "About the System",
+    items: [
+      { q: "What is the Solana Certificate Verification System?",
+        a: "Our platform issues tamper-proof digital certificates anchored on the Solana blockchain. Each certificate is a verifiable on-chain record that any third party can independently confirm — no middlemen, no central authority." },
+      { q: "Who can issue certificates?",
+        a: "Accredited institutions, training providers, universities, and businesses with a verified issuer account can mint certificates directly on-chain." },
+      { q: "What types of certificates can be issued?",
+        a: "Academic degrees, professional certifications, course completions, skill badges, event attendance, and any credential requiring verifiable authenticity." },
+      { q: "Is this system open-source?",
+        a: "Yes. Our smart contracts and verification SDK are fully open-source. You can review the code on GitHub at any time." },
+    ],
+  },
+  {
+    category: "Verification",
+    items: [
+      { q: "How do I verify a certificate?",
+        a: "Enter the certificate ID or scan the QR code. Our verifier queries Solana directly and returns the authenticity result in seconds." },
+      { q: "Can a certificate be faked or tampered with?",
+        a: "No. Each certificate is cryptographically signed by the issuer's on-chain keypair and stored as an immutable transaction. Any alteration invalidates the signature." },
+      { q: "What information is publicly visible on-chain?",
+        a: "The certificate hash, issuer address, issuance timestamp, and revocation status. Personal details are stored off-chain and revealed only with the holder's consent." },
+      { q: "How long does verification take?",
+        a: "Typically under 2 seconds, thanks to Solana's high throughput and sub-second finality." },
+      { q: "Can I verify without creating an account?",
+        a: "Yes. Certificate verification is fully public and requires no login or wallet." },
+    ],
+  },
+  {
+    category: "For Certificate Holders",
+    items: [
+      { q: "How do I receive my certificate?",
+        a: "After the issuer mints your certificate, you will receive an email with your unique certificate ID and a link to your digital certificate page." },
+      { q: "Do I need a Solana wallet?",
+        a: "No wallet is required to receive or share a certificate. A wallet is optional for holders who wish to take full self-custody." },
+      { q: "Can I share my certificate on LinkedIn?",
+        a: "Yes. Each certificate has a shareable link and an embeddable badge. LinkedIn, Twitter/X, and direct URL sharing are all supported." },
+      { q: "What happens if I lose my certificate link?",
+        a: "Log in to your holder dashboard and retrieve all certificates issued to your email at any time." },
+      { q: "Can a certificate be revoked?",
+        a: "Issuers can revoke certificates (e.g. in cases of fraud). A revoked certificate shows a clear revoked status during verification, but the on-chain record is never deleted." },
+    ],
+  },
+  {
+    category: "For Issuers",
+    items: [
+      { q: "How do I become a verified issuer?",
+        a: "Apply through the issuer onboarding form. Our team reviews your credentials and activates your issuer account within 1–3 business days." },
+      { q: "What does it cost to issue a certificate?",
+        a: "Issuers pay a small Solana network fee per certificate (typically less than $0.01 USD) plus any applicable platform subscription fee." },
+      { q: "Can I issue certificates in bulk?",
+        a: "Yes. Our API and CSV upload tool support batch issuance — thousands of certificates in a single operation." },
+      { q: "Can I customise the certificate design?",
+        a: "Yes. Upload your logo, choose your colour scheme, and define custom fields in the issuer dashboard." },
+    ],
+  },
+  {
+    category: "Technical & Security",
+    items: [
+      { q: "Which Solana network is used?",
+        a: "Production certificates are issued on Solana mainnet-beta. Devnet is available for testing before going live." },
+      { q: "Has the smart contract been audited?",
+        a: "Yes. Our on-chain program has been independently audited. The full report is publicly available in our documentation." },
+      { q: "Is there an API I can integrate?",
+        a: "Yes. A fully documented REST API and TypeScript SDK are available. See the Resources page for details." },
+    ],
+  },
+];
+
+const API_BASE_URL = "http://localhost:5000/api";
+
+const RESOURCES_DATA = [
+  { icon: "📄", title: "Documentation",         desc: "Full API reference, SDK docs, and integration guides.",             tag: "Docs" },
+  { icon: "⚡", title: "Quick Start Guide",      desc: "Issue your first certificate on Solana devnet in under 5 minutes.", tag: "Guide" },
+  { icon: "🔐", title: "Security Audit",         desc: "Read the independent smart-contract audit report.",                 tag: "Security" },
+  { icon: "🧩", title: "TypeScript SDK",          desc: "npm install @nebulacert/sdk — type-safe certificate API.",          tag: "SDK" },
+  { icon: "🔗", title: "REST API Reference",     desc: "OpenAPI spec, endpoints, auth, and rate limits.",                   tag: "API" },
+  { icon: "🎓", title: "Example Integrations",   desc: "Next.js, Express, and Django starter templates.",                   tag: "Examples" },
+  { icon: "🗳️", title: "Governance",             desc: "How protocol upgrades are proposed and voted on-chain.",            tag: "DAO" },
+  { icon: "💬", title: "Community Discord",       desc: "Get help, share feedback, and connect with other builders.",        tag: "Community" },
+];
+
+/* ═══════════════════════════════════════════════
+   ROUTER — state-based page switching
+═══════════════════════════════════════════════ */
+let currentPage = "home";
+let currentUser = null;
+let desiredSignupType = null; // 'holder' or 'issuer' set by home CTAs
+
+function getAuthToken() {
+  return localStorage.getItem("certicheck_auth_token");
+}
+
+function getStoredUser() {
+  try {
+    return JSON.parse(localStorage.getItem("certicheck_user") || "null");
+  } catch {
+    return null;
+  }
+}
+
+function getRememberedLoginEmail() {
+  return localStorage.getItem("certicheck_last_login_email") || "";
+}
+
+function setRememberedLoginEmail(email) {
+  if (email) {
+    localStorage.setItem("certicheck_last_login_email", email);
+  } else {
+    localStorage.removeItem("certicheck_last_login_email");
+  }
+}
+
+function saveAuthSession(token, user) {
+  localStorage.setItem("certicheck_auth_token", token);
+  localStorage.setItem("certicheck_user", JSON.stringify(user));
+  currentUser = user;
+  updateAuthUi();
+}
+
+function clearAuthSession() {
+  localStorage.removeItem("certicheck_auth_token");
+  localStorage.removeItem("certicheck_user");
+  currentUser = null;
+  updateAuthUi();
+}
+
+function updateAuthUi() {
+  const navActions = document.querySelector('.nav-actions');
+  if (!navActions) return;
+
+  // Clear existing auth action area
+  navActions.querySelectorAll('.auth-item').forEach(el => el.remove());
+
+  if (currentUser && currentUser.email) {
+    // Show user email, dashboard and sign out
+    const userBadge = document.createElement('div');
+    userBadge.className = 'auth-item';
+    userBadge.style.marginRight = '8px';
+    userBadge.style.color = 'var(--text-secondary)';
+    userBadge.textContent = currentUser.email;
+
+    const dashBtn = document.createElement('button');
+    dashBtn.className = 'btn-ghost auth-item';
+    dashBtn.textContent = 'Dashboard';
+    dashBtn.addEventListener('click', () => {
+      const page = (currentUser.user_type === 'holder') ? 'holder' : (currentUser.user_type === 'issuer' ? 'issuer' : 'holder');
+      navigate(page);
+    });
+
+    const signoutBtn = document.createElement('button');
+    signoutBtn.className = 'btn-ghost auth-item';
+    signoutBtn.textContent = 'Sign Out';
+    signoutBtn.addEventListener('click', () => {
+      clearAuthSession();
+      navigate('home');
+    });
+
+    // Hide default signup/login buttons if present
+    navActions.querySelectorAll('[data-page="signup"],[data-page="login"]').forEach(b => b.style.display = 'none');
+
+    navActions.prepend(signoutBtn);
+    navActions.prepend(dashBtn);
+    navActions.prepend(userBadge);
+  } else {
+    // Show default signup/login
+    navActions.querySelectorAll('[data-page="signup"],[data-page="login"]').forEach(b => b.style.display = 'inline-block');
+    // remove any lingering auth-item nodes
+    navActions.querySelectorAll('.auth-item').forEach(el => el.remove());
+  }
+}
+
+function getDemoCertificateData(certificateId) {
+  const normalized = String(certificateId || "").trim().toUpperCase();
+  const demoCertificates = {
+    "CERT-SOL-2024-00418": {
+      id: 1,
+      certificate_id: "CERT-SOL-2024-00418",
+      certificate_type: "Degree Certificate",
+      verification_status: "valid",
+      verification_message: "Demo certificate is active and verifiable.",
+      blockchain_hash: "demo-ipfs-cid-valid",
+      blockchain_transaction_id: null,
+      checked_at: new Date().toISOString(),
+      revoked_at: null,
+      revoked_by: null
+    },
+    "REV-001": {
+      id: 2,
+      certificate_id: "REV-001",
+      certificate_type: "Revocation Demo",
+      verification_status: "revoked",
+      verification_message: "Demo certificate has been revoked by the issuer.",
+      blockchain_hash: "demo-ipfs-cid-revoked",
+      blockchain_transaction_id: "demo-revoke-rev-001",
+      checked_at: new Date().toISOString(),
+      revoked_at: new Date().toISOString(),
+      revoked_by: 1
+    }
+  };
+
+  return demoCertificates[normalized] || null;
+}
+
+function getDemoTpsData() {
+  return {
+    currentTps: 1820,
+    peakTps: 2470,
+    averageTps: 1640,
+    samples: [1800, 1820, 1750, 1900, 1840, 1880, 1760, 1830]
+  };
+}
+
+function createDemoUser(email, firstName = "Demo", lastName = "User") {
+  return {
+    id: Date.now(),
+    email,
+    firstName,
+    lastName,
+    user_type: "issuer"
+  };
+}
+
+function saveDemoAuthSession(email, firstName = "Demo", lastName = "User") {
+  const user = createDemoUser(email, firstName, lastName);
+  saveAuthSession("demo-token", user);
+  return user;
+}
+
+// Enhanced demo session helper accepting a role
+function saveDemoAuthSessionWithRole(email, firstName = "Demo", lastName = "User", role = 'issuer') {
+  const user = createDemoUser(email, firstName, lastName);
+  user.user_type = role || 'issuer';
+  saveAuthSession("demo-token", user);
+  return user;
+}
+
+function navigate(page) {
+  if (page === currentPage) return;
+
+  // Deactivate old page & nav item
+  document.querySelector(".page.active")?.classList.remove("active");
+  document.querySelector(".nav-item.active")?.classList.remove("active");
+
+  // Activate new page
+  const el = document.getElementById(`page-${page}`);
+  if (el) { el.classList.add("active"); currentPage = page; }
+
+  // Activate nav item
+  const navBtn = document.querySelector(`[data-page="${page}"]`);
+  if (navBtn) navBtn.classList.add("active");
+
+  window.scrollTo({ top: 0, behavior: "smooth" });
+
+  // Lazy-init pages
+  if (page === "tps")       initTPS();
+  if (page === "faqs")      renderFAQs();
+  if (page === "resources") renderResources();
+  if (page === "issuer")    initIssuerDashboard();
+  if (page === "holder")    initHolderDashboard();
+  initAuthPageForms(page);
+}
+
+function initAuthPageForms(page) {
+  if (page === "verify-otp") initOTPVerificationForm();
+  if (page === "verify-reset-otp") initVerifyResetOTPForm();
+}
+
+async function renderVerifyResult(response) {
+  const resultEl = document.getElementById("verifyResult");
+  if (!resultEl) return;
+
+  if (!response.success) {
+    resultEl.innerHTML = `<div class="alert alert-error">${response.error || 'Certificate not found'}</div>`;
+    return;
+  }
+
+  const certificate = response.certificate || {};
+  const status = certificate.verification_status || response.status || 'unknown';
+  const color = status === 'valid' ? '#059669' : status === 'revoked' ? '#dc2626' : '#a855f7';
+  const lastChecked = certificate.checked_at || certificate.verifiedAt || certificate.issued_at || new Date().toISOString();
+  const txId = certificate.blockchain_transaction_id || certificate.blockchainTransactionId || 'Not issued on-chain';
+  const cid = certificate.blockchain_hash || certificate.ipfsCid || certificate.ipfs_cid || 'N/A';
+  const ipfsUri = certificate.ipfsUri || certificate.ipfs_uri || (cid && cid !== 'N/A' ? `https://ipfs.io/ipfs/${cid}` : null);
+  const issuerName = certificate.issuerName || certificate.issuer || certificate.issuer_name || certificate.issuer_wallet || 'Unknown issuer';
+  const holderName = certificate.holderName || certificate.holder || certificate.holder_name || certificate.holderEmail || '—';
+
+  resultEl.innerHTML = `
+    <div class="result-card">
+      <div class="result-header" style="border-left:4px solid ${color};">
+        <div>
+          <div class="result-title">Certificate ${certificate.certificate_id || certificate.certificateId || 'ID'}</div>
+          <div class="result-subtitle">Status: <strong style="color:${color};text-transform:capitalize">${status}</strong></div>
+          <div style="margin-top:6px;font-size:13px;color:var(--text-secondary)">Source: <strong>${response.onChain ? 'On-chain' : (response.onChain === false ? 'Local / DB' : 'Unknown')}</strong></div>
+        </div>
+      </div>
+      <div class="result-body">
+        <div><strong>Issuer:</strong> ${issuerName}</div>
+        <div><strong>Holder:</strong> ${holderName}</div>
+        <div><strong>Type:</strong> ${certificate.certificate_type || certificate.certificateType || 'N/A'}</div>
+        <div><strong>Issued:</strong> ${new Date(lastChecked).toLocaleString()}</div>
+        <div><strong>IPFS:</strong> ${ipfsUri ? `<a href="${ipfsUri}" target="_blank" rel="noopener">${cid}</a>` : cid}</div>
+        <div><strong>Transaction:</strong> ${txId}${txId && txId !== 'Not issued on-chain' ? ` • <a href="https://explorer.solana.com/tx/${txId}?cluster=devnet" target="_blank" rel="noopener">View on Solana Explorer</a>` : ''}</div>
+        <div style="margin-top:12px;color:var(--text-secondary);font-size:13px;">${certificate.verification_message || response.message || 'No additional details available.'}</div>
+      </div>
+    </div>
+  `;
+
+  // Add QR code toggle for the certificate ID so users can quickly share/scan
+  const qrContainerHtml = `<div style="margin-top:12px"><button id="showQrBtn" class="btn-ghost">Show QR</button><div id="verifyQrWrap" style="margin-top:12px;display:none"></div></div>`;
+  resultEl.insertAdjacentHTML('beforeend', qrContainerHtml);
+  const showBtn = document.getElementById('showQrBtn');
+  const qrWrap = document.getElementById('verifyQrWrap');
+  showBtn?.addEventListener('click', async () => {
+    if (!qrWrap) return;
+    if (qrWrap.innerHTML) {
+      qrWrap.innerHTML = '';
+      qrWrap.style.display = 'none';
+      showBtn.textContent = 'Show QR';
+      return;
+    }
+
+    const certId = certificate.certificate_id || certificate.certificateId || '';
+    if (!certId) {
+      qrWrap.innerHTML = '<div class="alert alert-error">No certificate ID available for QR</div>';
+      qrWrap.style.display = 'block';
+      return;
+    }
+
+    if (window.QRCode && typeof QRCode.toDataURL === 'function') {
+      try {
+        const imgData = await QRCode.toDataURL(certId, { margin: 2, width: 220 });
+        qrWrap.innerHTML = `<div style="display:flex;gap:12px;align-items:center"><div><img src="${imgData}" alt="QR code for ${certId}" style="width:160px;height:160px;border-radius:8px;border:1px solid rgba(0,0,0,0.04)"/></div><div style="font-size:13px;color:var(--text-secondary)">Scan to verify: <strong style="font-family:var(--font-mono)">${certId}</strong></div></div>`;
+        qrWrap.style.display = 'block';
+        showBtn.textContent = 'Hide QR';
+      } catch (e) {
+        qrWrap.innerHTML = '<div class="alert alert-error">QR generation failed</div>';
+        qrWrap.style.display = 'block';
+      }
+    } else {
+      qrWrap.innerHTML = '<div class="alert alert-info">QR library not available</div>';
+      qrWrap.style.display = 'block';
+    }
+  });
+
+  // If html QR library available, show a small scanner placeholder
+  const scannerEl = document.getElementById('qrScanner');
+  if (scannerEl) scannerEl.style.display = 'none';
+}
+
+async function verifyCertificate() {
+  const input = document.getElementById("certIdInput");
+  const certificateId = input?.value?.trim();
+  const resultEl = document.getElementById("verifyResult");
+
+  if (!certificateId) {
+    if (resultEl) {
+      resultEl.innerHTML = `<div class="alert alert-error">Please enter a certificate ID.</div>`;
+    }
+    return;
+  }
+
+  if (resultEl) {
+    resultEl.innerHTML = `<div class="alert alert-info">Checking certificate ${certificateId}...</div>`;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/certificates/lookup/${encodeURIComponent(certificateId)}`);
+    const data = await response.json();
+    await renderVerifyResult(data);
+  } catch (err) {
+    const demoData = getDemoCertificateData(certificateId);
+    await renderVerifyResult(demoData ? { success: true, certificate: demoData } : { success: false, error: 'Certificate not found' });
+  }
+}
+
+// Wire all nav buttons & CTAs
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("[data-page]").forEach(el => {
+    el.addEventListener("click", () => navigate(el.dataset.page));
+  });
+  currentUser = getStoredUser();
+  initTheme();
+  initSignupForm();
+  initLoginForm();
+  initForgotPasswordForm();
+  initAuthPageForms(currentPage);
+
+  document.getElementById("verifyBtn")?.addEventListener("click", verifyCertificate);
+  document.getElementById('scanQrBtn')?.addEventListener('click', startQrScanner);
+  document.querySelectorAll(".code-inline[data-demo]").forEach(code => {
+    code.addEventListener("click", () => {
+      const value = code.dataset.demo;
+      const input = document.getElementById("certIdInput");
+      if (input) input.value = value;
+      verifyCertificate();
+    });
+  });
+  
+  // Home CTAs set signup type
+  document.getElementById('homeGraduateBtn')?.addEventListener('click', () => { desiredSignupType = 'holder'; });
+  document.getElementById('homeIssuerBtn')?.addEventListener('click', () => { desiredSignupType = 'issuer'; });
+  document.getElementById('homeVerifyBtn')?.addEventListener('click', () => { desiredSignupType = null; });
+
+  // Wire holder page init on navigation
+  document.querySelectorAll('[data-page]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = btn.dataset.page;
+      if (p === 'holder') initHolderDashboard();
+    });
+  });
+});
+
+/* ═══════════════════════════════════════════════
+   NAVBAR — scroll shadow
+═══════════════════════════════════════════════ */
+const navbar = document.getElementById("navbar");
+window.addEventListener("scroll", () => {
+  navbar.classList.toggle("scrolled", window.scrollY > 20);
+}, { passive: true });
+
+/* ═══════════════════════════════════════════════
+   SCROLL HINT
+═══════════════════════════════════════════════ */
+document.getElementById("scrollHint")?.addEventListener("click", () => {
+  window.scrollBy({ top: window.innerHeight, behavior: "smooth" });
+});
+
+/* ═══════════════════════════════════════════════
+   CUBE PARALLAX
+═══════════════════════════════════════════════ */
+const cubeWraps = document.querySelectorAll(".cube-wrap");
+
+document.addEventListener("mousemove", (e) => {
+  const cx = window.innerWidth  / 2;
+  const cy = window.innerHeight / 2;
+  const dx = (e.clientX - cx) / cx;
+  const dy = (e.clientY - cy) / cy;
+
+  cubeWraps.forEach((wrap, i) => {
+    const depth = 0.6 + i * 0.14;
+    wrap.style.transform = `translate(${dx * 18 * depth}px, ${dy * 12 * depth}px)`;
+  });
+});
+
+/* ═══════════════════════════════════════════════
+   TPS — live Solana data
+═══════════════════════════════════════════════ */
+let tpsTimer   = null;
+let tpsCountRef = 10;
+let tpsInitialised = false;
+
+function tpsStatus(tps) {
+  if (tps >= 2000) return { label: "Healthy",   color: "#059669", bg: "rgba(5,150,105,0.1)",   text: "#065f46" };
+  if (tps >= 800)  return { label: "Normal",    color: "#2563eb", bg: "rgba(37,99,235,0.1)",   text: "#1e3a8a" };
+  if (tps >= 200)  return { label: "Degraded",  color: "#d97706", bg: "rgba(217,119,6,0.1)",   text: "#78350f" };
+  return                   { label: "Congested", color: "#dc2626", bg: "rgba(220,38,38,0.1)",   text: "#7f1d1d" };
+}
+
+function tpsBarColor(tps) {
+  if (tps >= 2000) return "#059669";
+  if (tps >= 800)  return "#2563eb";
+  if (tps >= 200)  return "#d97706";
+  return "#dc2626";
+}
+
+async function fetchTPS() {
+  const errBox   = document.getElementById("tps-error");
+  const curEl    = document.getElementById("tpsCurrent");
+  const peakEl   = document.getElementById("tpsPeak");
+  const avgEl    = document.getElementById("tpsAvg");
+  const badgeEl  = document.getElementById("tpsStatusBadge");
+  const barsEl   = document.getElementById("tpsBars");
+  const updatedEl= document.getElementById("tpsUpdated");
+
+  errBox.style.display = "none";
+
+  [curEl, peakEl, avgEl].forEach(el => { if (el && !el.dataset.loaded) el.innerHTML = `<div class="skeleton" style="width:${el === curEl ? '180px' : '100px'};height:${el === curEl ? '64px' : '32px'};border-radius:6px"></div>`; });
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/network/tps`);
+    const data = await res.json();
+
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || "Unable to load TPS data from the backend");
+    }
+
+    const arr = Array.isArray(data.samples) ? data.samples : [];
+    if (!arr.length) throw new Error("Empty TPS response from the backend");
+
+    const current = Number(data.currentTps ?? arr[0] ?? 0);
+    const peak    = Number(data.peakTps ?? Math.max(...arr));
+    const avg     = Number(data.averageTps ?? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length));
+    const max     = Math.max(peak, 1);
+    const st      = tpsStatus(current);
+
+    curEl.dataset.loaded = "1";
+    curEl.innerHTML = `<span style="color:${st.color}">${current.toLocaleString()}</span>`;
+
+    badgeEl.innerHTML = `
+      <div class="status-badge" style="background:${st.bg};color:${st.text}">
+        <span class="pulse-dot" style="background:${st.color}"></span>
+        ${st.label}
+      </div>`;
+
+    peakEl.dataset.loaded = avgEl.dataset.loaded = "1";
+    peakEl.textContent = peak.toLocaleString();
+    avgEl.textContent  = avg.toLocaleString();
+
+    barsEl.innerHTML = arr.map(t => {
+      const pct = Math.max(6, Math.round((t / max) * 100));
+      return `<div class="tps-bar" style="height:${pct}%;background:${tpsBarColor(t)}" title="${t.toLocaleString()} TPS"></div>`;
+    }).join("");
+
+    const now = new Date();
+    updatedEl.textContent = `last updated ${now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+  } catch (err) {
+    const demo = getDemoTpsData();
+    const current = demo.currentTps;
+    const peak = demo.peakTps;
+    const avg = demo.averageTps;
+    const max = Math.max(peak, 1);
+    const st = tpsStatus(current);
+
+    curEl.dataset.loaded = "1";
+    curEl.innerHTML = `<span style="color:${st.color}">${current.toLocaleString()}</span>`;
+    badgeEl.innerHTML = `
+      <div class="status-badge" style="background:${st.bg};color:${st.text}">
+        <span class="pulse-dot" style="background:${st.color}"></span>
+        ${st.label}
+      </div>`;
+    peakEl.dataset.loaded = avgEl.dataset.loaded = "1";
+    peakEl.textContent = peak.toLocaleString();
+    avgEl.textContent = avg.toLocaleString();
+    barsEl.innerHTML = demo.samples.map(t => {
+      const pct = Math.max(6, Math.round((t / max) * 100));
+      return `<div class="tps-bar" style="height:${pct}%;background:${tpsBarColor(t)}" title="${t.toLocaleString()} TPS"></div>`;
+    }).join("");
+    updatedEl.textContent = `last updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+  }
+}
+
+function initTPS() {
+  if (tpsInitialised) return;
+  tpsInitialised = true;
+
+  fetchTPS();
+
+  // Countdown + auto-refresh
+  tpsTimer = setInterval(() => {
+    tpsCountRef -= 1;
+    const cdEl = document.getElementById("tpsCountdown");
+    if (cdEl) cdEl.textContent = `next refresh in ${tpsCountRef}s`;
+    if (tpsCountRef <= 0) { tpsCountRef = 10; fetchTPS(); }
+  }, 1_000);
+
+  // Manual refresh button
+  document.getElementById("tpsRefreshBtn")?.addEventListener("click", () => {
+    tpsCountRef = 10;
+    fetchTPS();
+  });
+}
+
+// Pause timer when not on TPS page
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && tpsTimer) { clearInterval(tpsTimer); tpsTimer = null; }
+  else if (!document.hidden && currentPage === "tps" && !tpsTimer) { initTPS(); }
+});
+
+const THEME_KEY = "certicheck_theme";
+const PENDING_APPS_KEY = "certicheck_pending_apps";
+
+// Store signup data temporarily during OTP flow
+let pendingSignupData = null;
+let pendingForgotEmail = null;
+
+function initIssuerDashboard() {
+  const formWrap = document.getElementById("issuerFormWrap");
+  const notice = document.getElementById("issuerNotice");
+  const form = document.getElementById("issuerIssueForm");
+  const button = document.getElementById("issuerSubmitBtn");
+  const errorEl = document.getElementById("issuerError");
+  const resultEl = document.getElementById("issuerResult");
+
+  if (!formWrap || !notice || !button) return;
+
+  const token = getAuthToken();
+  if (!token) {
+    notice.style.display = "block";
+    formWrap.style.display = "none";
+    return;
+  }
+
+  const user = getStoredUser();
+  if (!user) {
+    notice.style.display = "block";
+    formWrap.style.display = "none";
+    return;
+  }
+
+  if (user.user_type !== "issuer" && user.user_type !== "admin") {
+    notice.innerHTML = "Your account is not approved as an issuer yet. Please complete the issuer application first.";
+    notice.style.display = "block";
+    formWrap.style.display = "none";
+    return;
+  }
+
+  notice.style.display = "none";
+  formWrap.style.display = "block";
+  if (user.email) {
+    notice.innerHTML = `Signed in as <strong>${user.email}</strong>. You can issue a certificate now.`;
+    notice.style.display = "block";
+  }
+
+  // Render issuer certificate list from the backend when possible
+  async function loadIssuerCertificates() {
+    const listEl = document.getElementById('issuerCertificatesList');
+    if (!listEl) return [];
+
+    if (token) {
+      try {
+        const response = await fetch(`${API_BASE_URL}/verify/my-history`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && Array.isArray(data.history)) {
+            return data.history.map((entry) => ({
+              certificateId: entry.certificate_id,
+              holderName: entry.certificate_type || entry.holder_name || '',
+              holderEmail: '',
+              certificateType: entry.certificate_type,
+              ipfsCid: entry.blockchain_hash || '',
+              ipfsUri: entry.blockchain_hash ? `https://ipfs.io/ipfs/${entry.blockchain_hash}` : null,
+              blockchainTransactionId: entry.blockchain_transaction_id,
+              verificationStatus: entry.verification_status,
+              issuedAt: entry.checked_at
+            }));
+          }
+        }
+      } catch (err) {
+        console.warn('Unable to load issuer certificates from backend:', err.message);
+      }
+    }
+
+    try {
+      const raw = localStorage.getItem('certicheck_issued_certificates');
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async function renderIssuerCertificatesList() {
+    const listEl = document.getElementById('issuerCertificatesList');
+    if (!listEl) return;
+    const all = await loadIssuerCertificates();
+    const ours = all.filter(c => c.issuerEmail === user.email || c.issuerWallet === (document.getElementById('issuerWallet')?.value || ''));
+    if (!ours.length) {
+      listEl.innerHTML = 'No certificates issued yet.';
+      return;
+    }
+
+    listEl.innerHTML = `<table style="width:100%"><thead><tr><th>ID</th><th>Type</th><th>IPFS</th><th>On-chain</th><th>Status</th><th>Actions</th></tr></thead><tbody>${ours.map(c => `
+      <tr data-cert-id="${c.certificateId}">
+        <td style="font-family:var(--font-mono)">${c.certificateId}</td>
+        <td>${c.certificateType || '—'}</td>
+        <td style="font-family:var(--font-mono)">${c.ipfsCid ? `<a href="${c.ipfsUri || 'https://ipfs.io/ipfs/' + c.ipfsCid}" target="_blank">${c.ipfsCid}</a>` : '—'}</td>
+        <td>${c.blockchainTransactionId ? '<span style="color:#059669">Yes</span>' : 'No'}</td>
+        <td>${c.verificationStatus || 'issued'}</td>
+        <td>${c.verificationStatus === 'revoked' ? '<em>Revoked</em>' : `<button class="btn-ghost btn-revoke" data-cert="${c.certificateId}">Revoke</button>`}</td>
+      </tr>`).join('')}</tbody></table>`;
+
+    // Wire revoke buttons
+    listEl.querySelectorAll('.btn-revoke').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const certId = btn.dataset.cert;
+        if (!certId) return;
+        if (!confirm(`Revoke certificate ${certId}? This action is recorded.`)) return;
+
+        const token = getAuthToken();
+        try {
+          if (token) {
+            const res = await fetch(`${API_BASE_URL}/certificates/revoke/${encodeURIComponent(certId)}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({ reason: 'Revoked via issuer dashboard' })
+            });
+            const json = await res.json();
+            if (!res.ok) throw new Error(json.error || 'Revoke failed');
+          } else {
+            // Demo fallback: mark locally
+            const allLocal = await loadIssuerCertificates();
+            const updated = allLocal.map(x => x.certificateId === certId ? { ...x, verificationStatus: 'revoked', revokedAt: new Date().toISOString() } : x);
+            localStorage.setItem('certicheck_issued_certificates', JSON.stringify(updated));
+          }
+
+          // Update UI: mark row revoked
+          const row = listEl.querySelector(`tr[data-cert-id="${certId}"]`);
+          if (row) {
+            row.querySelector('td:nth-child(5)').innerHTML = 'revoked';
+            row.querySelector('td:nth-child(6)').innerHTML = '<em>Revoked</em>';
+          }
+        } catch (err) {
+          alert('Unable to revoke certificate: ' + (err.message || err));
+        }
+      });
+    });
+  }
+
+  renderIssuerCertificatesList();
+
+  // Wallet connect (Phantom)
+  const connectBtn = document.getElementById('connectWalletBtn');
+  const walletBadge = document.getElementById('connectedWalletBadge');
+  if (connectBtn) {
+    connectBtn.addEventListener('click', async () => {
+      try {
+        if (!window.solana || !window.solana.isPhantom) return alert('Phantom wallet not detected in this browser.');
+        const resp = await window.solana.connect();
+        const pub = resp?.publicKey?.toString();
+        if (pub) {
+          walletBadge.textContent = pub;
+          const wInput = document.getElementById('issuerWallet');
+          if (wInput) wInput.value = pub;
+        }
+      } catch (err) {
+        console.warn('Wallet connect failed', err?.message || err);
+      }
+    });
+  }
+
+  button.onclick = async () => {
+    errorEl.style.display = "none";
+    errorEl.textContent = "";
+    resultEl.innerHTML = "";
+
+    const payload = {
+      certificateId: document.getElementById("issuerCertId")?.value?.trim() || "",
+      holderName: document.getElementById("issuerHolderName")?.value?.trim() || "",
+      holderEmail: document.getElementById("issuerHolderEmail")?.value?.trim() || "",
+      certificateType: document.getElementById("issuerType")?.value?.trim() || "",
+      issuerName: document.getElementById("issuerName")?.value?.trim() || "",
+      issuerWallet: document.getElementById("issuerWallet")?.value?.trim() || "",
+      metadata: document.getElementById("issuerMetadata")?.value || null,
+      expiry: document.getElementById("issuerExpiry")?.value || null,
+      walletAddress: document.getElementById("issuerWallet")?.value?.trim() || "",
+      issueOnChain: document.getElementById("issuerOnChain")?.checked || false
+    };
+
+    button.disabled = true;
+    button.textContent = "Issuing...";
+
+    try {
+      // If issuer requested on-chain issuance and Phantom is connected, perform client-side pin + sign
+      if (payload.issueOnChain && window.solana && window.solana.isPhantom) {
+        // 1) Pin metadata to IPFS via backend pin endpoint
+        const metadata = {
+          certificateId: payload.certificateId,
+          holderName: payload.holderName,
+          holderEmail: payload.holderEmail,
+          certificateType: payload.certificateType,
+          issuerName: payload.issuerName,
+          extra: payload.metadata || null,
+          expiry: payload.expiry || null
+        };
+
+        const pinRes = await fetch(`${API_BASE_URL}/certificates/pin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ metadata })
+        });
+        const pinJson = await pinRes.json();
+        if (!pinRes.ok || !pinJson.cid) throw new Error(pinJson.error || 'Failed to pin metadata');
+        const ipfsCid = pinJson.cid;
+
+        // 2) Build a memo transaction with the IPFS CID and certificate id, sign locally and send
+        const connection = new solanaWeb3.Connection(solanaWeb3.clusterApiUrl('devnet'), 'confirmed');
+        const memoData = JSON.stringify({ certificateId: payload.certificateId, ipfsCid, certificateType: payload.certificateType });
+        const memoProgramId = new solanaWeb3.PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
+        const ix = new solanaWeb3.TransactionInstruction({ keys: [], programId: memoProgramId, data: Buffer.from(memoData) });
+        const tx = new solanaWeb3.Transaction().add(ix);
+        tx.feePayer = window.solana.publicKey;
+        const { blockhash } = await connection.getRecentBlockhash();
+        tx.recentBlockhash = blockhash;
+
+        const signed = await window.solana.signTransaction(tx);
+        const raw = signed.serialize();
+        const txid = await connection.sendRawTransaction(raw);
+        await connection.confirmTransaction(txid, 'confirmed');
+
+        // 3) Notify backend to record the certificate with the client-signed transaction
+        const recordPayload = {
+          certificateId: payload.certificateId,
+          holderName: payload.holderName,
+          holderEmail: payload.holderEmail,
+          certificateType: payload.certificateType,
+          issuerName: payload.issuerName,
+          issuerWallet: window.solana.publicKey?.toString() || payload.issuerWallet || null,
+          ipfsCid,
+          blockchainTransactionId: txid,
+          metadata
+        };
+
+        const recordRes = await fetch(`${API_BASE_URL}/certificates/issue-client-signed`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(recordPayload)
+        });
+        const recordJson = await recordRes.json();
+        if (!recordRes.ok) throw new Error(recordJson.error || 'Failed to record client-signed issuance');
+
+        const certificate = recordJson.certificate || {};
+        const certificateId = certificate.certificate_id || payload.certificateId;
+        localStorage.setItem("certicheck_last_certificate", JSON.stringify(certificate));
+        localStorage.setItem("certicheck_last_certificate_id", certificateId);
+
+        // Append to issuer certificate list in localStorage for dashboard rendering
+        try {
+          const storedRaw = localStorage.getItem('certicheck_issued_certificates');
+          const arr = storedRaw ? JSON.parse(storedRaw) : [];
+          const entry = {
+            certificateId,
+            holderName: certificate.holderName || payload.holderName || payload.holderEmail,
+            holderEmail: payload.holderEmail || null,
+            certificateType: payload.certificateType || certificate.certificate_type || null,
+            ipfsCid: certificate.ipfsCid || certificate.ipfs_cid || certificate.blockchain_hash || ipfsCid,
+            ipfsUri: certificate.ipfsUri || certificate.ipfs_uri || (ipfsCid ? `https://ipfs.io/ipfs/${ipfsCid}` : null),
+            blockchainTransactionId: certificate.blockchainTransactionId || certificate.blockchain_transaction_id || txid,
+            blockchainExplorerUrl: `https://explorer.solana.com/tx/${txid}?cluster=devnet`,
+            issuerEmail: user.email,
+            issuerWallet: recordPayload.issuerWallet || null,
+            metadata: payload.metadata || certificate.metadata || null,
+            expiry: payload.expiry || certificate.expiry || null,
+            issuedAt: new Date().toISOString()
+          };
+          arr.unshift(entry);
+          localStorage.setItem('certicheck_issued_certificates', JSON.stringify(arr));
+        } catch (e) { console.warn('Failed to store issued certificate locally', e); }
+
+        resultEl.innerHTML = `
+          <div class="alert alert-success">
+            <strong>Certificate issued successfully (client-signed).</strong>
+            <div class="issuer-result-card" style="margin-top:12px;padding:14px;border:1px solid rgba(5,118,210,.12);border-radius:12px;">
+              <div><strong>ID:</strong> ${certificateId}</div>
+              <div><strong>On-chain:</strong> Yes</div>
+              <div><strong>Transaction:</strong> ${txid}</div>
+              <div><strong>Explorer:</strong> <a href="https://explorer.solana.com/tx/${txid}?cluster=devnet" target="_blank">View on Solana Explorer</a></div>
+              <div><strong>IPFS CID:</strong> ${ipfsCid}</div>
+            </div>
+          </div>`;
+
+        try { renderIssuerCertificatesList(); } catch (e) {}
+        return;
+      }
+
+      // Fallback: server-side issuance flow
+      const response = await fetch(`${API_BASE_URL}/certificates/issue`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          "x-demo-user-type": user.user_type || "issuer"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Certificate issuance failed");
+      }
+
+      const certificate = data.certificate || {};
+      const certificateId = certificate.certificate_id || payload.certificateId;
+      localStorage.setItem("certicheck_last_certificate", JSON.stringify(certificate));
+      localStorage.setItem("certicheck_last_certificate_id", certificateId);
+
+      const certInput = document.getElementById("certIdInput");
+      if (certInput) {
+        certInput.value = certificateId;
+      }
+
+      const status = certificate.status || 'issued';
+      const onChain = certificate.onChain ? 'Yes' : 'No';
+      const txId = certificate.blockchainTransactionId || 'N/A';
+      const txStatus = certificate.blockchainTransactionStatus ? certificate.blockchainTransactionStatus.confirmationStatus || JSON.stringify(certificate.blockchainTransactionStatus) : 'Pending';
+      const explorerLink = certificate.blockchainExplorerUrl ? `<a href="${certificate.blockchainExplorerUrl}" target="_blank" rel="noopener noreferrer">View on Solana Explorer</a>` : '';
+
+      // Append to issuer certificate list in localStorage for dashboard rendering
+      try {
+        const storedRaw = localStorage.getItem('certicheck_issued_certificates');
+        const arr = storedRaw ? JSON.parse(storedRaw) : [];
+        const entry = {
+          certificateId,
+          holderName: certificate.holderName || payload.holderName || payload.holderEmail,
+          holderEmail: payload.holderEmail || null,
+          certificateType: payload.certificateType || certificate.certificate_type || null,
+          ipfsCid: certificate.ipfsCid || certificate.ipfs_cid || certificate.blockchain_hash || null,
+          ipfsUri: certificate.ipfsUri || certificate.ipfs_uri || (certificate.ipfsCid ? `https://ipfs.io/ipfs/${certificate.ipfsCid}` : null),
+          blockchainTransactionId: certificate.blockchainTransactionId || certificate.blockchain_transaction_id || null,
+          blockchainExplorerUrl: certificate.blockchainExplorerUrl || null,
+          issuerEmail: user.email,
+          issuerWallet: payload.issuerWallet || null,
+          metadata: payload.metadata || certificate.metadata || null,
+          expiry: payload.expiry || certificate.expiry || null,
+          issuedAt: new Date().toISOString()
+        };
+        arr.unshift(entry);
+        localStorage.setItem('certicheck_issued_certificates', JSON.stringify(arr));
+      } catch (e) { console.warn('Failed to store issued certificate locally', e); }
+
+      resultEl.innerHTML = `
+        <div class="alert alert-success">
+          <strong>Certificate issued successfully.</strong>
+          <div class="issuer-result-card" style="margin-top:12px;padding:14px;border:1px solid rgba(5,118,210,.12);border-radius:12px;">
+            <div><strong>ID:</strong> ${certificateId}</div>
+            <div><strong>Status:</strong> ${status}</div>
+            <div><strong>On-chain:</strong> ${onChain}</div>
+            <div><strong>Transaction:</strong> ${txId}</div>
+            <div><strong>Transaction status:</strong> ${certificate.blockchainTransactionId ? txStatus : 'Not submitted'}</div>
+            ${explorerLink ? `<div>${explorerLink}</div>` : ''}
+            <div><strong>IPFS CID:</strong> ${certificate.ipfsCid || 'N/A'}</div>
+          </div>
+        </div>`;
+
+      // Generate QR code for the issued certificate ID if QR lib present
+      try {
+        if (window.QRCode && certificateId) {
+          const imgData = await QRCode.toDataURL(certificateId, { margin: 2, width: 220 });
+          const qrWrap = document.createElement('div');
+          qrWrap.style.marginTop = '12px';
+          qrWrap.innerHTML = `<div style="display:flex;gap:12px;align-items:center"><div><img src="${imgData}" alt="QR code" style="width:110px;height:110px;border-radius:8px;border:1px solid rgba(0,0,0,0.04)"/></div><div style="font-size:13px;color:var(--text-secondary)">Scan to verify: <strong style="font-family:var(--font-mono)">${certificateId}</strong></div></div>`;
+          resultEl.querySelector('.issuer-result-card')?.appendChild(qrWrap);
+        }
+      } catch (e) { /* ignore QR failures */ }
+
+      // Refresh issuer list view if visible
+      try { renderIssuerCertificatesList(); } catch (e) {}
+    } catch (err) {
+      const message = err?.message || "The backend could not issue the certificate.";
+      errorEl.textContent = message;
+      errorEl.style.display = "block";
+      resultEl.innerHTML = `
+        <div class="alert alert-error">
+          <strong>Issuance failed.</strong><br/>
+          <div style="margin-top:8px;font-size:13px">${message}</div>
+        </div>`;
+    } finally {
+      button.disabled = false;
+      button.textContent = "Issue Certificate";
+    }
+  };
+}
+
+function initTheme() {
+  const toggle = document.getElementById("themeToggle");
+  const storedTheme = localStorage.getItem(THEME_KEY);
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const theme = storedTheme || (prefersDark ? "dark" : "light");
+
+  applyTheme(theme);
+
+  toggle?.addEventListener("click", () => {
+    const nextTheme = document.body.classList.contains("dark") ? "light" : "dark";
+    applyTheme(nextTheme);
+    localStorage.setItem(THEME_KEY, nextTheme);
+  });
+}
+
+function initHolderDashboard() {
+  const notice = document.getElementById('holderNotice');
+  const wrap = document.getElementById('holderCertListWrap');
+  const listEl = document.getElementById('holderCertificatesList');
+
+  if (!notice || !wrap || !listEl) return;
+  const token = getAuthToken();
+  const user = getStoredUser();
+  if (!token || !user) {
+    notice.style.display = 'block';
+    wrap.style.display = 'none';
+    return;
+  }
+
+  notice.style.display = 'none';
+  wrap.style.display = 'block';
+
+  try {
+    const raw = localStorage.getItem('certicheck_issued_certificates');
+    const arr = raw ? JSON.parse(raw) : [];
+    const ours = arr.filter(c => (c.holderEmail && user.email && c.holderEmail.toLowerCase() === user.email.toLowerCase()) || (c.holderWallet && user.wallet && c.holderWallet === user.wallet));
+    if (!ours.length) {
+      listEl.innerHTML = '<div>No certificates found for your account.</div>';
+      return;
+    }
+
+    listEl.innerHTML = ours.map(c => `
+      <div style="padding:10px;border-bottom:1px solid rgba(0,0,0,0.04)">
+        <div style="font-family:var(--font-mono)">${c.certificateId}</div>
+        <div style="color:var(--text-secondary);font-size:13px">${c.certificateType || ''} — ${c.issuedAt ? new Date(c.issuedAt).toLocaleDateString() : ''}</div>
+        <div style="margin-top:6px">${c.ipfsCid ? `<a href="${c.ipfsUri || 'https://ipfs.io/ipfs/' + c.ipfsCid}" target="_blank">View certificate (IPFS)</a>` : ''} ${c.blockchainTransactionId ? ` • <a href="${c.blockchainExplorerUrl || '#'}" target="_blank">On-chain</a>` : ''}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    listEl.innerHTML = '<div>Error loading certificates.</div>';
+  }
+}
+
+// QR scanner using Html5Qrcode
+let _html5QrcodeScanner = null;
+async function startQrScanner() {
+  // create scanner container if missing
+  let scannerRoot = document.getElementById('qrScanner');
+  if (!scannerRoot) {
+    scannerRoot = document.createElement('div');
+    scannerRoot.id = 'qrScanner';
+    scannerRoot.style.position = 'fixed';
+    scannerRoot.style.left = '50%';
+    scannerRoot.style.top = '20%';
+    scannerRoot.style.transform = 'translateX(-50%)';
+    scannerRoot.style.zIndex = '9999';
+    scannerRoot.style.background = 'white';
+    scannerRoot.style.padding = '12px';
+    scannerRoot.style.borderRadius = '8px';
+    scannerRoot.style.boxShadow = '0 8px 30px rgba(0,0,0,0.12)';
+    document.body.appendChild(scannerRoot);
+  }
+
+  scannerRoot.innerHTML = '<div id="qrScannerRegion" style="width:320px;height:260px"></div><div style="margin-top:8px;text-align:right"><button id="qrCancelBtn" class="btn-ghost">Cancel</button></div>';
+
+  const regionId = 'qrScannerRegion';
+  const html5Qr = new Html5Qrcode(regionId);
+  _html5QrcodeScanner = html5Qr;
+
+  const config = { fps: 10, qrbox: { width: 260, height: 200 } };
+
+  const onScanSuccess = (decodedText, decodedResult) => {
+    try {
+      // stop scanner
+      html5Qr.stop().then(() => {
+        document.getElementById('qrScanner')?.remove();
+        _html5QrcodeScanner = null;
+      }).catch(() => {});
+
+      // populate input and verify
+      const input = document.getElementById('certIdInput');
+      if (input) {
+        input.value = decodedText;
+        verifyCertificate();
+      }
+    } catch (e) {
+      console.warn('QR scan handler error', e);
+    }
+  };
+
+  const onScanFailure = (error) => {
+    // console.debug('QR scan failure', error);
+  };
+
+  html5Qr.start({ facingMode: 'environment' }, config, onScanSuccess, onScanFailure).catch(err => {
+    console.warn('Unable to start QR scanner:', err);
+    document.getElementById('qrScanner')?.remove();
+  });
+
+  document.getElementById('qrCancelBtn')?.addEventListener('click', () => {
+    if (_html5QrcodeScanner) {
+      _html5QrcodeScanner.stop().finally(() => {
+        document.getElementById('qrScanner')?.remove();
+        _html5QrcodeScanner = null;
+      });
+    } else {
+      document.getElementById('qrScanner')?.remove();
+    }
+  });
+}
+
+function applyTheme(theme) {
+  const body = document.body;
+  const toggle = document.getElementById("themeToggle");
+
+  if (theme === "dark") {
+    body.classList.add("dark");
+    if (toggle) toggle.title = "Switch to light mode";
+  } else {
+    body.classList.remove("dark");
+    if (toggle) toggle.title = "Switch to dark mode";
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   AUTHENTICATION — Signup with OTP & Login
+═══════════════════════════════════════════════ */
+function initSignupForm() {
+  const btn = document.getElementById("signupBtn");
+  const emailEl = document.getElementById("signupEmail");
+  const firstNameEl = document.getElementById("signupFirstName");
+  const lastNameEl = document.getElementById("signupLastName");
+  const passwordEl = document.getElementById("signupPassword");
+  const confirmPasswordEl = document.getElementById("signupConfirmPassword");
+  const errorEl = document.getElementById("signupError");
+
+  if (!btn) return;
+
+  btn.addEventListener("click", async () => {
+    errorEl.style.display = "none";
+    const email = emailEl.value.trim();
+    const firstName = firstNameEl.value.trim();
+    const lastName = lastNameEl.value.trim();
+    const password = passwordEl.value;
+    const confirmPassword = confirmPasswordEl.value;
+
+    if (!email || !firstName || !lastName || !password || !confirmPassword) {
+      errorEl.textContent = "All fields are required";
+      errorEl.style.display = "block";
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      errorEl.textContent = "Passwords do not match";
+      errorEl.style.display = "block";
+      return;
+    }
+
+    if (password.length < 6) {
+      errorEl.textContent = "Password must be at least 6 characters";
+      errorEl.style.display = "block";
+      return;
+    }
+
+    try {
+      btn.disabled = true;
+      btn.textContent = "Sending OTP...";
+
+      try {
+        await fetch(`${API_BASE_URL}/auth/send-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+      } catch {}
+
+      pendingSignupData = {
+        email,
+        firstName,
+        lastName,
+        password,
+        userType: desiredSignupType || 'holder'
+      };
+
+      errorEl.textContent = "Demo mode: OTP skipped. Use code 000000 to continue.";
+      errorEl.style.display = "block";
+      navigate('verify-otp');
+      
+    } catch (err) {
+      errorEl.textContent = "Demo signup is ready. Use code 000000 to continue.";
+      errorEl.style.display = "block";
+      btn.disabled = false;
+      btn.textContent = "Send OTP";
+    }
+  });
+}
+
+function initOTPVerificationForm() {
+  const btn = document.getElementById("verifyOtpBtn");
+  const otpInput = document.getElementById("otpCode");
+  const resendBtn = document.getElementById("resendOtpBtn");
+  const errorEl = document.getElementById("otpError");
+
+  if (!btn || btn.dataset.bound === "true" || !pendingSignupData) return;
+  btn.dataset.bound = "true";
+
+  // Auto-focus on input
+  otpInput?.focus();
+
+  // Handle Enter key
+  otpInput?.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") btn.click();
+  });
+
+  btn.addEventListener("click", async () => {
+    errorEl.style.display = "none";
+    const otp = otpInput.value.trim();
+
+    if (!otp || otp.length !== 6) {
+      errorEl.textContent = "Please enter a valid 6-digit code";
+      errorEl.style.display = "block";
+      return;
+    }
+
+    try {
+      btn.disabled = true;
+      btn.textContent = "Verifying...";
+
+      let verified = false;
+      try {
+        const verifyResponse = await fetch(`${API_BASE_URL}/auth/verify-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: pendingSignupData.email, otp })
+        });
+        verified = verifyResponse.ok;
+      } catch (err) {
+        console.warn('OTP verification request failed, falling back to demo mode:', err.message);
+      }
+
+      if (verified) {
+        try {
+          const registerResponse = await fetch(`${API_BASE_URL}/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: pendingSignupData.email,
+              password: pendingSignupData.password,
+              firstName: pendingSignupData.firstName,
+              lastName: pendingSignupData.lastName,
+              userType: pendingSignupData.userType,
+              otp
+            })
+          });
+
+          if (registerResponse.ok) {
+            const data = await registerResponse.json();
+            if (data.token && data.user) {
+              saveAuthSession(data.token, data.user);
+              pendingSignupData = null;
+              navigate(data.user.user_type === 'holder' ? 'holder' : 'issuer');
+              return;
+            }
+          }
+        } catch (registerErr) {
+          console.warn('Registration request failed, falling back to demo mode:', registerErr.message);
+        }
+      }
+
+      const role = pendingSignupData.userType || desiredSignupType || 'issuer';
+      saveDemoAuthSessionWithRole(pendingSignupData.email, pendingSignupData.firstName, pendingSignupData.lastName, role);
+      pendingSignupData = null;
+      navigate(role === 'holder' ? 'holder' : 'issuer');
+    } catch (err) {
+      errorEl.textContent = "Demo signup completed locally.";
+      errorEl.style.display = "block";
+      btn.disabled = false;
+      btn.textContent = "Verify & Create Account";
+    }
+  });
+
+  // Resend OTP
+  resendBtn?.addEventListener("click", async () => {
+    if (!pendingSignupData) return;
+
+    try {
+      resendBtn.disabled = true;
+      resendBtn.textContent = "Resending...";
+
+      try {
+        await fetch(`${API_BASE_URL}/auth/send-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: pendingSignupData.email })
+        });
+      } catch {}
+
+      otpInput.value = "";
+      otpInput.focus();
+      errorEl.style.display = "none";
+      resendBtn.textContent = "OTP skipped in demo mode";
+      setTimeout(() => {
+        resendBtn.disabled = false;
+        resendBtn.textContent = "Resend";
+      }, 3000);
+    } catch (err) {
+      errorEl.textContent = "Demo mode: OTP resend is ready.";
+      errorEl.style.display = "block";
+      resendBtn.disabled = false;
+      resendBtn.textContent = "Resend";
+    }
+  });
+}
+
+function initLoginForm() {
+  const btn = document.getElementById("loginBtn");
+  const emailEl = document.getElementById("loginEmail");
+  const passwordEl = document.getElementById("loginPassword");
+  const rememberEl = document.getElementById("loginRemember");
+  const statusEl = document.getElementById("loginStatus");
+  const errorEl = document.getElementById("loginError");
+
+  if (!btn) return;
+
+  const savedEmail = getRememberedLoginEmail();
+  if (emailEl && savedEmail) {
+    emailEl.value = savedEmail;
+  }
+  if (rememberEl) {
+    rememberEl.checked = Boolean(savedEmail);
+  }
+  if (statusEl) {
+    if (savedEmail) {
+      statusEl.textContent = `Auto-suggested email: ${savedEmail}`;
+      statusEl.style.display = "block";
+    } else {
+      statusEl.textContent = "No remembered email yet. Check 'Remember my email' to save it.";
+      statusEl.style.display = "block";
+    }
+  }
+
+  btn.addEventListener("click", async () => {
+    errorEl.style.display = "none";
+    const email = emailEl.value.trim();
+    const password = passwordEl.value;
+    const remember = rememberEl?.checked;
+
+    if (!email || !password) {
+      errorEl.textContent = "Email and password are required";
+      errorEl.style.display = "block";
+      return;
+    }
+
+    try {
+      btn.disabled = true;
+      btn.textContent = "Signing in...";
+
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.token) {
+          if (remember) {
+            setRememberedLoginEmail(email);
+          } else {
+            setRememberedLoginEmail("");
+          }
+          saveAuthSession(data.token, data.user);
+          return navigate(data.user.user_type === 'holder' ? 'holder' : 'issuer');
+        }
+      }
+
+      if (remember) {
+        setRememberedLoginEmail(email);
+      } else {
+        setRememberedLoginEmail("");
+      }
+
+      // Demo login: preserve desired role if set
+      const role = desiredSignupType || 'issuer';
+      saveDemoAuthSessionWithRole(email, 'Demo', 'User', role);
+      navigate(role === 'holder' ? 'holder' : 'issuer');
+    } catch (err) {
+      console.warn('Login request failed, falling back to demo mode:', err.message);
+      const role = desiredSignupType || 'issuer';
+      saveDemoAuthSessionWithRole(email, 'Demo', 'User', role);
+      navigate(role === 'holder' ? 'holder' : 'issuer');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Sign In";
+    }
+  });
+}
+
+function initForgotPasswordForm() {
+  const btn = document.getElementById("forgotBtn");
+  const emailEl = document.getElementById("forgotEmail");
+  const errorEl = document.getElementById("forgotError");
+
+  if (!btn) return;
+
+  btn.addEventListener("click", async () => {
+    errorEl.style.display = "none";
+    const email = emailEl.value.trim();
+
+    if (!email) {
+      errorEl.textContent = "Please enter your email";
+      errorEl.style.display = "block";
+      return;
+    }
+
+    try {
+      btn.disabled = true;
+      btn.textContent = "Sending code...";
+
+      try {
+        await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+      } catch {}
+
+      pendingForgotEmail = email;
+      errorEl.textContent = "Demo mode: reset code skipped. Use any 6-digit code to continue.";
+      errorEl.style.display = "block";
+      navigate('verify-reset-otp');
+      
+    } catch (err) {
+      errorEl.textContent = "Demo reset flow is ready.";
+      errorEl.style.display = "block";
+      btn.disabled = false;
+      btn.textContent = "Send Reset Code";
+    }
+  });
+}
+
+function initVerifyResetOTPForm() {
+  const btn = document.getElementById("resetPasswordBtn");
+  const otpInput = document.getElementById("resetOtpCode");
+  const newPasswordEl = document.getElementById("newPassword");
+  const confirmPasswordEl = document.getElementById("confirmNewPassword");
+  const errorEl = document.getElementById("resetError");
+
+  if (!btn || btn.dataset.bound === "true" || !pendingForgotEmail) return;
+  btn.dataset.bound = "true";
+
+  btn.addEventListener("click", async () => {
+    errorEl.style.display = "none";
+    const otp = otpInput.value.trim();
+    const newPassword = newPasswordEl.value;
+    const confirmPassword = confirmPasswordEl.value;
+
+    if (!otp || otp.length !== 6) {
+      errorEl.textContent = "Please enter a valid 6-digit code";
+      errorEl.style.display = "block";
+      return;
+    }
+
+    if (!newPassword || !confirmPassword) {
+      errorEl.textContent = "Please enter and confirm your password";
+      errorEl.style.display = "block";
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      errorEl.textContent = "Passwords do not match";
+      errorEl.style.display = "block";
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      errorEl.textContent = "Password must be at least 6 characters";
+      errorEl.style.display = "block";
+      return;
+    }
+
+    try {
+      btn.disabled = true;
+      btn.textContent = "Resetting...";
+
+      try {
+        await fetch(`${API_BASE_URL}/auth/reset-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: pendingForgotEmail,
+            newPassword,
+            otp
+          })
+        });
+      } catch {}
+
+      pendingForgotEmail = null;
+      navigate('login');
+      
+    } catch (err) {
+      errorEl.textContent = "Demo password reset completed locally.";
+      errorEl.style.display = "block";
+      btn.disabled = false;
+      btn.textContent = "Reset Password";
+    }
+  });
+}
+
+/* ═══════════════════════════════════════════════
+   FAQs — accordion + category filter
+═══════════════════════════════════════════════ */
+let faqActiveCat = "All";
+let faqRendered  = false;
+
+function renderFAQs() {
+  if (faqRendered) return;
+  faqRendered = true;
+
+  // Category pills
+  const catsEl = document.getElementById("faqCats");
+  const categories = ["All", ...FAQ_DATA.map(g => g.category)];
+  catsEl.innerHTML = categories.map(c => `
+    <button class="faq-cat-btn ${c === "All" ? "active" : ""}" data-cat="${c}">${c}</button>
+  `).join("");
+
+  catsEl.addEventListener("click", e => {
+    const btn = e.target.closest(".faq-cat-btn");
+    if (!btn) return;
+    faqActiveCat = btn.dataset.cat;
+    catsEl.querySelectorAll(".faq-cat-btn").forEach(b => b.classList.toggle("active", b === btn));
+    buildAccordion();
+  });
+
+  buildAccordion();
+}
+
+function buildAccordion() {
+  const root    = document.getElementById("faqAccordion");
+  const groups  = faqActiveCat === "All" ? FAQ_DATA : FAQ_DATA.filter(g => g.category === faqActiveCat);
+
+  root.innerHTML = groups.map(group => `
+    <div class="faq-group">
+      <div class="faq-group-title">${group.category}</div>
+      <div class="faq-group-inner">
+        ${group.items.map((item, i) => `
+          <div class="faq-item">
+            <button class="faq-q" data-idx="${i}">
+              <span>${item.q}</span>
+              <span class="faq-icon">+</span>
+            </button>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `).join("");
+
+  // Store answers for lookup
+  root._groups = groups;
+
+  // Accordion toggle
+  root.addEventListener("click", e => {
+    const btn = e.target.closest(".faq-q");
+    if (!btn) return;
+
+    const item   = btn.closest(".faq-item");
+    const isOpen = btn.classList.contains("open");
+
+    // Close all
+    root.querySelectorAll(".faq-q.open").forEach(q => {
+      q.classList.remove("open");
+      q.nextElementSibling?.remove();
+    });
+
+    if (!isOpen) {
+      // Find answer
+      const groupEl  = btn.closest(".faq-group");
+      const groupIdx = [...root.querySelectorAll(".faq-group")].indexOf(groupEl);
+      const idx      = parseInt(btn.dataset.idx);
+      const answer   = root._groups[groupIdx]?.items[idx]?.a || "";
+
+      btn.classList.add("open");
+      const ansEl = document.createElement("div");
+      ansEl.className = "faq-a";
+      ansEl.textContent = answer;
+      item.appendChild(ansEl);
+    }
+  });
+}
+
+/* ═══════════════════════════════════════════════
+   APPLY — multi-step form
+═══════════════════════════════════════════════ */
+let applyStep = 1;
+
+(function initApplyForm() {
+  const nextBtn = document.getElementById("formNext");
+  const backBtn = document.getElementById("formBack");
+  const volumeSelect = document.getElementById("volume");
+  const volumeCustomField = document.getElementById("volumeCustomField");
+  const volumeCustomInput = document.getElementById("volumeCustom");
+
+  if (!nextBtn) return;
+
+  const toggleCustomVolume = () => {
+    const isCustom = volumeSelect?.value === "custom";
+    if (volumeCustomField) volumeCustomField.style.display = isCustom ? "block" : "none";
+    if (volumeCustomInput) {
+      volumeCustomInput.required = isCustom;
+      if (!isCustom) volumeCustomInput.value = "";
+    }
+  };
+
+  volumeSelect?.addEventListener("change", toggleCustomVolume);
+  toggleCustomVolume();
+
+  nextBtn.addEventListener("click", () => {
+    if (applyStep < 3) {
+      setApplyStep(applyStep + 1);
+    } else {
+      submitApplyForm();
+    }
+  });
+
+  backBtn?.addEventListener("click", () => {
+    if (applyStep > 1) setApplyStep(applyStep - 1);
+  });
+})();
+
+function setApplyStep(step) {
+  // Hide old step
+  document.getElementById(`form-step-${applyStep}`)?.classList.remove("active");
+  // Show new step
+  document.getElementById(`form-step-${step}`)?.classList.add("active");
+
+  // Update step indicator
+  document.querySelectorAll(".step").forEach(el => {
+    const s = parseInt(el.dataset.step);
+    el.classList.toggle("active", s === step);
+    el.classList.toggle("done",   s <  step);
+  });
+
+  // Button labels
+  const nextBtn = document.getElementById("formNext");
+  const backBtn = document.getElementById("formBack");
+  if (nextBtn) nextBtn.textContent = step === 3 ? "Submit Application" : "Continue →";
+  if (backBtn) backBtn.style.display = step > 1 ? "inline-flex" : "none";
+
+  applyStep = step;
+}
+
+function submitApplyForm() {
+  const name  = document.getElementById("contactName")?.value || "";
+  const email = document.getElementById("contactEmail")?.value || "";
+  const volumeSelect = document.getElementById("volume");
+  const volumeCustomInput = document.getElementById("volumeCustom");
+  let volumeText = volumeSelect?.value || "";
+
+  if (volumeText === "custom" && volumeCustomInput?.value) {
+    volumeText = `${volumeCustomInput.value.trim()} certificate${volumeCustomInput.value.trim() === "1" ? "" : "s"}`;
+  } else {
+    volumeText = volumeSelect?.selectedOptions[0]?.text || volumeText;
+  }
+
+  const authToken = localStorage.getItem('certicheck_auth_token');
+  
+  // Prepare application data
+  const applicationData = {
+    orgName: document.getElementById("orgName")?.value.trim() || "",
+    orgType: document.getElementById("orgType")?.value || "",
+    website: document.getElementById("orgWebsite")?.value.trim() || "",
+    contactName: name,
+    contactEmail: email,
+    contactRole: document.getElementById("contactRole")?.value.trim() || "",
+    useCase: document.getElementById("useCase")?.value.trim() || "",
+    volume: volumeText,
+    wallet: document.getElementById("wallet")?.value.trim() || ""
+  };
+
+  // Submit to backend if authenticated, otherwise save locally
+  if (authToken) {
+    fetch(`${API_BASE_URL}/applications/submit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+      },
+      body: JSON.stringify(applicationData)
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success || data.id) {
+        showSuccessMessage(name, email, volumeText);
+      } else {
+        console.error('Application submission failed:', data);
+        saveApplicationLocally(applicationData);
+        showSuccessMessage(name, email, volumeText);
+      }
+    })
+    .catch(err => {
+      console.error('Error submitting application:', err);
+      saveApplicationLocally(applicationData);
+      showSuccessMessage(name, email, volumeText);
+    });
+  } else {
+    // Not authenticated, save locally
+    saveApplicationLocally(applicationData);
+    showSuccessMessage(name, email, volumeText);
+  }
+}
+
+function saveApplicationLocally(applicationData) {
+  const application = {
+    id: `app-${Date.now()}`,
+    ...applicationData,
+    submittedAt: new Date().toISOString(),
+    status: "pending"
+  };
+
+  const apps = loadPendingApplications();
+  apps.push(application);
+  savePendingApplications(apps);
+}
+
+function showSuccessMessage(name, email, volumeText) {
+  document.getElementById(`form-step-${applyStep}`)?.classList.remove("active");
+  document.getElementById("form-step-success")?.classList.add("active");
+  document.getElementById("formActions").style.display = "none";
+
+  const msg = document.getElementById("successMsg");
+  if (msg) {
+    msg.innerHTML = name
+      ? `Thank you, <strong>${name}</strong>. We'll contact <strong>${email || "you"}</strong> within 1–3 business days.`
+      : "Our team will review your application and be in touch within 1–3 business days.";
+
+    if (volumeText) {
+      msg.innerHTML += `<br/><small style="color:var(--text-secondary);margin-top:12px;display:block">Selected volume: ${volumeText}</small>`;
+    }
+  }
+
+  // Mark all steps done
+  document.querySelectorAll(".step").forEach(el => el.classList.add("done"));
+}
+
+function loadPendingApplications() {
+  try {
+    const raw = localStorage.getItem(PENDING_APPS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function savePendingApplications(apps) {
+  localStorage.setItem(PENDING_APPS_KEY, JSON.stringify(apps));
+}
+
+function loadVerifyHistory() {
+  try {
+    const raw = localStorage.getItem("certicheck_verify_history");
+    return raw ? JSON.parse(raw) : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function saveVerifyHistory(history) {
+  localStorage.setItem("certicheck_verify_history", JSON.stringify(history));
+}
+
+/* ═══════════════════════════════════════════════
+   RESOURCES — render cards
+═══════════════════════════════════════════════ */
+function renderResources() {
+  const grid = document.getElementById("resourcesGrid");
+  if (!grid || grid.dataset.rendered) return;
+  grid.dataset.rendered = "1";
+
+  grid.innerHTML = RESOURCES_DATA.map((r, i) => `
+    <div class="resource-card" style="animation-delay:${i * 0.06}s">
+      <div class="resource-card-top">
+        <div class="resource-icon-wrap">${r.icon}</div>
+        <span class="resource-tag">${r.tag}</span>
+      </div>
+      <div class="resource-title">${r.title}</div>
+      <div class="resource-desc">${r.desc}</div>
+    </div>
+  `).join("");
+}
+
+/* ═══════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════ */
+document.addEventListener("DOMContentLoaded", () => {
+  // Make sure home page is shown
+  document.getElementById("page-home").classList.add("active");
+  document.querySelector('[data-page="home"]')?.classList.add("active");
+  // Initialize auth UI from stored session
+  currentUser = getStoredUser();
+  updateAuthUi();
+  // Initialize theme and other UI bits
+  try { initTheme(); } catch (e) {}
+});
+
+const toggleBtn = document.getElementById('themeToggle');
+const rootElement = document.documentElement; // This refers to the <html> tag
+
+// 1. Check for saved theme preference, otherwise check system preference
+const savedTheme = localStorage.getItem('theme');
+const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+if (savedTheme === 'dark' || (!savedTheme && systemPrefersDark)) {
+  rootElement.classList.add('dark-mode');
+} else {
+  rootElement.classList.remove('dark-mode');
+}
+
+// 2. Add event listener to the toggle button
+toggleBtn.addEventListener('click', () => {
+  // Check if dark mode is currently active
+  const isDark = rootElement.classList.toggle('dark-mode');
+  
+  // 3. Save the user preference to localStorage
+  if (isDark) {
+    localStorage.setItem('theme', 'dark');
+  } else {
+    localStorage.setItem('theme', 'light');
+  }
+});
+

@@ -1,0 +1,14 @@
+[package]
+name = "certi-check-program"
+version = "0.1.0"
+description = "Anchor-based Solana certificate issuance and revocation program"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+
+[dependencies]
+anchor-lang = "0.29.0"
