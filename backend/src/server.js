@@ -16,8 +16,19 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ── MIDDLEWARE ─────────────────────────────────────────────────────────────
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5000',
+  'http://localhost:5173',
+  'file://'
+];
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:5000', 'file://'],
+  origin: function(origin, cb) {
+    // allow requests with no origin (e.g. curl, server-to-server)
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1) return cb(null, true);
+    return cb(new Error('Not allowed by CORS'));
+  },
   credentials: true
 }));
 app.use(bodyParser.json({ limit: '10mb' }));

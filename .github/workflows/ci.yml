@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: certi
+          POSTGRES_PASSWORD: certipass
+          POSTGRES_DB: certicheck
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U certi -d certicheck"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install backend deps
+        working-directory: backend
+        run: npm ci
+
+      - name: Wait for Postgres
+        run: |
+          timeout 30 bash -c 'until pg_isready -h localhost -p 5432 -U certi; do sleep 1; done'
+
+      - name: Initialize database
+        working-directory: backend
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: certi
+          DB_PASSWORD: certipass
+          DB_NAME: certicheck
+        run: node src/db/init.js
+
+      - name: Run backend tests
+        working-directory: backend
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: certi
+          DB_PASSWORD: certipass
+          DB_NAME: certicheck
+          DEMO_MODE: 'true'
+        run: npm test

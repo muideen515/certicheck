@@ -83,5 +83,39 @@
     "revoked_at": null,
     "revoked_by": null,
     "created_by": 1
+  },
+  {
+    "id": 6,
+    "certificate_id": "E2E-TEST-001",
+    "certificate_type": "E2E Test",
+    "verification_status": "revoked",
+    "verification_message": "E2E test revoke",
+    "blockchain_hash": "7bc4ae00d8ecf6427618e52a84529eb04f64b779748ac2fae9f76d331c0c6988",
+    "blockchain_transaction_id": null,
+    "holder_name": "E2E Holder",
+    "holder_email": "e2e@example.com",
+    "issuer_name": "E2E Issuer",
+    "issuer_wallet": "demo",
+    "checked_at": "2026-08-30T18:49:55.165Z",
+    "revoked_at": "2026-08-30T18:49:55.196Z",
+    "revoked_by": 1,
+    "created_by": 1
+  },
+  {
+    "id": 7,
+    "certificate_id": "UI-INT-1-1788742835",
+    "certificate_type": "UI Test",
+    "verification_status": "valid",
+    "verification_message": "Issued via Certicheck",
+    "blockchain_hash": "7fb85dd8b2223f48d52391b8f621a80e56b89a5275887b72bf0f8f370b2761d1",
+    "blockchain_transaction_id": null,
+    "holder_name": "UI Holder",
+    "holder_email": "ui@example.com",
+    "issuer_name": "UI Issuer",
+    "issuer_wallet": "demo",
+    "checked_at": "2026-09-07T01:00:35.433Z",
+    "revoked_at": null,
+    "revoked_by": null,
+    "created_by": 1
   }
 ]

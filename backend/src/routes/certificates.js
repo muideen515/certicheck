@@ -470,9 +470,14 @@ router.put('/revoke/:certificateId', verifyToken, verifyAdmin, async (req, res) 
     const auditId = certificateRow?.id || verifyHistoryRow?.id || localCertificate?.id || certificateId;
     await logAudit(req.user.id, 'CERTIFICATE_REVOKE', 'certificate', auditId, 'success', null, { certificateId, reason, blockchainTransactionId });
 
+    let responseCertificate = certificateRow || verifyHistoryRow || localCertificate;
+    if (responseCertificate && !responseCertificate.verification_status) {
+      responseCertificate = Object.assign({}, responseCertificate, { verification_status: responseCertificate.status || responseCertificate.verification_status });
+    }
+
     res.json({
       success: true,
-      certificate: certificateRow || verifyHistoryRow || localCertificate
+      certificate: responseCertificate
     });
   } catch (err) {
     console.error('Revoke certificate error:', err);

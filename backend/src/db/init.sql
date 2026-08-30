@@ -123,7 +123,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
   action VARCHAR(100) NOT NULL,
   action_type VARCHAR(50) CHECK (action_type IN ('LOGIN', 'LOGOUT', 'LOGIN_FAILED', 'REGISTER', 'APPLICATION_SUBMIT', 'APPLICATION_APPROVE', 'APPLICATION_REJECT', 'CERTIFICATE_VERIFY', 'CERTIFICATE_REVOKE', 'ADMIN_ACCESS', 'PASSWORD_CHANGE', 'PROFILE_UPDATE')),
   resource_type VARCHAR(50),
-  resource_id INTEGER,
+  resource_id VARCHAR(255),
   status VARCHAR(20) DEFAULT 'success' CHECK (status IN ('success', 'failed')),
   error_message TEXT,
   ip_address VARCHAR(45),
@@ -183,3 +183,15 @@ CREATE INDEX IF NOT EXISTS idx_verify_history_user ON verify_history(user_id);
 CREATE INDEX IF NOT EXISTS idx_revoked_certs_issuer ON revoked_certificates(issuer_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions(is_active, expires_at);
+
+-- ── DEMO SEED ───────────────────────────────────────────────────────────────
+-- Insert a demo admin user so demo-mode requests (id=1) satisfy foreign keys
+INSERT INTO users (id, email, password_hash, first_name, last_name, user_type, is_active, created_at, updated_at)
+VALUES (1, 'demo@certicheck.io', 'demo', 'Demo', 'User', 'admin', TRUE, NOW(), NOW())
+ON CONFLICT (id) DO NOTHING;
+
+-- Ensure users id sequence is advanced
+SELECT setval(pg_get_serial_sequence('users','id'), COALESCE(MAX(id), 1)) FROM users;
+
+-- Convert audit_log.resource_id to text to accept certificate IDs
+ALTER TABLE IF EXISTS audit_log ALTER COLUMN resource_id TYPE VARCHAR(255) USING resource_id::text;

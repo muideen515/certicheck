@@ -302,9 +302,7 @@ async function revokeCertificateOnChain({ certificateId, reason, issuerWallet })
 
   if (programIdString) {
     try {
-      const idlPath = path.resolve(process.cwd(), 'solana-program', 'idl', 'certificate_system.json');
-      if (!fs.existsSync(idlPath)) throw new Error('Program IDL not found');
-      const idl = JSON.parse(fs.readFileSync(idlPath, 'utf8'));
+      const idl = JSON.parse(fs.readFileSync(getAnchorIdlPath(), 'utf8'));
 
       const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(payer), { commitment: 'confirmed' });
       const program = new anchor.Program(idl, new PublicKey(programIdString), provider);
