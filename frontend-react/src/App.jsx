@@ -5,6 +5,8 @@ import {
   useWallet
 } from '@solana/wallet-adapter-react'
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom'
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
+import '@solana/wallet-adapter-react-ui/styles.css'
 import * as web3 from '@solana/web3.js'
 
 function IssueForm() {
@@ -13,7 +15,7 @@ function IssueForm() {
   const [issueOnChain, setIssueOnChain] = useState(true)
 
   const onIssue = useCallback(async () => {
-    if (!wallet.connected) return alert('Connect wallet first')
+    if (!wallet.connected || !wallet.publicKey) return alert('Connect a Phantom wallet first')
 
     setStatus('Preparing issuance...')
 
@@ -103,9 +105,16 @@ function IssueForm() {
   return (
     <div style={{ padding: 20 }}>
       <h2>Issuer Demo</h2>
+      <div style={{ marginBottom: 12 }}>
+        <WalletMultiButton />
+      </div>
+      <div style={{ marginBottom: 12, fontSize: 13 }}>
+        <strong>Wallet:</strong>{' '}
+        {wallet.connected && wallet.publicKey ? wallet.publicKey.toString() : 'Not connected'}
+      </div>
       <label style={{display:'block',marginBottom:8}}><input type="checkbox" checked={issueOnChain} onChange={e => setIssueOnChain(e.target.checked)} style={{marginRight:8}}/> Issue on-chain (devnet)</label>
       <div>
-        <button onClick={onIssue}>Issue Certificate</button>
+        <button disabled={!wallet.connected} onClick={onIssue}>Issue Certificate</button>
       </div>
       <pre style={{ whiteSpace: 'pre-wrap' }}>{status}</pre>
     </div>

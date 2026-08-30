@@ -2,11 +2,11 @@
 default = []
 seeds = false
 
-[programs.localnet]
-certi_check = "11111111111111111111111111111111"
+[programs.devnet]
+certi_check = "BRVpnQ21mUX5Upy5krTN28cjMJdt8rQ4yAFssWMMZSQJ"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
