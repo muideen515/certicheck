@@ -61,3 +61,60 @@ jobs:
           DB_NAME: certicheck
           DEMO_MODE: 'true'
         run: npm test
+
+  e2e-check:
+    runs-on: ubuntu-latest
+    needs: backend-tests
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: certi
+          POSTGRES_PASSWORD: certipass
+          POSTGRES_DB: certicheck
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U certi -d certicheck"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install backend deps
+        working-directory: backend
+        run: npm ci
+
+      - name: Initialize DB
+        working-directory: backend
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: certi
+          DB_PASSWORD: certipass
+          DB_NAME: certicheck
+        run: node src/db/init.js
+
+      - name: Run E2E smoke script
+        working-directory: backend
+        env:
+          BACKEND_URL: http://localhost:3000
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: certi
+          DB_PASSWORD: certipass
+          DB_NAME: certicheck
+          DEMO_MODE: 'true'
+        run: |
+          npm ci
+          node src/server.js &
+          sleep 3
+          node script/e2e-check.js

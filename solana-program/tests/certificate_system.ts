@@ -1,3 +1,145 @@
+import * as anchor from "@project-serum/anchor";
+import { Program } from "@project-serum/anchor";
+import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
+import assert from "assert";
+import fs from "fs";
+
+describe("certificate_system tests", () => {
+  // Configure the client to use the local cluster.
+  const provider = anchor.AnchorProvider.env();
+  anchor.setProvider(provider);
+
+  // Load IDL and program id from the crate
+  const idl = JSON.parse(fs.readFileSync("./idl/certificate_system.json", "utf8"));
+  const programId = new PublicKey("BRVpnQ21mUX5Upy5krTN28cjMJdt8rQ4yAFssWMMZSQJ");
+  const program = new Program(idl, programId, provider) as Program;
+
+  const issuerName = "Test Issuer";
+  const issuerUri = "https://example.com/issuer.json";
+  const certId = "TEST-CERT-1";
+  const holderName = "Alice Holder";
+
+  it("Initializes issuer and issues certificate by authorized issuer", async () => {
+    // Derive issuer PDA
+    const [issuerPda] = await PublicKey.findProgramAddress(
+      [Buffer.from("issuer"), provider.wallet.publicKey.toBuffer()],
+      program.programId
+    );
+
+    // Initialize issuer
+    await program.methods
+      .initializeIssuer(issuerName, issuerUri)
+      .accounts({
+        issuer: issuerPda,
+        authority: provider.wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    // Derive certificate PDA
+    const [certificatePda] = await PublicKey.findProgramAddress(
+      [Buffer.from("certificate"), issuerPda.toBuffer(), Buffer.from(certId)],
+      program.programId
+    );
+
+    // Use a generated holder pubkey
+    const holder = Keypair.generate();
+
+    // Issue certificate
+    await program.methods
+      .issueCertificate(certId, holderName, "TestType", "https://meta.example/c.json", "hash123")
+      .accounts({
+        issuer: issuerPda,
+        holder: holder.publicKey,
+        certificate: certificatePda,
+        authority: provider.wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    // Fetch certificate account and assert fields
+    const certAccount: any = await program.account.certificateAccount.fetch(certificatePda);
+    assert.strictEqual(certAccount.certId, certId);
+    assert.strictEqual(certAccount.holderName, holderName);
+    assert.strictEqual(certAccount.isRevoked, false);
+  });
+
+  it("Rejects issuance by unauthorized wallet", async () => {
+    // Derive issuer PDA again
+    const [issuerPda] = await PublicKey.findProgramAddress(
+      [Buffer.from("issuer"), provider.wallet.publicKey.toBuffer()],
+      program.programId
+    );
+
+    const badSigner = Keypair.generate();
+    // Airdrop some SOL for rent/fees
+    await provider.connection.confirmTransaction(
+      await provider.connection.requestAirdrop(badSigner.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL)
+    );
+
+    const badCertId = "BAD-CERT-1";
+    const [badCertPda] = await PublicKey.findProgramAddress(
+      [Buffer.from("certificate"), issuerPda.toBuffer(), Buffer.from(badCertId)],
+      program.programId
+    );
+
+    let threw = false;
+    try {
+      await program.methods
+        .issueCertificate(badCertId, "Eve", "TestType", "uri", "h")
+        .accounts({
+          issuer: issuerPda,
+          holder: badSigner.publicKey,
+          certificate: badCertPda,
+          authority: badSigner.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([badSigner])
+        .rpc();
+    } catch (err) {
+      threw = true;
+    }
+    assert.strictEqual(threw, true, "Unauthorized issuance should have thrown an error");
+  });
+
+  it("Revokes certificate and updates status", async () => {
+    // Derive issuer and certificate PDAs
+    const [issuerPda] = await PublicKey.findProgramAddress(
+      [Buffer.from("issuer"), provider.wallet.publicKey.toBuffer()],
+      program.programId
+    );
+    const [certificatePda] = await PublicKey.findProgramAddress(
+      [Buffer.from("certificate"), issuerPda.toBuffer(), Buffer.from(certId)],
+      program.programId
+    );
+
+    // Revoke
+    await program.methods
+      .revokeCertificate("Test revoke reason")
+      .accounts({
+        certificate: certificatePda,
+        issuer: issuerPda,
+        authority: provider.wallet.publicKey,
+      })
+      .rpc();
+
+    const certAccount: any = await program.account.certificateAccount.fetch(certificatePda);
+    assert.strictEqual(certAccount.isRevoked, true);
+    assert.strictEqual(certAccount.revokeReason, "Test revoke reason");
+  });
+
+  it("Derives PDAs correctly and can fetch issuer account for verification", async () => {
+    const [issuerPda, issuerBump] = await PublicKey.findProgramAddress(
+      [Buffer.from("issuer"), provider.wallet.publicKey.toBuffer()],
+      program.programId
+    );
+
+    const issuerAcc: any = await program.account.issuerProfile.fetch(issuerPda);
+    assert.strictEqual(issuerAcc.name, issuerName);
+    assert.strictEqual(issuerAcc.isActive, true);
+    assert.strictEqual(issuerAcc.authority.toBase58(), provider.wallet.publicKey.toBase58());
+  });
+});
 import * as anchor from '@coral-xyz/anchor';
 import { Program, web3 } from '@coral-xyz/anchor';
 import { assert } from 'chai';

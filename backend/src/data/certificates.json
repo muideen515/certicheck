@@ -117,5 +117,22 @@
     "revoked_at": null,
     "revoked_by": null,
     "created_by": 1
+  },
+  {
+    "id": 8,
+    "certificate_id": "CERT-LIVE-002",
+    "certificate_type": "Live Test",
+    "verification_status": "valid",
+    "verification_message": "Issued via Certicheck",
+    "blockchain_hash": "e951d64f67b85799e291abaa7444e4ff0211b969d9e8807accf02e3428f67e71",
+    "blockchain_transaction_id": null,
+    "holder_name": "Alice Example",
+    "holder_email": "alice@example.com",
+    "issuer_name": "Certicheck Test Issuer",
+    "issuer_wallet": "demo-wallet",
+    "checked_at": "2026-09-12T13:15:39.372Z",
+    "revoked_at": null,
+    "revoked_by": null,
+    "created_by": 1
   }
 ]

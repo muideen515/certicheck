@@ -1,0 +1,213 @@
+    Checking certi-check-program v0.1.0 (/workspaces/certicheck/solana-program)
+warning: unexpected `cfg` condition value: `no-entrypoint`
+ --> src/lib.rs:5:1
+  |
+5 | #[program]
+  | ^^^^^^^^^^
+  |
+  = note: expected values for `feature` are: `default`
+  = note: using a cfg inside a attribute macro will use the cfgs from the destination crate and not the ones from the defining crate
+  = help: try referring to `program` crate for guidance on how handle this unexpected cfg
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: `#[warn(unexpected_cfgs)]` on by default
+  = note: this warning originates in the attribute macro `program` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `cpi`
+ --> src/lib.rs:5:1
+  |
+5 | #[program]
+  | ^^^^^^^^^^
+  |
+  = note: expected values for `feature` are: `default`
+  = note: using a cfg inside a attribute macro will use the cfgs from the destination crate and not the ones from the defining crate
+  = help: try referring to `program` crate for guidance on how handle this unexpected cfg
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: this warning originates in the attribute macro `program` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `custom-heap`
+ --> src/lib.rs:5:1
+  |
+5 | #[program]
+  | ^^^^^^^^^^
+  |
+  = note: expected values for `feature` are: `default`
+  = note: using a cfg inside a macro will use the cfgs from the destination crate and not the ones from the defining crate
+  = help: try referring to `$crate::custom_heap_default` crate for guidance on how handle this unexpected cfg
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: this warning originates in the macro `$crate::custom_heap_default` which comes from the expansion of the attribute macro `program` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `solana`
+ --> src/lib.rs:5:1
+  |
+5 | #[program]
+  | ^^^^^^^^^^
+  |
+  = note: expected values for `target_os` are: `aix`, `amdhsa`, `android`, `cuda`, `cygwin`, `dragonfly`, `emscripten`, `espidf`, `freebsd`, `fuchsia`, `haiku`, `helenos`, `hermit`, `horizon`, `hurd`, `illumos`, `ios`, `l4re`, `linux`, `lynxos178`, `macos`, `managarm`, `motor`, `netbsd`, `none`, `nto`, `nuttx`, `openbsd`, `psp`, `psx`, `qurt`, `redox`, `rtems`, `solaris`, and `solid_asp3` and 14 more
+  = note: using a cfg inside a macro will use the cfgs from the destination crate and not the ones from the defining crate
+  = help: try referring to `$crate::custom_heap_default` crate for guidance on how handle this unexpected cfg
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: this warning originates in the macro `$crate::custom_heap_default` which comes from the expansion of the attribute macro `program` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `custom-panic`
+ --> src/lib.rs:5:1
+  |
+5 | #[program]
+  | ^^^^^^^^^^
+  |
+  = note: expected values for `feature` are: `default`
+  = note: using a cfg inside a macro will use the cfgs from the destination crate and not the ones from the defining crate
+  = help: try referring to `$crate::custom_panic_default` crate for guidance on how handle this unexpected cfg
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: this warning originates in the macro `$crate::custom_panic_default` which comes from the expansion of the attribute macro `program` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `solana`
+ --> src/lib.rs:5:1
+  |
+5 | #[program]
+  | ^^^^^^^^^^
+  |
+  = note: expected values for `target_os` are: `aix`, `amdhsa`, `android`, `cuda`, `cygwin`, `dragonfly`, `emscripten`, `espidf`, `freebsd`, `fuchsia`, `haiku`, `helenos`, `hermit`, `horizon`, `hurd`, `illumos`, `ios`, `l4re`, `linux`, `lynxos178`, `macos`, `managarm`, `motor`, `netbsd`, `none`, `nto`, `nuttx`, `openbsd`, `psp`, `psx`, `qurt`, `redox`, `rtems`, `solaris`, and `solid_asp3` and 14 more
+  = note: using a cfg inside a macro will use the cfgs from the destination crate and not the ones from the defining crate
+  = help: try referring to `$crate::custom_panic_default` crate for guidance on how handle this unexpected cfg
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: this warning originates in the macro `$crate::custom_panic_default` which comes from the expansion of the attribute macro `program` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `anchor-debug`
+ --> src/lib.rs:5:1
+  |
+5 | #[program]
+  | ^^^^^^^^^^
+  |
+  = note: expected values for `feature` are: `default`
+  = note: using a cfg inside a attribute macro will use the cfgs from the destination crate and not the ones from the defining crate
+  = help: try referring to `program` crate for guidance on how handle this unexpected cfg
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: this warning originates in the attribute macro `program` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `no-idl`
+ --> src/lib.rs:5:1
+  |
+5 | #[program]
+  | ^^^^^^^^^^
+  |
+  = note: expected values for `feature` are: `default`
+  = note: using a cfg inside a attribute macro will use the cfgs from the destination crate and not the ones from the defining crate
+  = help: try referring to `program` crate for guidance on how handle this unexpected cfg
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: this warning originates in the attribute macro `program` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `anchor-debug`
+ --> src/lib.rs:5:1
+  |
+5 | #[program]
+  | ^^^^^^^^^^
+  |
+  = note: expected values for `feature` are: `default`
+  = note: using a cfg inside a derive macro will use the cfgs from the destination crate and not the ones from the defining crate
+  = help: try referring to `Accounts` crate for guidance on how handle this unexpected cfg
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: this warning originates in the derive macro `Accounts` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `no-log-ix-name`
+ --> src/lib.rs:5:1
+  |
+5 | #[program]
+  | ^^^^^^^^^^
+  |
+  = note: expected values for `feature` are: `default`
+  = note: using a cfg inside a attribute macro will use the cfgs from the destination crate and not the ones from the defining crate
+  = help: try referring to `program` crate for guidance on how handle this unexpected cfg
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: this warning originates in the attribute macro `program` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `anchor-debug`
+  --> src/lib.rs:90:10
+   |
+90 | #[derive(Accounts)]
+   |          ^^^^^^^^
+   |
+   = note: expected values for `feature` are: `default`
+   = note: using a cfg inside a derive macro will use the cfgs from the destination crate and not the ones from the defining crate
+   = help: try referring to `Accounts` crate for guidance on how handle this unexpected cfg
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+   = note: this warning originates in the derive macro `Accounts` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `anchor-debug`
+   --> src/lib.rs:105:10
+    |
+105 | #[derive(Accounts)]
+    |          ^^^^^^^^
+    |
+    = note: expected values for `feature` are: `default`
+    = note: using a cfg inside a derive macro will use the cfgs from the destination crate and not the ones from the defining crate
+    = help: try referring to `Accounts` crate for guidance on how handle this unexpected cfg
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: this warning originates in the derive macro `Accounts` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `anchor-debug`
+   --> src/lib.rs:125:10
+    |
+125 | #[derive(Accounts)]
+    |          ^^^^^^^^
+    |
+    = note: expected values for `feature` are: `default`
+    = note: using a cfg inside a derive macro will use the cfgs from the destination crate and not the ones from the defining crate
+    = help: try referring to `Accounts` crate for guidance on how handle this unexpected cfg
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: this warning originates in the derive macro `Accounts` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0599]: no method named `get` found for struct `InitializeIssuerBumps` in the current scope
+   --> src/lib.rs:16:34
+    |
+ 16 |         issuer.bump = *ctx.bumps.get("issuer").unwrap();
+    |                                  ^^^ this is an associated function, not a method
+...
+ 90 | #[derive(Accounts)]
+    |          -------- method `get` not found for this struct
+    |
+    = note: found the following associated functions; to be used as methods, functions must have a `self` parameter
+note: the candidate is defined in the trait `anchor_lang::prelude::SolanaSysvar`
+   --> /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-program-1.18.26/src/sysvar/mod.rs:214:5
+    |
+214 |     fn get() -> Result<Self, ProgramError> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following traits define an item `get`, perhaps you need to implement one of them:
+            candidate #1: `SliceIndex`
+            candidate #2: `anchor_lang::__private::ZeroCopyAccessor`
+            candidate #3: `anchor_lang::solana_program::account_info::Account`
+help: use associated function syntax instead
+    |
+ 16 -         issuer.bump = *ctx.bumps.get("issuer").unwrap();
+ 16 +         issuer.bump = *InitializeIssuerBumps::get("issuer").unwrap();
+    |
+
+error[E0599]: no method named `get` found for struct `IssueCertificateBumps` in the current scope
+   --> src/lib.rs:43:32
+    |
+ 43 |         cert.bump = *ctx.bumps.get("certificate").unwrap();
+    |                                ^^^ this is an associated function, not a method
+...
+105 | #[derive(Accounts)]
+    |          -------- method `get` not found for this struct
+    |
+    = note: found the following associated functions; to be used as methods, functions must have a `self` parameter
+note: the candidate is defined in the trait `anchor_lang::prelude::SolanaSysvar`
+   --> /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/solana-program-1.18.26/src/sysvar/mod.rs:214:5
+    |
+214 |     fn get() -> Result<Self, ProgramError> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following traits define an item `get`, perhaps you need to implement one of them:
+            candidate #1: `SliceIndex`
+            candidate #2: `anchor_lang::__private::ZeroCopyAccessor`
+            candidate #3: `anchor_lang::solana_program::account_info::Account`
+help: use associated function syntax instead
+    |
+ 43 -         cert.bump = *ctx.bumps.get("certificate").unwrap();
+ 43 +         cert.bump = *IssueCertificateBumps::get("certificate").unwrap();
+    |
+
+For more information about this error, try `rustc --explain E0599`.
+warning: `certi-check-program` (lib) generated 18 warnings (5 duplicates)
+error: could not compile `certi-check-program` (lib) due to 2 previous errors; 18 warnings emitted

@@ -10,3 +10,7 @@
 8. Review database user privileges (avoid superuser credentials in production).
 9. Configure logging to avoid sensitive data in logs.
 10. Consider adding automated secret scanning on CI (repo-scanning action).
+11. Add CodeQL analysis to CI (done: .github/workflows/codeql.yml).
+12. Configure Dependabot (done: .github/dependabot.yml) to keep deps updated.
+13. Add deployment workflows and Dockerfiles (done: backend/frontend Dockerfiles and .github/workflows/deploy.yml). Ensure secrets like `GHCR_PAT`, `JWT_SECRET`, and production DB credentials are stored in repository secrets.
+

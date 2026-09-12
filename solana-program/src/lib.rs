@@ -13,7 +13,7 @@ pub mod certi_check {
         issuer.metadata_uri = uri;
         issuer.is_active = true;
         issuer.cert_count = 0;
-        issuer.bump = *ctx.bumps.get("issuer").unwrap();
+        issuer.bump = ctx.bumps.issuer;
         Ok(())
     }
 
@@ -40,7 +40,7 @@ pub mod certi_check {
         cert.revoke_reason = String::new();
         cert.issued_at = Clock::get()?.unix_timestamp;
         cert.revoked_at = None;
-        cert.bump = *ctx.bumps.get("certificate").unwrap();
+        cert.bump = ctx.bumps.certificate;
 
         let issuer = &mut ctx.accounts.issuer;
         issuer.cert_count = issuer.cert_count.checked_add(1).unwrap_or(issuer.cert_count);
