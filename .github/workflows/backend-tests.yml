@@ -3,10 +3,38 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_USER: certi
+      DB_PASSWORD: certipass
+      DB_NAME: certicheck
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: certi
+          POSTGRES_PASSWORD: certipass
+          POSTGRES_DB: certicheck
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U certi -d certicheck"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - run: cd backend && npm install
+      - name: Wait for Postgres
+        run: |
+          for i in {1..60}; do
+            if nc -z 127.0.0.1 5432; then
+              echo "Postgres is available" && break
+            fi
+            echo "Waiting for Postgres..." && sleep 1
+          done
       - run: cd backend && npm test
