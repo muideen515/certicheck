@@ -1,0 +1,19 @@
+name: Solana Cargo Check
+on: [push, pull_request]
+jobs:
+  solana-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+      - name: Add components
+        run: |
+          rustup component add clippy rustfmt || true
+      - name: Cargo check (solana-program)
+        working-directory: solana-program
+        run: |
+          cargo check --all --tests
