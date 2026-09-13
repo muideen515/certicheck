@@ -16,4 +16,5 @@ jobs:
       - name: Cargo check (solana-program)
         working-directory: solana-program
         run: |
+          export RUSTFLAGS="-D warnings"
           cargo check --all --tests
