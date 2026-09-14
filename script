@@ -384,6 +384,33 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   currentUser = getStoredUser();
   initTheme();
+  // Wire demo login buttons (dev only)
+  try {
+    document.getElementById('demoAdminBtn')?.addEventListener('click', async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/auth/temp-login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'admin' }) });
+        const data = await res.json();
+        if (data && data.token) {
+          saveAuthSession(data.token, data.user);
+          alert('Logged in as demo admin: ' + data.user.email);
+        } else {
+          alert('Demo admin login failed: ' + (data.error || 'unknown'));
+        }
+      } catch (e) { alert('Demo admin login error: ' + e.message); }
+    });
+    document.getElementById('demoUserBtn')?.addEventListener('click', async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/auth/temp-login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'user' }) });
+        const data = await res.json();
+        if (data && data.token) {
+          saveAuthSession(data.token, data.user);
+          alert('Logged in as demo user: ' + data.user.email);
+        } else {
+          alert('Demo user login failed: ' + (data.error || 'unknown'));
+        }
+      } catch (e) { alert('Demo user login error: ' + e.message); }
+    });
+  } catch (e) {}
   initSignupForm();
   initLoginForm();
   initForgotPasswordForm();
