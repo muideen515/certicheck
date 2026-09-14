@@ -280,6 +280,39 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// ── DEV: TEMPORARY DEMO LOGIN (dev-only) ────────────────────────────────────
+// Use this to get a working token for a demo user or admin while developing.
+// POST /api/auth/temp-login { role: 'user' | 'admin', email?: string }
+router.post('/temp-login', async (req, res) => {
+  try {
+    // Only enabled in non-production or when explicitly allowed
+    if (process.env.NODE_ENV === 'production' && !process.env.ALLOW_TEMP_LOGIN) {
+      return res.status(403).json({ error: 'Temp login disabled in production' });
+    }
+
+    const role = req.body.role === 'admin' ? 'admin' : 'user';
+    const email = String(req.body.email || `demo+${role}@certicheck.local`).toLowerCase();
+
+    // Ensure user exists (create with a random password if missing)
+    let user = await User.findByEmail(email);
+    if (!user) {
+      const pwd = Math.random().toString(36).slice(-10) + 'A1!';
+      user = await User.create(email, pwd, 'Demo', 'User', role);
+    }
+
+    const token = jwt.sign(
+      { id: user.id, email: user.email, user_type: user.user_type },
+      JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRE || '7d' }
+    );
+
+    res.json({ success: true, message: 'Temp login created', user: { id: user.id, email: user.email, user_type: user.user_type }, token });
+  } catch (err) {
+    console.error('Temp login error:', err);
+    res.status(500).json({ error: 'Temp login failed' });
+  }
+});
+
 // ── GET PROFILE ─────────────────────────────────────────────────────────────
 router.get('/profile', verifyToken, async (req, res) => {
   try {
