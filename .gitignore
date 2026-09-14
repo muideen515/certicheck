@@ -1,3 +1,6 @@
+solana-program/target/
+solana-program/target/debug/
+solana-program/target/.fingerprint/
 .env
 backend/.env
 .env

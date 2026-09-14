@@ -46,6 +46,7 @@
 
     <div class="nav-actions">
       <button id="themeToggle" class="btn-toggle" aria-label="Toggle dark mode"></button>
+      <a href="admin.html" class="btn-ghost" style="margin-left:8px">Admin</a>
       <button class="btn-ghost" data-page="signup">Sign up</button>
       <button class="btn-ghost" data-page="login">Login</button>
     </div>
@@ -69,17 +70,10 @@
 
         <div class="hero-ctas hero-entry-points">
           <div class="entry-card">
-            <div class="entry-title">Verify a certificate</div>
             <div class="entry-actions"><button id="homeVerifyBtn" class="btn-primary" data-page="test">Verify now</button></div>
           </div>
 
           <div class="entry-card">
-            <div class="entry-title">I'm a graduate</div>
-            <div class="entry-actions"><button id="homeGraduateBtn" class="btn-outline" data-page="signup">Sign in / Sign up</button></div>
-          </div>
-
-          <div class="entry-card">
-            <div class="entry-title">I'm an institution</div>
             <div class="entry-actions"><button id="homeIssuerBtn" class="btn-outline" data-page="apply">Apply as issuer</button></div>
           </div>
         </div>
@@ -649,7 +643,6 @@
       <div class="verify-input-row">
         <input class="field-input font-mono" id="certIdInput" placeholder="e.g. CERT-SOL-2024-00418" type="text" value="CERT-SOL-2026-001"/>
         <button class="btn-primary" id="verifyBtn">Verify →</button>
-        <button class="btn-ghost" id="scanQrBtn" style="margin-left:8px">Scan QR</button>
       </div>
 
       <div id="verifyResult"></div>

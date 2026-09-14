@@ -959,17 +959,23 @@ function initIssuerDashboard() {
 
 function initTheme() {
   const toggle = document.getElementById("themeToggle");
+  if (!toggle) return;
+
   const storedTheme = localStorage.getItem(THEME_KEY);
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   const theme = storedTheme || (prefersDark ? "dark" : "light");
 
   applyTheme(theme);
 
-  toggle?.addEventListener("click", () => {
+  toggle.onClick = null;
+  toggle.onclick = () => {
     const nextTheme = document.body.classList.contains("dark") ? "light" : "dark";
     applyTheme(nextTheme);
     localStorage.setItem(THEME_KEY, nextTheme);
-  });
+  };
+
+  toggle.setAttribute("aria-label", theme === "dark" ? "Switch to light mode" : "Switch to dark mode");
+  toggle.setAttribute("aria-pressed", String(theme === "dark"));
 }
 
 function initHolderDashboard() {
@@ -1081,13 +1087,14 @@ async function startQrScanner() {
 function applyTheme(theme) {
   const body = document.body;
   const toggle = document.getElementById("themeToggle");
+  const isDark = theme === "dark";
 
-  if (theme === "dark") {
-    body.classList.add("dark");
-    if (toggle) toggle.title = "Switch to light mode";
-  } else {
-    body.classList.remove("dark");
-    if (toggle) toggle.title = "Switch to dark mode";
+  body.classList.toggle("dark", isDark);
+
+  if (toggle) {
+    toggle.title = isDark ? "Switch to light mode" : "Switch to dark mode";
+    toggle.setAttribute("aria-label", isDark ? "Switch to light mode" : "Switch to dark mode");
+    toggle.setAttribute("aria-pressed", String(isDark));
   }
 }
 
@@ -1771,29 +1778,4 @@ document.addEventListener("DOMContentLoaded", () => {
   try { initTheme(); } catch (e) {}
 });
 
-const toggleBtn = document.getElementById('themeToggle');
-const rootElement = document.documentElement; // This refers to the <html> tag
-
-// 1. Check for saved theme preference, otherwise check system preference
-const savedTheme = localStorage.getItem('theme');
-const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-if (savedTheme === 'dark' || (!savedTheme && systemPrefersDark)) {
-  rootElement.classList.add('dark-mode');
-} else {
-  rootElement.classList.remove('dark-mode');
-}
-
-// 2. Add event listener to the toggle button
-toggleBtn.addEventListener('click', () => {
-  // Check if dark mode is currently active
-  const isDark = rootElement.classList.toggle('dark-mode');
-  
-  // 3. Save the user preference to localStorage
-  if (isDark) {
-    localStorage.setItem('theme', 'dark');
-  } else {
-    localStorage.setItem('theme', 'light');
-  }
-});
 
