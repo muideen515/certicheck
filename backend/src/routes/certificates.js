@@ -114,8 +114,8 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
     try {
       const certificateResult = await safeQuery(
         `INSERT INTO certificates
-          (certificate_id, issuer_name, issuer_wallet, holder_name, holder_email, certificate_type, status, ipfs_cid, ipfs_uri, blockchain_transaction_id, metadata, issued_at, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
+          (certificate_id, issuer_name, issuer_wallet, holder_name, holder_email, holder_wallet, certificate_type, status, ipfs_cid, ipfs_uri, blockchain_transaction_id, metadata, issued_at, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
          RETURNING *`,
         [
           trimmedCertificateId,
@@ -123,6 +123,7 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
           trimmedIssuerWallet,
           trimmedHolderName,
           trimmedHolderEmail,
+          trimmedIssuerWallet === trimmedHolderEmail ? null : (req.body.holderWallet || null),
           trimmedCertificateType,
           'valid',
           ipfsCid,
@@ -237,8 +238,8 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
     try {
       await safeQuery(
         `INSERT INTO certificates
-          (certificate_id, issuer_name, issuer_wallet, holder_name, holder_email, certificate_type, status, ipfs_cid, ipfs_uri, blockchain_transaction_id, metadata, issued_at, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
+          (certificate_id, issuer_name, issuer_wallet, holder_name, holder_email, holder_wallet, certificate_type, status, ipfs_cid, ipfs_uri, blockchain_transaction_id, metadata, issued_at, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
          RETURNING *`,
         [
           trimmedCertificateId,
@@ -246,6 +247,7 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
           issuerWallet || null,
           holderName,
           holderEmail,
+          req.body.holderWallet || null,
           certificateType,
           'valid',
           ipfsCid,

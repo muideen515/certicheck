@@ -384,33 +384,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   currentUser = getStoredUser();
   initTheme();
-  // Wire demo login buttons (dev only)
-  try {
-    document.getElementById('demoAdminBtn')?.addEventListener('click', async () => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/auth/temp-login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'admin' }) });
-        const data = await res.json();
-        if (data && data.token) {
-          saveAuthSession(data.token, data.user);
-          alert('Logged in as demo admin: ' + data.user.email);
-        } else {
-          alert('Demo admin login failed: ' + (data.error || 'unknown'));
-        }
-      } catch (e) { alert('Demo admin login error: ' + e.message); }
-    });
-    document.getElementById('demoUserBtn')?.addEventListener('click', async () => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/auth/temp-login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'user' }) });
-        const data = await res.json();
-        if (data && data.token) {
-          saveAuthSession(data.token, data.user);
-          alert('Logged in as demo user: ' + data.user.email);
-        } else {
-          alert('Demo user login failed: ' + (data.error || 'unknown'));
-        }
-      } catch (e) { alert('Demo user login error: ' + e.message); }
-    });
-  } catch (e) {}
+  // Demo buttons should lead users to the real login page. Removed dev-only temp-login and local fallback.
+  document.getElementById('demoAdminBtn')?.addEventListener('click', () => navigate('login'));
+  document.getElementById('demoUserBtn')?.addEventListener('click', () => navigate('login'));
   initSignupForm();
   initLoginForm();
   initForgotPasswordForm();
@@ -687,23 +663,52 @@ function initIssuerDashboard() {
     const listEl = document.getElementById('issuerCertificatesList');
     if (!listEl) return;
     const all = await loadIssuerCertificates();
-    const ours = all.filter(c => c.issuerEmail === user.email || c.issuerWallet === (document.getElementById('issuerWallet')?.value || ''));
+    const ours = all.filter(c => c.issuerEmail === user.email || c.issuerWallet === (document.getElementById('issuerWallet')?.value || '') || c.issuerName === user.email || !user.email);
     if (!ours.length) {
       listEl.innerHTML = 'No certificates issued yet.';
       return;
     }
 
-    listEl.innerHTML = `<table style="width:100%"><thead><tr><th>ID</th><th>Type</th><th>IPFS</th><th>On-chain</th><th>Status</th><th>Actions</th></tr></thead><tbody>${ours.map(c => `
-      <tr data-cert-id="${c.certificateId}">
-        <td style="font-family:var(--font-mono)">${c.certificateId}</td>
-        <td>${c.certificateType || '—'}</td>
-        <td style="font-family:var(--font-mono)">${c.ipfsCid ? `<a href="${c.ipfsUri || 'https://ipfs.io/ipfs/' + c.ipfsCid}" target="_blank">${c.ipfsCid}</a>` : '—'}</td>
-        <td>${c.blockchainTransactionId ? '<span style="color:#059669">Yes</span>' : 'No'}</td>
-        <td>${c.verificationStatus || 'issued'}</td>
-        <td>${c.verificationStatus === 'revoked' ? '<em>Revoked</em>' : `<button class="btn-ghost btn-revoke" data-cert="${c.certificateId}">Revoke</button>`}</td>
-      </tr>`).join('')}</tbody></table>`;
+    // Group certificates by issuerName or institution id if present
+    const groups = {};
+    ours.forEach(c => {
+      const inst = (c.metadata && c.metadata.academic && c.metadata.academic.institutionId) || c.issuerName || c.issuerEmail || 'Uncategorized';
+      if (!groups[inst]) groups[inst] = [];
+      groups[inst].push(c);
+    });
 
-    // Wire revoke buttons
+    // Render grouped sections
+    listEl.innerHTML = Object.keys(groups).map(groupKey => {
+      const items = groups[groupKey];
+      const rows = items.map(c => {
+        const ipfsHtml = c.ipfsCid ? `<a href="${c.ipfsUri || 'https://ipfs.io/ipfs/' + c.ipfsCid}" target="_blank">${c.ipfsCid}</a>` : '—';
+        const onChain = c.blockchainTransactionId ? '<span style="color:#059669">Yes</span>' : 'No';
+        const status = c.verificationStatus || c.verification_status || 'issued';
+        return `
+          <div class="issuer-cert-row" data-cert-id="${c.certificateId}" style="display:flex;align-items:center;justify-content:space-between;padding:10px;border-bottom:1px solid rgba(0,0,0,0.04)">
+            <div style="min-width:260px">
+              <div style="font-family:var(--font-mono)">${c.certificateId}</div>
+              <div style="color:var(--text-secondary);font-size:13px">${c.certificateType || c.certificate_type || ''} — ${c.issuedAt ? new Date(c.issuedAt).toLocaleDateString() : ''}</div>
+            </div>
+            <div style="flex:1;color:var(--text-secondary);font-size:13px">${ipfsHtml} • On-chain: ${onChain}</div>
+            <div style="width:220px;display:flex;gap:8px;justify-content:flex-end">
+              <button class="btn-ghost btn-print" data-cert='${JSON.stringify(c).replace(/'/g,"\\'")}'>Print / Save</button>
+              ${status === 'revoked' ? '<em style="align-self:center">Revoked</em>' : `<button class="btn-ghost btn-revoke" data-cert="${c.certificateId}">Revoke</button>`}
+            </div>
+          </div>`;
+      }).join('');
+
+      return `
+        <div class="issuer-group" style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <h4 style="margin:0">${groupKey} <span style="color:var(--text-secondary);font-size:13px">(${items.length})</span></h4>
+            <div style="font-size:13px;color:var(--text-secondary)">${groupKey !== 'Uncategorized' ? 'Organization' : ''}</div>
+          </div>
+          <div class="issuer-group-list" style="border:1px dashed rgba(0,0,0,0.06);border-radius:8px;overflow:hidden">${rows}</div>
+        </div>`;
+    }).join('');
+
+    // Wire buttons: revoke and print
     listEl.querySelectorAll('.btn-revoke').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         const certId = btn.dataset.cert;
@@ -721,23 +726,55 @@ function initIssuerDashboard() {
             const json = await res.json();
             if (!res.ok) throw new Error(json.error || 'Revoke failed');
           } else {
-            // Demo fallback: mark locally
             const allLocal = await loadIssuerCertificates();
             const updated = allLocal.map(x => x.certificateId === certId ? { ...x, verificationStatus: 'revoked', revokedAt: new Date().toISOString() } : x);
             localStorage.setItem('certicheck_issued_certificates', JSON.stringify(updated));
           }
 
-          // Update UI: mark row revoked
-          const row = listEl.querySelector(`tr[data-cert-id="${certId}"]`);
-          if (row) {
-            row.querySelector('td:nth-child(5)').innerHTML = 'revoked';
-            row.querySelector('td:nth-child(6)').innerHTML = '<em>Revoked</em>';
-          }
+          // remove or update UI
+          btn.closest('[data-cert-id]')?.querySelector('div:nth-child(3)')?.textContent = 'revoked';
         } catch (err) {
           alert('Unable to revoke certificate: ' + (err.message || err));
         }
       });
     });
+
+    listEl.querySelectorAll('.btn-print').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        try {
+          const raw = btn.getAttribute('data-cert');
+          const cert = JSON.parse(raw);
+          printCertificate(cert);
+        } catch (err) {
+          alert('Unable to print certificate');
+        }
+      });
+    });
+  }
+
+  // Open printable view and trigger browser print/save-as-PDF
+  function printCertificate(cert) {
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) return alert('Popup blocked. Please allow popups for this site to print.');
+    const issuedAt = cert.issuedAt || cert.issued_at || new Date().toISOString();
+    const html = `
+      <html><head><title>Certificate ${cert.certificateId}</title>
+        <style>body{font-family:Arial,Helvetica,sans-serif;padding:28px;color:#111} .card{border:1px solid #e6e6e6;border-radius:8px;padding:20px} .mono{font-family:DM%20Mono,monospace}</style>
+      </head><body>
+      <div class="card">
+        <h1 style="margin:0 0 8px 0">${cert.certificateType || cert.certificate_type || 'Certificate'}</h1>
+        <div style="color:#666;margin-bottom:12px">Issued by: <strong>${cert.issuerName || cert.issuer_name || ''}</strong></div>
+        <div style="font-size:18px;margin:8px 0"><strong>${cert.holderName || cert.holder_name || ''}</strong></div>
+        <div style="color:#444">Certificate ID: <span class="mono">${cert.certificateId}</span></div>
+        <div style="margin-top:12px;color:#666">Issued: ${new Date(issuedAt).toLocaleString()}</div>
+        <div style="margin-top:18px">${cert.metadata ? `<pre style="background:#f9f9f9;padding:12px;border-radius:6px;white-space:pre-wrap">${JSON.stringify(cert.metadata, null, 2)}</pre>` : ''}</div>
+        <div style="margin-top:18px">Transaction: ${cert.blockchainTransactionId || cert.blockchain_transaction_id || 'N/A'}</div>
+      </div>
+      <script>window.onload=function(){window.print();}</script>
+      </body></html>`;
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
   }
 
   renderIssuerCertificatesList();
@@ -767,14 +804,36 @@ function initIssuerDashboard() {
     errorEl.textContent = "";
     resultEl.innerHTML = "";
 
+    // Build metadata object from freeform JSON field and specific academic fields
+    const rawMetadata = document.getElementById("issuerMetadata")?.value || "";
+    let metadataObj = {};
+    if (rawMetadata) {
+      try { metadataObj = JSON.parse(rawMetadata); } catch (e) { metadataObj = { extra: rawMetadata }; }
+    }
+
+    const academicData = {
+      degree: document.getElementById("issuerDegree")?.value?.trim() || null,
+      program: document.getElementById("issuerProgram")?.value?.trim() || null,
+      grade: document.getElementById("issuerGrade")?.value?.trim() || null,
+      studentId: document.getElementById("issuerStudentId")?.value?.trim() || null,
+      graduationDate: document.getElementById("issuerGraduationDate")?.value || null,
+      institutionId: document.getElementById("issuerInstitutionId")?.value?.trim() || null
+    };
+
+    // Attach academic block if any field is present
+    if (Object.values(academicData).some(v => v)) {
+      metadataObj.academic = Object.assign({}, academicData);
+    }
+
     const payload = {
       certificateId: document.getElementById("issuerCertId")?.value?.trim() || "",
       holderName: document.getElementById("issuerHolderName")?.value?.trim() || "",
       holderEmail: document.getElementById("issuerHolderEmail")?.value?.trim() || "",
+      holderWallet: document.getElementById("issuerHolderWallet")?.value?.trim() || null,
       certificateType: document.getElementById("issuerType")?.value?.trim() || "",
       issuerName: document.getElementById("issuerName")?.value?.trim() || "",
       issuerWallet: document.getElementById("issuerWallet")?.value?.trim() || "",
-      metadata: document.getElementById("issuerMetadata")?.value || null,
+      metadata: metadataObj,
       expiry: document.getElementById("issuerExpiry")?.value || null,
       walletAddress: document.getElementById("issuerWallet")?.value?.trim() || "",
       issueOnChain: document.getElementById("issuerOnChain")?.checked || false

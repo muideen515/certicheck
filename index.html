@@ -47,8 +47,6 @@
     <div class="nav-actions">
       <button id="themeToggle" class="btn-toggle" aria-label="Toggle dark mode"></button>
       <a href="admin.html" class="btn-ghost" style="margin-left:8px">Admin</a>
-      <button id="demoAdminBtn" class="btn-ghost" style="margin-left:8px">Demo Admin</button>
-      <button id="demoUserBtn" class="btn-ghost" style="margin-left:8px">Demo User</button>
       <button class="btn-ghost" data-page="signup">Sign up</button>
       <button class="btn-ghost" data-page="login">Login</button>
     </div>
@@ -597,8 +595,38 @@
             <input class="field-input" id="issuerHolderEmail" placeholder="jane@example.com" type="email" value="jane@example.com"/>
           </div>
           <div class="field">
+            <label class="field-label" for="issuerHolderWallet">Holder Wallet (Solana)</label>
+            <input class="field-input font-mono" id="issuerHolderWallet" placeholder="Eg: 7xKX...mVqP" type="text"/>
+          </div>
+          <div class="field">
             <label class="field-label" for="issuerType">Certificate Type</label>
             <input class="field-input" id="issuerType" placeholder="Degree Certificate" type="text" value="Degree Certificate"/>
+          </div>
+          <!-- Academic-specific fields for schools and universities -->
+          <div style="margin-top:6px;margin-bottom:6px;font-size:13px;color:var(--text-secondary)">Academic details (optional)</div>
+          <div class="field">
+            <label class="field-label" for="issuerDegree">Degree</label>
+            <input class="field-input" id="issuerDegree" placeholder="Bachelor of Science" type="text"/>
+          </div>
+          <div class="field">
+            <label class="field-label" for="issuerProgram">Program / Course</label>
+            <input class="field-input" id="issuerProgram" placeholder="Blockchain Engineering" type="text"/>
+          </div>
+          <div class="field">
+            <label class="field-label" for="issuerGrade">Grade / Classification</label>
+            <input class="field-input" id="issuerGrade" placeholder="First Class / Distinction" type="text"/>
+          </div>
+          <div class="field">
+            <label class="field-label" for="issuerStudentId">Student ID</label>
+            <input class="field-input" id="issuerStudentId" placeholder="S12345678" type="text"/>
+          </div>
+          <div class="field">
+            <label class="field-label" for="issuerGraduationDate">Graduation Date</label>
+            <input class="field-input" id="issuerGraduationDate" type="date" />
+          </div>
+          <div class="field">
+            <label class="field-label" for="issuerInstitutionId">Institution ID (optional)</label>
+            <input class="field-input" id="issuerInstitutionId" placeholder="UNI-001" type="text"/>
           </div>
           <div class="field">
             <label class="field-label" for="issuerMetadata">Metadata (optional)</label>

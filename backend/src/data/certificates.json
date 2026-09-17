@@ -134,5 +134,22 @@
     "revoked_at": null,
     "revoked_by": null,
     "created_by": 1
+  },
+  {
+    "id": 9,
+    "certificate_id": "CERT-SOL-2026-TEST-ACAD",
+    "certificate_type": "Degree Certificate",
+    "verification_status": "valid",
+    "verification_message": "Issued via Certicheck",
+    "blockchain_hash": "3edc2cf83cbe3f5c2a8bd6fde6f09f4d431eb0241720a66f599c634e0a0f5c7e",
+    "blockchain_transaction_id": null,
+    "holder_name": "John Student",
+    "holder_email": "john.student@example.edu",
+    "issuer_name": "Example University",
+    "issuer_wallet": null,
+    "checked_at": "2026-09-14T16:09:12.308Z",
+    "revoked_at": null,
+    "revoked_by": null,
+    "created_by": 1
   }
 ]

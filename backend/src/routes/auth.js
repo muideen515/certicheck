@@ -289,7 +289,6 @@ router.post('/temp-login', async (req, res) => {
     if (process.env.NODE_ENV === 'production' && !process.env.ALLOW_TEMP_LOGIN) {
       return res.status(403).json({ error: 'Temp login disabled in production' });
     }
-
     const role = req.body.role === 'admin' ? 'admin' : 'user';
     const email = String(req.body.email || `demo+${role}@certicheck.local`).toLowerCase();
 

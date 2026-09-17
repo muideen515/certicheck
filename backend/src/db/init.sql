@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS certificates (
   certificate_id VARCHAR(255) UNIQUE NOT NULL,
   issuer_name VARCHAR(255),
   issuer_wallet VARCHAR(255),
+  holder_wallet VARCHAR(255),
   holder_name VARCHAR(255),
   holder_email VARCHAR(255),
   certificate_type VARCHAR(100),
@@ -89,6 +90,9 @@ CREATE TABLE IF NOT EXISTS certificates (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_certificates_certificate_id ON certificates(certificate_id);
+
+-- Ensure holder_wallet column exists for storing recipient Solana addresses
+ALTER TABLE certificates ADD COLUMN IF NOT EXISTS holder_wallet VARCHAR(255);
 
 -- ── REVOKED CERTIFICATES TABLE ────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS revoked_certificates (
