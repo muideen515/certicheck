@@ -27,6 +27,15 @@ The project already has a strong foundation for the report’s Chapter 1–3 sco
 - The smart contract exists as a scaffold, but it still needs stronger access control and deployment wiring.
 - The project now includes backend unit and API integration tests for certificate issue/lookup/revoke.
 
+### Recent changes (completed)
+
+- The OTP-based signup/reset UI and client endpoints were removed from the frontend; corresponding server endpoints return 410 (deprecated). Password resets should be handled externally or via admin workflows.
+- Demo seeding of accounts is gated by `DEMO_MODE` and disabled by default to avoid accidental demo account leakage.
+- Issuer approval workflow completed: applications generate unique `CC-REF-####` IDs, admin approval/rejection endpoints exist, and public status lookup is available.
+- Frontend: `?ref` auto-fill, recent-application local fallback cache, admin clickable rows and detail modal, and dynamic role/title options per organization type were added.
+- Added an E2E approval-flow test scaffold at `tests/e2e-approval-flow.test.js` and an npm convenience script `backend/package.json` `test:e2e` to run it (requires `ADMIN_TOKEN`).
+
+
 ## What is still needed to fully satisfy the report
 
 ### 1. Finish the end-to-end certificate lifecycle

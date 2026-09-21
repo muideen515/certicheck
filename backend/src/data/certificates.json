@@ -219,5 +219,22 @@
     "revoked_at": null,
     "revoked_by": null,
     "created_by": 1
+  },
+  {
+    "id": 14,
+    "certificate_id": "CERT-OBAF-825299",
+    "certificate_type": "Transcript",
+    "verification_status": "valid",
+    "verification_message": "Issued via Certicheck",
+    "blockchain_hash": "b2771f43ac3cc7f5c406f43d4753f11669ee1f773037133ca0cce3412efe3f5b",
+    "blockchain_transaction_id": null,
+    "holder_name": "olaoluwa",
+    "holder_email": "oauregistrar@certicheck.com",
+    "issuer_name": "Obafemi Awolowo University",
+    "issuer_wallet": null,
+    "checked_at": "2026-09-20T10:23:46.489Z",
+    "revoked_at": null,
+    "revoked_by": null,
+    "created_by": 1
   }
 ]

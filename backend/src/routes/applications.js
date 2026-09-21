@@ -10,15 +10,24 @@ router.post('/submit', verifyToken, async (req, res) => {
   try {
     const { orgName, orgType, website, contactName, contactEmail, contactRole, volume, useCase, wallet } = req.body;
 
-    if (!orgName || !contactName || !contactEmail) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!orgName || !contactName) {
+      return res.status(400).json({ error: 'Organization and contact name are required' });
     }
 
+    const normalizedEmail = Application.normalizeIssuerEmail(contactEmail, contactName);
+
     const app = await Application.create(
-      req.user.id, orgName, orgType, website, contactName, contactEmail, contactRole, volume, useCase, wallet
+      req.user.id, orgName, orgType, website, contactName, normalizedEmail, contactRole, volume, useCase, wallet
     );
 
-    await logAudit(req.user.id, 'APPLICATION_SUBMIT', 'application', app.id, 'success');
+    await logAudit(req.user.id, 'APPLICATION_SUBMIT', 'application', app.id, 'success', null, {
+      institution: orgName,
+      email: normalizedEmail,
+      name: contactName,
+      orgType,
+      contactRole,
+      website
+    });
 
     res.status(201).json({
       success: true,
@@ -81,8 +90,17 @@ router.put('/:appId/approve', verifyToken, verifyAdmin, async (req, res) => {
     const { appId } = req.params;
 
     const app = await Application.approve(appId, req.user.id);
+    const applicationInfo = await pool.query(
+      `SELECT organization_name, contact_name, contact_email FROM pending_applications WHERE id = $1 LIMIT 1`,
+      [appId]
+    );
+    const application = applicationInfo.rows[0] || {};
 
-    await logAudit(req.user.id, 'APPLICATION_APPROVE', 'application', appId, 'success');
+    await logAudit(req.user.id, 'APPLICATION_APPROVE', 'application', appId, 'success', null, {
+      institution: application.organization_name || app?.organization_name || 'Unknown institution',
+      email: application.contact_email || '',
+      name: application.contact_name || ''
+    });
 
     res.json({
       success: true,
@@ -168,8 +186,17 @@ router.put('/:appId/reject', verifyToken, verifyAdmin, async (req, res) => {
     const { appId } = req.params;
 
     const app = await Application.reject(appId, req.user.id);
+    const applicationInfo = await pool.query(
+      `SELECT organization_name, contact_name, contact_email FROM pending_applications WHERE id = $1 LIMIT 1`,
+      [appId]
+    );
+    const application = applicationInfo.rows[0] || {};
 
-    await logAudit(req.user.id, 'APPLICATION_REJECT', 'application', appId, 'success');
+    await logAudit(req.user.id, 'APPLICATION_REJECT', 'application', appId, 'success', null, {
+      institution: application.organization_name || app?.organization_name || 'Unknown institution',
+      email: application.contact_email || '',
+      name: application.contact_name || ''
+    });
 
     res.json({
       success: true,

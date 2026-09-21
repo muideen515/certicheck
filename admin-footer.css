@@ -56,30 +56,42 @@
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  margin-top: 20px;
 }
 
 .admin-tab-button {
-  background: var(--bg-subtle);
-  border: 1px solid var(--border-light);
+  background: rgba(124, 58, 237, 0.04);
+  border: 1px solid rgba(124, 58, 237, 0.12);
   border-radius: 999px;
-  padding: 10px 16px;
-  font-size: 13px;
-  color: var(--text-secondary);
+  padding: 9px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
   cursor: pointer;
-  transition: background 0.2s, color 0.2s, border-color 0.2s;
-  font-weight: 500;
+  transition: all 0.18s ease;
+  text-align: center;
 }
 
 .admin-tab-button.active {
-  background: var(--purple-pale);
-  border-color: var(--purple-mid);
-  color: var(--purple);
-  font-weight: 600;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.14), rgba(79, 70, 229, 0.18));
+  border-color: rgba(124, 58, 237, 0.25);
+  color: var(--purple-mid);
 }
 
-.admin-tab-button:hover:not(.active) {
-  background: var(--bg-card);
-  border-color: var(--border);
+.admin-tab-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(124, 58, 237, 0.24);
+}
+
+.admin-audit-tab {
+  font-weight: 900;
+  color: var(--text-primary);
+}
+
+.admin-audit-tab:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
 }
 
 @media (max-width: 540px) {

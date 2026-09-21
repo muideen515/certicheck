@@ -49,11 +49,19 @@ CREATE TABLE IF NOT EXISTS pending_applications (
   certificate_volume VARCHAR(50),
   use_case TEXT,
   wallet_address VARCHAR(255),
+  reference_id VARCHAR(64),
   status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
   submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   reviewed_at TIMESTAMP,
   reviewer_id INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
+
+ALTER TABLE IF EXISTS pending_applications
+  ADD COLUMN IF NOT EXISTS reference_id VARCHAR(64);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_applications_reference_id
+  ON pending_applications(reference_id)
+  WHERE reference_id IS NOT NULL;
 
 -- ── CERTIFICATE VERIFICATION HISTORY TABLE ────────────────────────────────────
 CREATE TABLE IF NOT EXISTS verify_history (

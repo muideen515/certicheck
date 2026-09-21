@@ -123,11 +123,8 @@ You should see:
 - If you're testing from a different origin, update CORS in `backend/src/server.js`
 
 ### OTP Not Sending
-- In **development mode**, OTPs are logged to console, not actually emailed
-- Check terminal output for OTP codes when testing signup
-- For production email, set EMAIL_SERVICE and EMAIL_PASSWORD in `.env`
+ - The OTP endpoints and UI were removed; password resets should be handled externally.
 
----
 
 ## Database Management
 

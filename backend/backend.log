@@ -1,0 +1,32 @@
+✓ Database initialized successfully
+✓ Certicheck backend running on http://localhost:5000
+✓ Health check: http://localhost:5000/health
+📧 EMAIL (Development Mode):
+   To: e2e.test@certicheck.com
+   Subject: Welcome to CertiCheck
+   Body:
+
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background-color: #f0f4f8; padding: 20px; border-radius: 8px;">
+          <h2 style="color: #1e1b4b; margin-bottom: 20px;">
+            Welcome to CertiCheck, E2E!
+          </h2>
+          
+          <p style="color: #4b5563; font-size: 16px; line-height: 1.6;">
+            Your account has been successfully created. You're all set to start issuing certificates on the blockchain.
+          </p>
+          
+          <p style="color: #4b5563; font-size: 16px; line-height: 1.6;">
+            Next step: Apply for issuer access to get started with certificate management.
+          </p>
+          
+          <div style="margin: 20px 0;">
+            <a href="http://localhost" 
+               style="display: inline-block; padding: 12px 24px; background-color: #1e1b4b; color: white; text-decoration: none; border-radius: 6px;">
+              Get Started
+            </a>
+          </div>
+        </div>
+      </div>
+    
+Welcome email sent to e2e.test@certicheck.com

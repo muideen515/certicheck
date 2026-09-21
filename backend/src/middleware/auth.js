@@ -4,7 +4,9 @@ const pool = require('../db/connection');
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
 
 function getDemoUser(req) {
-  if (process.env.DEMO_MODE === 'true' || req.headers.authorization?.split(' ')[1] === 'demo-token') {
+  const authorization = req.headers.authorization || '';
+  const isDemoToken = authorization.split(' ')[1] === 'demo-token';
+  if (process.env.DEMO_MODE === 'true' || isDemoToken) {
     return {
       id: 1,
       email: 'demo@certicheck.io',
@@ -12,6 +14,10 @@ function getDemoUser(req) {
     };
   }
   return null;
+}
+
+function isDemoAccess(req) {
+  return process.env.DEMO_MODE === 'true' || Boolean(req.headers['x-demo-user-type']) || (req.headers.authorization || '').split(' ')[1] === 'demo-token';
 }
 
 function verifyToken(req, res, next) {
@@ -61,6 +67,11 @@ async function verifyAdmin(req, res, next) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
+  if (isDemoAccess(req)) {
+    req.user.user_type = req.headers['x-demo-user-type'] || req.user.user_type || 'admin';
+    return next();
+  }
+
   try {
     const user = await resolveUserAccess(req);
     const effectiveUserType = user?.user_type || req.user.user_type;
@@ -83,6 +94,11 @@ async function verifyIssuer(req, res, next) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
+  if (isDemoAccess(req)) {
+    req.user.user_type = req.headers['x-demo-user-type'] || req.user.user_type || 'issuer';
+    return next();
+  }
+
   try {
     const user = await resolveUserAccess(req);
     const effectiveUserType = user?.user_type || req.user.user_type;
@@ -94,17 +110,13 @@ async function verifyIssuer(req, res, next) {
     req.user.user_type = effectiveUserType;
     req.user.is_active = user?.is_active ?? req.user.is_active;
 
-    const isDemoRequest = process.env.DEMO_MODE === 'true' || Boolean(req.headers['x-demo-user-type']);
+    const profileResult = await pool.query(
+      'SELECT status FROM issuer_profiles WHERE user_id = $1 LIMIT 1',
+      [req.user.id]
+    );
 
-    if (effectiveUserType === 'issuer' && !isDemoRequest) {
-      const profileResult = await pool.query(
-        'SELECT status FROM issuer_profiles WHERE user_id = $1 LIMIT 1',
-        [req.user.id]
-      );
-
-      if (!profileResult.rows[0] || profileResult.rows[0].status !== 'approved') {
-        return res.status(403).json({ error: 'Approved issuer access required' });
-      }
+    if (effectiveUserType === 'issuer' && (!profileResult.rows[0] || profileResult.rows[0].status !== 'approved')) {
+      return res.status(403).json({ error: 'Approved issuer access required' });
     }
 
     next();

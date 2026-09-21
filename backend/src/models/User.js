@@ -6,15 +6,15 @@ class User {
     return String(email || '').trim().toLowerCase();
   }
 
-  static async create(email, password, firstName, lastName, userType = 'user') {
+  static async create(email, password, firstName, lastName, userType = 'user', isActive = true) {
     const normalizedEmail = this.normalizeEmail(email);
     const hashedPassword = await bcrypt.hash(password, 10);
     
     const result = await pool.query(
-      `INSERT INTO users (email, password_hash, first_name, last_name, user_type)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO users (email, password_hash, first_name, last_name, user_type, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, email, first_name, last_name, user_type, is_active, created_at`,
-      [normalizedEmail, hashedPassword, firstName, lastName, userType]
+      [normalizedEmail, hashedPassword, firstName, lastName, userType, isActive]
     );
 
     return result.rows[0];

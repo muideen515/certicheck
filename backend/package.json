@@ -4,7 +4,7 @@
   "description": "Certicheck backend with user auth, audit logging, and admin dashboard",
   "main": "src/server.js",
   "scripts": {
-    "prestart": "node src/db/init.js",
+    "prestart": "node src/db/init.js && node scripts/ensure-port-free.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "setup-db": "node src/db/init.js",

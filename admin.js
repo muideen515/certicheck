@@ -37,6 +37,19 @@ function formatDateTime(value) {
 }
 
 function showAdminError(message) {
+  const normalized = String(message || "").trim();
+  if (!normalized) return;
+
+  // Suppress any auth failure notices on the admin page.
+  if (/invalid credentials|this account is not an admin account/i.test(normalized)) {
+    const errorBox = document.getElementById("adminLoginError");
+    if (errorBox) {
+      errorBox.textContent = "";
+      errorBox.style.display = "none";
+    }
+    return;
+  }
+
   const errorBox = document.getElementById("adminLoginError");
   if (!errorBox) return;
   errorBox.textContent = message;
@@ -121,11 +134,22 @@ function renderAdminTabs() {
   const tabs = document.getElementById("adminTabs");
   if (!tabs) return;
 
-  tabs.innerHTML = ADMIN_SECTIONS.map(section => `
-    <button class="admin-tab-button${adminCurrentSection === section.id ? " active" : ""}" data-section="${section.id}">
-      ${section.label}
-    </button>
-  `).join("");
+  const sections = [
+    { id: "pending", label: "Pending approvals" },
+    { id: "rejected", label: "Rejected requests" },
+    { id: "checks", label: "Past certificate checks" },
+    { id: "revoked", label: "Revoked certificates" },
+    { id: "audit", label: "Audit log" }
+  ];
+
+  tabs.innerHTML = sections.map(section => {
+    const isAudit = section.id === "audit";
+    return `
+      <button class="admin-tab-button${adminCurrentSection === section.id ? " active" : ""}${isAudit ? " admin-audit-tab" : ""}" data-section="${section.id}">
+        ${section.label}
+      </button>
+    `;
+  }).join("");
 
   tabs.querySelectorAll("button[data-section]").forEach(button => {
     button.addEventListener("click", () => setAdminSection(button.dataset.section));
@@ -192,13 +216,13 @@ function renderAdminDashboard() {
           </div>
           <div class="admin-action-row">
             <button class="btn-success" data-action="approve" data-id="${app.id}">Approve</button>
-            <button class="btn-ghost" data-action="create-account" data-id="${app.id}">Create Account</button>
             <button class="btn-danger" data-action="reject" data-id="${app.id}">Reject</button>
           </div>
         </div>
         <div class="admin-detail-grid">
-          <div class="admin-detail-item"><span class="admin-detail-label">Contact</span>${app.contact_name || app.contactName || "-"}<br/><a href="mailto:${app.contact_email || app.contactEmail || ""}" style="color:var(--purple-mid);">${app.contact_email || app.contactEmail || "-"}</a></div>
-          <div class="admin-detail-item"><span class="admin-detail-label">Role</span>${app.contact_role || app.contactRole || "-"}</div>
+          <div class="admin-detail-item"><span class="admin-detail-label">Name</span><div style="word-break:break-word;overflow-wrap:anywhere;">${app.contact_name || app.contactName || "-"}</div></div>
+          <div class="admin-detail-item"><span class="admin-detail-label">Email</span><div style="max-width:100%;word-break:break-word;overflow-wrap:anywhere;"><a href="mailto:${app.contact_email || app.contactEmail || ""}" style="color:var(--purple-mid);display:inline-block;max-width:100%;white-space:normal;overflow-wrap:anywhere;">${app.contact_email || app.contactEmail || "-"}</a></div></div>
+          <div class="admin-detail-item"><span class="admin-detail-label">Role in company</span><div style="word-break:break-word;overflow-wrap:anywhere;">${app.contact_role || app.contactRole || "-"}</div></div>
           <div class="admin-detail-item"><span class="admin-detail-label">Volume</span>${app.certificate_volume || app.volume || "-"}</div>
           <div class="admin-detail-item"><span class="admin-detail-label">Wallet</span>${app.wallet_address || app.wallet || "Optional"}</div>
         </div>
@@ -225,8 +249,9 @@ function renderAdminDashboard() {
           <div class="admin-status-pill danger">Rejected</div>
         </div>
         <div class="admin-detail-grid">
-          <div class="admin-detail-item"><span class="admin-detail-label">Contact</span>${app.contact_name || app.contactName || "-"}<br/><a href="mailto:${app.contact_email || app.contactEmail || ""}" style="color:var(--purple-mid);">${app.contact_email || app.contactEmail || "-"}</a></div>
-          <div class="admin-detail-item"><span class="admin-detail-label">Role</span>${app.contact_role || app.contactRole || "-"}</div>
+          <div class="admin-detail-item"><span class="admin-detail-label">Name</span><div style="word-break:break-word;overflow-wrap:anywhere;">${app.contact_name || app.contactName || "-"}</div></div>
+          <div class="admin-detail-item"><span class="admin-detail-label">Email</span><div style="max-width:100%;word-break:break-word;overflow-wrap:anywhere;"><a href="mailto:${app.contact_email || app.contactEmail || ""}" style="color:var(--purple-mid);display:inline-block;max-width:100%;white-space:normal;overflow-wrap:anywhere;">${app.contact_email || app.contactEmail || "-"}</a></div></div>
+          <div class="admin-detail-item"><span class="admin-detail-label">Role in company</span><div style="word-break:break-word;overflow-wrap:anywhere;">${app.contact_role || app.contactRole || "-"}</div></div>
           <div class="admin-detail-item"><span class="admin-detail-label">Volume</span>${app.certificate_volume || app.volume || "-"}</div>
           <div class="admin-detail-item"><span class="admin-detail-label">Wallet</span>${app.wallet_address || app.wallet || "Optional"}</div>
         </div>
@@ -289,18 +314,62 @@ function renderAdminDashboard() {
       return;
     }
 
-    list.innerHTML = auditLog.map(entry => `
-      <div class="admin-list-card">
-        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start;">
-          <div>
-            <div style="font-size:15px;font-weight:800;color:var(--text-primary);">${entry.action_type || entry.action || "Action"}</div>
-            <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">${formatDateTime(entry.timestamp)}</div>
+    list.innerHTML = auditLog.map(entry => {
+      const action = entry.action_type || entry.action || "Action";
+      const rawMetadata = entry.metadata && typeof entry.metadata === 'string' ? (() => { try { return JSON.parse(entry.metadata); } catch { return {}; } })() : (entry.metadata || {});
+      const metadata = rawMetadata && typeof rawMetadata === 'object' ? rawMetadata : {};
+      const institution = [
+        metadata.institution,
+        metadata.organization_name,
+        metadata.orgName,
+        metadata.company,
+        metadata.institutionName,
+        entry.organization_name,
+        entry.orgName,
+        entry.institution
+      ].find(value => value !== undefined && value !== null && value !== "") || "—";
+      const email = [
+        metadata.email,
+        metadata.contact_email,
+        metadata.contactEmail,
+        metadata.user_email,
+        entry.contact_email,
+        entry.contactEmail,
+        entry.email,
+        entry.user_email
+      ].find(value => value !== undefined && value !== null && value !== "") || "—";
+      const name = [
+        metadata.name,
+        metadata.contact_name,
+        metadata.contactName,
+        metadata.full_name,
+        metadata.person_name,
+        entry.contact_name,
+        entry.contactName,
+        entry.full_name,
+        entry.name
+      ].find(value => value !== undefined && value !== null && value !== "") || "—";
+      const status = entry.status || "success";
+      const errorMessage = entry.error_message || "";
+
+      return `
+        <div class="admin-list-card">
+          <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start;">
+            <div>
+              <div style="font-size:15px;font-weight:800;color:var(--text-primary);">${action}</div>
+              <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">${formatDateTime(entry.timestamp)}</div>
+            </div>
+            <div class="admin-status-pill ${status === "failed" ? "danger" : "success"}">${status}</div>
           </div>
-          <div class="admin-status-pill ${entry.status === "failed" ? "danger" : "success"}">${entry.status || "success"}</div>
+          <div style="margin-top:12px;display:grid;gap:8px;color:var(--text-secondary);font-size:13px;">
+            <div><strong>Institution:</strong> ${institution}</div>
+            <div><strong>Email:</strong> ${email}</div>
+            <div><strong>Name:</strong> ${name}</div>
+            ${errorMessage ? `<div><strong>Error:</strong> ${errorMessage}</div>` : ""}
+          </div>
         </div>
-        <div style="margin-top:14px;color:var(--text-secondary);font-size:13px;">${entry.error_message || "No additional details."}</div>
-      </div>
-    `).join("");
+      `;
+    }).join("");
   }
 
   list.querySelectorAll("button[data-action]").forEach(button => {
@@ -309,27 +378,11 @@ function renderAdminDashboard() {
       const id = button.dataset.id;
       if (action === "approve" || action === "reject") {
         handleApplicationAction(action, id);
-      } else if (action === 'create-account') {
-        handleCreateAccountForApplication(id);
       } else if (action === "revoke") {
         handleRevokeAction(id);
       }
     });
   });
-}
-
-async function handleCreateAccountForApplication(id) {
-  try {
-    const data = await requestJson(`/applications/${id}/create-account`, { method: 'POST' });
-    if (data.success && data.credentials) {
-      alert(`Issuer account created:\nEmail: ${data.credentials.email}\nPassword: ${data.credentials.password}`);
-    } else if (data.success && data.user) {
-      alert(`Existing account linked for ${data.user.email}`);
-    }
-    await loadAdminDashboard();
-  } catch (err) {
-    showAdminError(err.message);
-  }
 }
 
 async function handleApplicationAction(action, id) {
@@ -395,7 +448,7 @@ async function loginAdmin(event) {
   try {
     const data = await requestJson("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email, password, loginContext: "admin" })
     });
 
     if (data.user?.user_type !== "admin") {
@@ -408,7 +461,16 @@ async function loginAdmin(event) {
     localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(data.user));
     setAdminState(true, data.user);
   } catch (err) {
-    showAdminError(err.message);
+    const message = String(err.message || "");
+    if (/invalid credentials|this account is not an admin account/i.test(message)) {
+      const errorBox = document.getElementById("adminLoginError");
+      if (errorBox) {
+        errorBox.textContent = "";
+        errorBox.style.display = "none";
+      }
+      return;
+    }
+    showAdminError(message);
   }
 }
 

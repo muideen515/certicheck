@@ -2,8 +2,29 @@ const fs = require('fs');
 const path = require('path');
 const pool = require('./connection');
 
+async function waitForDatabase(maxAttempts = 30, delayMs = 1000) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await pool.query('SELECT 1');
+      return true;
+    } catch (err) {
+      lastError = err;
+      if (attempt === maxAttempts) {
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw lastError || new Error('Database did not become ready in time');
+}
+
 async function initializeDatabase() {
   try {
+    await waitForDatabase();
+
     const sqlFile = fs.readFileSync(path.join(__dirname, 'init.sql'), 'utf-8');
     const statements = sqlFile
       .split(/;\s*(?=(?:[^'"`]*(?:['"`])[^'"`]*\1)*[^'"`]*$)/m)

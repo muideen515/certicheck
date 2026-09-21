@@ -2,7 +2,37 @@ const pool = require('../db/connection');
 const User = require('./User');
 
 class Application {
+  static suggestIssuerEmail(contactName, fallbackEmail = '') {
+    const cleanedName = String(contactName || '').trim();
+    const base = cleanedName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '.')
+      .replace(/^\.+|\.+$/g, '');
+
+    if (base) {
+      return `${base}@certicheck.com`;
+    }
+
+    const fallback = String(fallbackEmail || '').trim().toLowerCase();
+    return fallback && fallback.includes('@') ? fallback : 'issuer@certicheck.com';
+  }
+
+  static normalizeIssuerEmail(contactEmail, contactName) {
+    const raw = String(contactEmail || '').trim().toLowerCase();
+    if (!raw) {
+      return this.suggestIssuerEmail(contactName);
+    }
+
+    if (!raw.endsWith('@certicheck.com')) {
+      throw new Error(`Issuer email must use the @certicheck.com domain. Suggested: ${this.suggestIssuerEmail(contactName, raw)}`);
+    }
+
+    return raw;
+  }
+
   static async create(issuerId, orgName, orgType, website, contactName, contactEmail, contactRole, volume, useCase, wallet) {
+    const normalizedEmail = this.normalizeIssuerEmail(contactEmail, contactName);
+
     const existingProfile = await pool.query(
       'SELECT id FROM issuer_profiles WHERE user_id = $1 LIMIT 1',
       [issuerId]
@@ -32,7 +62,7 @@ class Application {
        (issuer_id, organization_name, organization_type, organization_website, contact_name, contact_email, contact_role, certificate_volume, use_case, wallet_address)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id, organization_name, status, submitted_at`,
-      [issuerProfileId, orgName, orgType, website, contactName, contactEmail, contactRole, volume, useCase, wallet]
+      [issuerProfileId, orgName, orgType, website, contactName, normalizedEmail, contactRole, volume, useCase, wallet]
     );
     return result.rows[0];
   }
@@ -76,7 +106,7 @@ class Application {
 
       if (profile.rows[0]?.user_id) {
         await pool.query(
-          `UPDATE users SET user_type = 'issuer', updated_at = NOW() WHERE id = $1`,
+          `UPDATE users SET user_type = 'issuer', is_active = TRUE, updated_at = NOW() WHERE id = $1`,
           [profile.rows[0].user_id]
         );
       }
@@ -98,6 +128,18 @@ class Application {
         `UPDATE issuer_profiles SET status = 'rejected', updated_at = NOW() WHERE id = $1`,
         [result.rows[0].issuer_id]
       );
+
+      const profile = await pool.query(
+        'SELECT user_id FROM issuer_profiles WHERE id = $1 LIMIT 1',
+        [result.rows[0].issuer_id]
+      );
+
+      if (profile.rows[0]?.user_id) {
+        await pool.query(
+          `UPDATE users SET is_active = FALSE, updated_at = NOW() WHERE id = $1`,
+          [profile.rows[0].user_id]
+        );
+      }
     }
 
     return result.rows[0];

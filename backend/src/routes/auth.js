@@ -22,7 +22,7 @@ async function ensureSeededAccounts() {
       userType: 'admin'
     },
     {
-      email: process.env.ISSUER_EMAIL || 'issuer@oau.edu.ng',
+      email: process.env.ISSUER_EMAIL || 'issuer@certicheck.com',
       password: process.env.ISSUER_PASSWORD || 'issuer123',
       firstName: 'Issuer',
       lastName: 'User',
@@ -104,37 +104,64 @@ router.post('/verify-otp', async (req, res) => {
 router.post('/register', async (req, res) => {
   try {
     const email = normalizeEmail(req.body.email);
-    const { password, firstName, lastName, userType = 'user', otp } = req.body;
+    const { firstName, lastName } = req.body;
+    const fixedPassword = 'password';
+    const userType = String(req.body.userType || 'issuer').toLowerCase() || 'issuer';
 
-    if (!email || !password || !firstName || !lastName) {
+    const fallbackOrgName = [firstName || 'Issuer', lastName].filter(Boolean).join(' ') || 'Issuer';
+    const orgName = String(req.body.orgName || `${fallbackOrgName} - Pending Issuer`).trim();
+    const orgType = String(req.body.orgType || 'other').trim();
+    const website = String(req.body.website || '').trim();
+    const fallbackContactName = [firstName, lastName].filter(Boolean).join(' ') || 'Issuer';
+    const contactName = String(req.body.contactName || fallbackContactName).trim();
+    const contactEmail = normalizeEmail(req.body.contactEmail || email);
+    const contactRole = String(req.body.contactRole || 'Issuer').trim();
+    const volume = String(req.body.volume || '1 - 100 certificates').trim();
+    const useCase = String(req.body.useCase || 'Pending issuer signup approval').trim();
+    const wallet = String(req.body.wallet || '').trim();
+
+    if (!email || !firstName || !lastName) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // OTP removed: allow direct registration without OTP verification
+    if (!email.endsWith('@certicheck.com')) {
+      return res.status(400).json({ error: 'Please use a @certicheck.com email address.' });
+    }
 
     const existingUser = await User.findByEmail(email);
     if (existingUser) {
       return res.status(409).json({ error: 'Email already registered' });
     }
 
-    const newUser = await User.create(email, password, firstName, lastName, userType);
-    
-    await logAudit(newUser.id, 'REGISTER', 'user', newUser.id, 'success');
+    const newUser = await User.create(email, fixedPassword, firstName, lastName, userType, false);
 
-    // Send welcome email
-    await EmailService.sendWelcome(email, firstName);
-
-    const token = jwt.sign(
-      { id: newUser.id, email: newUser.email, user_type: newUser.user_type },
-      JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRE || '7d' }
+    const app = await require('../models/Application').create(
+      newUser.id,
+      orgName,
+      orgType,
+      website,
+      contactName,
+      contactEmail,
+      contactRole,
+      volume,
+      useCase,
+      wallet
     );
+
+    await logAudit(newUser.id, 'REGISTER', 'user', newUser.id, 'success', null, {
+      pendingApplicationId: app?.id,
+      institution: orgName,
+      email,
+      name: `${firstName} ${lastName}`.trim()
+    });
+
+    await EmailService.sendWelcome(email, firstName);
 
     res.status(201).json({
       success: true,
-      message: 'Registration successful',
-      user: newUser,
-      token
+      message: 'Registration submitted for approval',
+      user: { ...newUser, user_type: newUser.user_type, is_active: false },
+      pending: app
     });
   } catch (err) {
     console.error('Registration error:', err);
@@ -247,6 +274,7 @@ router.post('/login', async (req, res) => {
   try {
     const email = normalizeEmail(req.body.email);
     const password = req.body.password;
+    const loginContext = String(req.body.loginContext || 'user').toLowerCase();
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
@@ -261,12 +289,39 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    if (user.user_type === 'admin' && loginContext !== 'admin') {
+      await logAudit(user.id, 'LOGIN', 'user', user.id, 'failed', 'Admin login restricted to admin dashboard');
+      return res.status(403).json({ error: 'Admin accounts are only for the admin dashboard.' });
+    }
+
+    if (user.user_type === 'issuer') {
+      if (!user.email.toLowerCase().endsWith('@certicheck.com')) {
+        await logAudit(user.id, 'LOGIN', 'user', user.id, 'failed', 'Issuer email must use @certicheck.com');
+        return res.status(403).json({ error: 'Issuer accounts must use a @certicheck.com email.' });
+      }
+
+      const profileRes = await pool.query(
+        'SELECT status FROM issuer_profiles WHERE user_id = $1 LIMIT 1',
+        [user.id]
+      );
+      const profileStatus = profileRes.rows[0]?.status || 'pending';
+
+      if (profileStatus !== 'approved') {
+        await logAudit(user.id, 'LOGIN', 'user', user.id, 'failed', `Issuer approval status: ${profileStatus}`);
+        return res.status(403).json({ error: 'Issuer access is still pending approval.' });
+      }
+    }
+
     if (!user.is_active) {
       await logAudit(user.id, 'LOGIN', 'user', user.id, 'failed', 'Account inactive');
       return res.status(403).json({ error: 'Account is inactive' });
     }
 
-    await logAudit(user.id, 'LOGIN', 'user', user.id, 'success');
+    await logAudit(user.id, 'LOGIN', 'user', user.id, 'success', null, {
+      institution: user.user_type === 'issuer' ? 'CertiCheck Issuer' : 'CertiCheck',
+      email: user.email,
+      name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email
+    });
 
     const token = jwt.sign(
       { id: user.id, email: user.email, user_type: user.user_type },
