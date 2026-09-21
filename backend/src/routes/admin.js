@@ -1,11 +1,35 @@
 const express = require('express');
 const pool = require('../db/connection');
-const { verifyToken, verifyAdmin, logAudit } = require('../middleware/auth');
+const { verifyToken, verifyAdmin, logAudit, verifyAdminToken } = require('../middleware/auth');
 
+const { adminRateLimiter } = require('../middleware/rateLimit');
+const { adminIpAllowlist } = require('../middleware/adminIpAllowlist');
 const router = express.Router();
 
+// Global admin audit middleware: logs every admin route access after response finishes
+router.use(adminRateLimiter);
+router.use(adminIpAllowlist);
+
+router.use((req, res, next) => {
+  res.on('finish', () => {
+    try {
+      const adminId = req.user?.id || null;
+      const status = res.statusCode >= 400 ? 'failed' : 'success';
+      const metadata = { method: req.method, path: req.path, statusCode: res.statusCode };
+      pool.query(
+        `INSERT INTO audit_log (user_id, action, action_type, resource_type, resource_id, status, error_message, ip_address, user_agent, metadata, timestamp)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+        [adminId, 'ADMIN_ACTION', 'admin', 'route', req.path, status, null, req.ip || null, req.get('User-Agent') || null, JSON.stringify(metadata)]
+      ).catch(err => console.error('Admin audit insert failed:', err.message || err));
+    } catch (e) {
+      console.error('Admin audit middleware error:', e.message || e);
+    }
+  });
+  next();
+});
+
 // ── ADMIN DASHBOARD STATS ───────────────────────────────────────────────────
-router.get('/dashboard', verifyToken, verifyAdmin, async (req, res) => {
+router.get('/dashboard', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const pendingApps = await pool.query(
       'SELECT COUNT(*) as count FROM pending_applications WHERE status = $1',
@@ -47,7 +71,7 @@ router.get('/dashboard', verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // ── ADMIN ACCESS LOG ────────────────────────────────────────────────────────
-router.post('/access-log', verifyToken, verifyAdmin, async (req, res) => {
+router.post('/access-log', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const { section, method } = req.body;
 
@@ -67,7 +91,7 @@ router.post('/access-log', verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // ── GET AUDIT LOG ───────────────────────────────────────────────────────────
-router.get('/audit-log', verifyToken, verifyAdmin, async (req, res) => {
+router.get('/audit-log', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
     const offset = parseInt(req.query.offset) || 0;
@@ -99,7 +123,7 @@ router.get('/audit-log', verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // ── GET LOGIN ATTEMPTS (with failures) ──────────────────────────────────────
-router.get('/login-attempts', verifyToken, verifyAdmin, async (req, res) => {
+router.get('/login-attempts', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT user_id, COUNT(*) as count, MAX(timestamp) as last_attempt, status
@@ -120,7 +144,7 @@ router.get('/login-attempts', verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // ── GET EVIDENCE SNAPSHOT ─────────────────────────────────────────────────
-router.get('/evidence', verifyToken, verifyAdmin, async (req, res) => {
+router.get('/evidence', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const pendingApps = await pool.query(
       `SELECT id, organization_name, contact_name, contact_email, status, submitted_at
@@ -144,7 +168,7 @@ router.get('/evidence', verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // ── GET FAILED PASSWORD ATTEMPTS ────────────────────────────────────────────
-router.get('/failed-passwords', verifyToken, verifyAdmin, async (req, res) => {
+router.get('/failed-passwords', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT * FROM wrong_password_attempts WHERE attempt_count > 3

@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Quick Start Guide — Certicheck</title>
+  <link rel="stylesheet" href="styling.css">
+</head>
+<body>
+  <nav id="navbar">
+    <button class="nav-logo" data-page="home">Certicheck</button>
+  </nav>
+  <main class="page-wrap" style="max-width:900px;margin:40px auto;">
+    <h1>Quick Start Guide</h1>
+    <p>Issue your first certificate on Solana devnet in under 5 minutes.</p>
+
+    <h2 id="prereqs">Prerequisites</h2>
+    <ul>
+      <li>Node.js (16+)</li>
+      <li>A running backend API (see <a href="/backend/README.md">backend README</a>)</li>
+      <li>Solana CLI and devnet access (optional for on-chain issuance)</li>
+    </ul>
+
+    <h2 id="steps">Steps</h2>
+    <ol>
+      <li>Start the backend API (example):
+        <pre><code>cd backend
+npm install
+npm run start
+</code></pre>
+      </li>
+      <li>Open the frontend and navigate to the Issue flow (or use API):
+        <pre><code>POST /api/certificates/issue
+Content-Type: application/json
+Authorization: Bearer &lt;issuer-token&gt;
+
+{
+  "certificateId": "cert-12345",
+  "holderName": "Alice Example",
+  "holderEmail": "alice@example.com",
+  "certificateType": "Completion",
+  "issuerName": "Example Academy",
+  "issuerWallet": "",
+  "onChain": false
+}
+</code></pre>
+      </li>
+      <li>Verify the certificate by calling the verification endpoint or using the Verify UI.</li>
+    </ol>
+
+    <h2 id="documentation">Documentation</h2>
+    <p>Full API reference, SDK docs, and integration guides are available in the repository docs and on the Resources page.</p>
+
+  </main>
+</body>
+</html>

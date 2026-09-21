@@ -113,6 +113,7 @@ This executes the certificate store unit test and the certificate API flow integ
 - `POST /api/applications/submit` - Submit issuer application
 - `GET /api/applications/pending` - Get pending applications (admin only)
 - `GET /api/applications/rejected` - Get rejected applications (admin only)
+- On-chain issuance: see [ONCHAIN_SETUP.md](ONCHAIN_SETUP.md) for steps to enable Solana payer keypair and deployment details
 - `GET /api/applications` - Get all applications (admin only)
 - `PUT /api/applications/:appId/approve` - Approve application (admin only)
 - `PUT /api/applications/:appId/reject` - Reject application (admin only)

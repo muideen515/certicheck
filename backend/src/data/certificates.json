@@ -219,5 +219,22 @@
     "revoked_at": null,
     "revoked_by": null,
     "created_by": 1
+  },
+  {
+    "id": 14,
+    "certificate_id": "TEST-ISSUE-001",
+    "certificate_type": "Test Certificate",
+    "verification_status": "valid",
+    "verification_message": "Issued via Certicheck",
+    "blockchain_hash": "8e34dec5e961870de1e65cefb7b5524fc0a96bb91b68de87f65f326ae4f5f935",
+    "blockchain_transaction_id": null,
+    "holder_name": "Test Holder",
+    "holder_email": "holder@example.com",
+    "issuer_name": "Demo Issuer",
+    "issuer_wallet": "demo",
+    "checked_at": "2026-09-21T20:14:30.100Z",
+    "revoked_at": null,
+    "revoked_by": null,
+    "created_by": 1
   }
 ]

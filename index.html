@@ -34,19 +34,16 @@
 
       <ul class="nav-links" role="list">
       <li><button class="nav-item active" data-page="home">Home</button></li>
-      <li><button class="nav-item" data-page="apply">Apply</button></li>
       <li><button class="nav-item" data-page="faqs">FAQs</button></li>
       <li><button class="nav-item" data-page="tps">TP/S</button></li>
-      <li><button class="nav-item" data-page="test">Test</button></li>
       <li><a class="nav-item external" href="https://github.com/" target="_blank" rel="noopener">
         View Open Source <span class="ext-icon">↗</span>
       </a></li>
       <li><button class="nav-item" data-page="resources">Resources</button></li>
     </ul>
 
-    <div class="nav-actions">
+      <div class="nav-actions">
       <button id="themeToggle" class="btn-toggle" aria-label="Toggle dark mode" title="Switch to dark mode"></button>
-      <button class="btn-ghost" data-page="signup">Sign up</button>
       <button class="btn-ghost" data-page="login">Login</button>
     </div>
   </nav>
@@ -76,6 +73,13 @@
       <div class="hero-grid-bg"></div>
 
       <div class="hero-content">
+        <div class="preview-links-panel" style="margin-bottom: 18px; background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 12px; padding: 12px 14px; display: inline-flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+          <span style="font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: #cbd5e1;">Live preview:</span>
+          <a id="mainPreviewLink" href="" style="color: #8b5cf6; font-weight: 700;">Main site</a>
+          <span style="color: #94a3b8;">|</span>
+          <a id="adminPreviewLink" href="" style="color: #8b5cf6; font-weight: 700;">Admin site</a>
+        </div>
+
         <h1 class="hero-title">
           Build on<br/>
           <span class="gradient-text">Decentralized</span><br/>
@@ -88,11 +92,6 @@
           <div class="entry-card">
             <div class="entry-title"></div>
             <div class="entry-actions"><button id="homeVerifyBtn" class="btn-primary" data-page="test">Verify now</button></div>
-          </div>
-
-          <div class="entry-card">
-            <div class="entry-title"></div>
-            <div class="entry-actions"><button id="homeGraduateBtn" class="btn-outline" data-page="signup">Sign in / Sign up</button></div>
           </div>
 
           <div class="entry-card">
@@ -718,6 +717,8 @@
   </footer>
 
   <script src="https://unpkg.com/@solana/web3.js@1.90.0/lib/index.iife.min.js"></script>
-  <script src="script"></script>
+  <script src="script.js"></script>
 </body>
-</html>
+</html>cd backend
+npm install
+npm run start

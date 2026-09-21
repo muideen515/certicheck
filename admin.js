@@ -1,6 +1,21 @@
 "use strict";
 
-const API_BASE_URL = `${window.location.origin}/api`;
+const API_BASE_URL = (function() {
+  try {
+    const host = window.location.hostname;
+    const port = window.location.port;
+    if (host === '127.0.0.1' || host === 'localhost') {
+      if (port && port !== '5000') return 'http://127.0.0.1:5000/api';
+    }
+    if (host.includes('.app.github.dev') || host.includes('.githubpreview.dev')) {
+      const backendHost = host.replace(/-5500\./, '-5000.').replace(/-3000\./, '-5000.');
+      return `https://${backendHost}/api`;
+    }
+  } catch (e) {
+    return 'http://127.0.0.1:5000/api';
+  }
+  return `${window.location.origin}/api`;
+})();
 const ADMIN_SESSION_KEY = "certicheck_admin_logged_in";
 const ADMIN_TOKEN_KEY = "certicheck_admin_token";
 const ADMIN_USER_KEY = "certicheck_admin_user";
@@ -192,7 +207,7 @@ function renderAdminDashboard() {
           </div>
           <div class="admin-action-row">
             <button class="btn-success" data-action="approve" data-id="${app.id}">Approve</button>
-            <button class="btn-ghost" data-action="create-account" data-id="${app.id}">Create Account</button>
+            <!--<button class="btn-ghost" data-action="create-account" data-id="${app.id}">Create Account</button>-->
             <button class="btn-danger" data-action="reject" data-id="${app.id}">Reject</button>
           </div>
         </div>
@@ -303,14 +318,14 @@ function renderAdminDashboard() {
     `).join("");
   }
 
-  list.querySelectorAll("button[data-action]").forEach(button => {
+    list.querySelectorAll("button[data-action]").forEach(button => {
     button.addEventListener("click", () => {
       const action = button.dataset.action;
       const id = button.dataset.id;
       if (action === "approve" || action === "reject") {
         handleApplicationAction(action, id);
-      } else if (action === 'create-account') {
-        handleCreateAccountForApplication(id);
+      }
+      // 'create-account' action removed — admin will not create linked accounts from the UI
       } else if (action === "revoke") {
         handleRevokeAction(id);
       }
@@ -393,7 +408,7 @@ async function loginAdmin(event) {
   }
 
   try {
-    const data = await requestJson("/auth/login", {
+    const data = await requestJson("/auth/admin/login", {
       method: "POST",
       body: JSON.stringify({ email, password })
     });
@@ -404,6 +419,7 @@ async function loginAdmin(event) {
 
     adminState.token = data.token;
     adminState.user = data.user;
+    // store admin token separately from regular user token
     localStorage.setItem(ADMIN_TOKEN_KEY, data.token);
     localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(data.user));
     setAdminState(true, data.user);
@@ -416,8 +432,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const loginForm = document.getElementById("adminLoginForm");
   const logoutBtn = document.getElementById("adminLogoutBtn");
   const returnBtn = document.getElementById("adminReturnBtn");
+  const devLoginBtn = document.getElementById("adminDevLoginBtn");
 
   loginForm?.addEventListener("submit", loginAdmin);
+  devLoginBtn?.addEventListener('click', () => {
+    const user = { email: 'admin@certicheck.com', first_name: 'Admin', last_name: 'User', user_type: 'admin' };
+    adminState.token = 'demo-token';
+    adminState.user = user;
+    localStorage.setItem(ADMIN_TOKEN_KEY, adminState.token);
+    localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(user));
+    setAdminState(true, user);
+  });
   logoutBtn?.addEventListener("click", () => setAdminState(false));
   returnBtn?.addEventListener("click", () => window.location.href = "index.html");
 
