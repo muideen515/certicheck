@@ -92,7 +92,7 @@
 
           <div class="entry-card">
             <div class="entry-title"></div>
-            <div class="entry-actions"><button id="homeIssuerBtn" class="btn-outline" data-page="apply">Apply as issuer</button></div>
+            <div class="entry-actions"><button id="homeIssuerBtn" class="btn-outline" data-page="signup">Apply as issuer</button></div>
           </div>
         </div>
 
@@ -508,7 +508,9 @@
               <option value="college">College</option>
               <option value="bootcamp">Bootcamp</option>
               <option value="corporate">Corporate</option>
-              <option value="government">Government</option>
+              <option value="law-firm">Law firm</option>
+              <option value="bank">Bank</option>
+              <option value="government">Governmental organization</option>
               <option value="ngo">NGO</option>
               <option value="other">Other</option>
             </select>
@@ -526,9 +528,13 @@
             <input class="field-input" id="contactName" placeholder="Jane Doe" type="text"/>
           </div>
           <div class="field">
-            <label class="field-label" for="contactEmail">Work Email</label>
-            <input class="field-input" id="contactEmail" placeholder="jane@organisation.com" type="email" autocomplete="email"/>
-            <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;">Hint: use an organisation email (e.g. <em>@certicheck.com</em>)</div>
+            <label class="field-label" for="contactEmail">Contact Email</label>
+            <div id="contactEmailWrapper">
+              <input class="field-input" id="contactEmailInput" placeholder="jane@organisation.com" type="email" autocomplete="email"/>
+              <div id="contactEmailDisplay" style="display:none;padding:10px 12px;border-radius:8px;background:var(--bg-subtle);color:var(--text-primary);"></div>
+              <input type="hidden" id="contactEmail" />
+            </div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;">Hint: we'll use the email you registered with if available.</div>
           </div>
           <div class="field">
             <label class="field-label" for="contactRole">Role / Title</label>

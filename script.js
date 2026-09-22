@@ -971,12 +971,29 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // Home CTAs set signup type
   document.getElementById('homeGraduateBtn')?.addEventListener('click', () => { desiredSignupType = 'holder'; });
-  document.getElementById('homeIssuerBtn')?.addEventListener('click', () => { desiredSignupType = 'issuer'; });
+  // Apply as issuer should open sign-up and preselect issuer role
+  document.getElementById('homeIssuerBtn')?.addEventListener('click', (e) => { desiredSignupType = 'issuer'; });
   document.getElementById('homeVerifyBtn')?.addEventListener('click', () => { desiredSignupType = null; });
+
+  // When opening the apply/signup page, prefill the contact email input with registered email if available
+  document.querySelectorAll('[data-page="apply"],[data-page="signup"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const stored = getStoredUser();
+      const emailInput = document.getElementById('contactEmailInput');
+      const emailHidden = document.getElementById('contactEmail');
+      if (stored && stored.email) {
+        if (emailInput) emailInput.value = stored.email;
+        if (emailHidden) emailHidden.value = stored.email;
+      } else {
+        if (emailInput) emailInput.value = '';
+        if (emailHidden) emailHidden.value = '';
+      }
+    });
+  });
   // Ensure hero CTA buttons navigate on all screen sizes
   const homeVerify = document.getElementById('homeVerifyBtn');
   const homeIssuer = document.getElementById('homeIssuerBtn');
-  if (homeVerify) homeVerify.addEventListener('click', (e) => { e.preventDefault(); navigate('test'); });
+  if (homeVerify) homeVerify.addEventListener('click', (e) => { e.preventDefault(); navigate('verify'); });
   if (homeIssuer) homeIssuer.addEventListener('click', (e) => { e.preventDefault(); navigate('apply'); });
 
   // Wire holder page init on navigation
@@ -1726,6 +1743,8 @@ function initSignupForm() {
   const passwordEl = document.getElementById("signupPassword");
   const confirmPasswordEl = document.getElementById("signupConfirmPassword");
   const errorEl = document.getElementById("signupError");
+  const resendBtn = document.getElementById("resendOtpBtn");
+  const otpInput = document.getElementById("otpCode");
 
   if (!btn) return;
 
@@ -1963,8 +1982,7 @@ function initSignupForm() {
         });
       } catch {}
 
-      otpInput.value = "";
-      otpInput.focus();
+      if (otpInput) { otpInput.value = ""; otpInput.focus(); }
       errorEl.style.display = "none";
       resendBtn.textContent = "OTP skipped in demo mode";
       setTimeout(() => {
@@ -2032,28 +2050,25 @@ function initLoginForm() {
       if (response.ok) {
         const data = await response.json();
         if (data.token) {
-          if (remember) {
-            setRememberedLoginEmail(email);
-          } else {
-            setRememberedLoginEmail("");
-          }
+          if (remember) setRememberedLoginEmail(email); else setRememberedLoginEmail("");
           saveAuthSession(data.token, data.user);
           return navigate(data.user.user_type === 'admin' ? 'home' : data.user.user_type === 'issuer' ? 'home' : 'holder');
         }
       }
 
-      if (remember) {
-        setRememberedLoginEmail(email);
-      } else {
-        setRememberedLoginEmail("");
-      }
+      // Non-OK response: show error message returned by API
+      let errMsg = 'Invalid credentials';
+      try {
+        const errData = await response.json();
+        if (errData && errData.error) errMsg = errData.error;
+      } catch (e) {}
+      errorEl.textContent = errMsg;
+      errorEl.style.display = 'block';
+      if (remember) setRememberedLoginEmail(email); else setRememberedLoginEmail("");
 
-      // Demo login: preserve desired role if set
-      const role = desiredSignupType || 'issuer';
-      saveDemoAuthSessionWithRole(email, 'Demo', 'User', role);
-      navigate(role === 'holder' ? 'holder' : 'home');
     } catch (err) {
-      console.warn('Login request failed, falling back to demo mode:', err.message);
+      // Network or unexpected error: fallback to demo local session
+      console.warn('Login request failed (network):', err.message || err);
       const role = desiredSignupType || 'issuer';
       saveDemoAuthSessionWithRole(email, 'Demo', 'User', role);
       navigate(role === 'holder' ? 'holder' : 'home');
@@ -2319,7 +2334,10 @@ function setApplyStep(step) {
 
 function submitApplyForm() {
   const name  = document.getElementById("contactName")?.value || "";
-  const email = document.getElementById("contactEmail")?.value || "";
+  // prefer registered email when available
+  const registered = getStoredUser()?.email || null;
+  const emailInput = document.getElementById("contactEmailInput");
+  const email = registered || (emailInput?.value || "");
   const volumeSelect = document.getElementById("volume");
   const volumeCustomInput = document.getElementById("volumeCustom");
   let volumeText = volumeSelect?.value || "";
@@ -2358,6 +2376,9 @@ function submitApplyForm() {
     .then(res => res.json())
     .then(data => {
       if (data.success || data.id) {
+        // ensure hidden contactEmail input contains the value used
+        const hidden = document.getElementById('contactEmail');
+        if (hidden) hidden.value = email;
         showSuccessMessage(name, email, volumeText);
       } else {
         console.error('Application submission failed:', data);
@@ -2368,6 +2389,7 @@ function submitApplyForm() {
     .catch(err => {
       console.error('Error submitting application:', err);
       saveApplicationLocally(applicationData);
+      const hidden = document.getElementById('contactEmail'); if (hidden) hidden.value = email;
       showSuccessMessage(name, email, volumeText);
     });
     } else {
@@ -2413,19 +2435,8 @@ function showSuccessMessage(name, email, volumeText) {
 
   const msg = document.getElementById("successMsg");
   if (msg) {
-    const contactLine = email ? `<a href="mailto:${email}" style="color:var(--purple-mid);font-weight:700">${email}</a>` : 'you';
-    if (name) {
-      msg.innerHTML = `Thank you, <strong>${name}</strong>.<br/>We'll contact <strong>${contactLine}</strong> within 1–3 business days.`;
-    } else {
-      msg.innerHTML = `Application received. We'll contact <strong>${contactLine}</strong> within 1–3 business days.`;
-    }
-
-    if (volumeText) {
-      msg.innerHTML += `<br/><small style="color:var(--text-secondary);margin-top:12px;display:block">Selected volume: ${volumeText}</small>`;
-    }
-    // Provide admin review link for convenience using the current preview origin.
-    const adminHref = `${getPreviewBaseUrl()}/admin.html`;
-    msg.innerHTML += `<br/><small style="display:block;margin-top:10px;color:var(--text-secondary)">Admin review: <a href="${adminHref}">Open admin console</a></small>`;
+    // Replace previous success wording with a concise waiting state
+    msg.innerHTML = `<div style="font-weight:800;font-size:18px;color:var(--purple-mid);">WAITING FOR REVIEW</div>`;
   }
 
   // Mark all steps done

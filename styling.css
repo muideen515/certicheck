@@ -1000,7 +1000,7 @@ body.dark .btn-toggle:hover {
 .hero-content {
   position: relative;
   z-index: 2;
-  max-width: 520px;
+  max-width: 720px;
   animation: fadeUp 0.9s ease both;
 }
 
@@ -1050,15 +1050,17 @@ body.dark .btn-toggle:hover {
 
 .hero-ctas {
   display: flex;
-  gap: 14px;
+  gap: 10px;
   align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: 52px;
+  flex-wrap: nowrap;
+  margin-bottom: 32px;
+  justify-content: flex-start;
 }
-.hero-cta { font-size: 15px; padding: 14px 20px 14px 28px; }
+.hero-cta { font-size: 15px; padding: 10px 14px; }
 
-.hero-ctas .entry-card { flex: 1 1 280px; min-width: 220px; }
-.hero-ctas .entry-actions { display:flex; }
+.hero-ctas .entry-card { flex: 0 0 auto; min-width: 140px; max-width: 360px; }
+.hero-ctas .entry-actions { display:flex; justify-content: flex-start; }
+.hero-ctas .entry-actions button { width: auto; min-width: 140px; max-width: 260px; padding: 10px 14px; border-radius: 12px; }
 
 .hero-stats {
   display: flex;
