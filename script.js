@@ -842,6 +842,7 @@ function navigate(page) {
   if (page === "resources") renderResources();
   if (page === "issuer")    initIssuerDashboard();
   if (page === "holder")    initHolderDashboard();
+  if (page === "verify")    { /* verify page is static in DOM; no extra init needed */ }
   initAuthPageForms(page);
 }
 
@@ -926,9 +927,20 @@ async function verifyCertificate() {
 // Wire all nav buttons & CTAs
 document.addEventListener("DOMContentLoaded", () => {
   bindPreviewLinks();
-  document.querySelectorAll("[data-page]").forEach(el => {
-    el.addEventListener("click", () => navigate(el.dataset.page));
-  });
+  // Use event delegation on the navbar to reliably catch clicks even when
+  // nav links are dynamically hidden/shown (mobile toggle).
+  const navbarEl = document.getElementById('navbar');
+  if (navbarEl) {
+    navbarEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-page]');
+      if (!btn) return;
+      const page = btn.dataset.page;
+      if (page) navigate(page);
+    });
+  } else {
+    // Fallback binding for any stray elements
+    document.querySelectorAll('[data-page]').forEach(el => el.addEventListener('click', () => navigate(el.dataset.page)));
+  }
   currentUser = getStoredUser();
   initTheme();
   initSignupForm();
@@ -937,19 +949,35 @@ document.addEventListener("DOMContentLoaded", () => {
   initAuthPageForms(currentPage);
 
   document.getElementById("verifyBtn")?.addEventListener("click", verifyCertificate);
+  // Demo code chips: populate input but do not auto-submit
   document.querySelectorAll(".code-inline[data-demo]").forEach(code => {
     code.addEventListener("click", () => {
       const value = code.dataset.demo;
       const input = document.getElementById("certIdInput");
-      if (input) input.value = value;
-      verifyCertificate();
+      if (input) {
+        input.value = value;
+        input.focus();
+      }
     });
   });
+
+  // Prefer form submission (Enter key) for verification
+  const verifyForm = document.getElementById('verifyForm');
+  if (verifyForm) {
+    verifyForm.addEventListener('submit', (e) => { e.preventDefault(); verifyCertificate(); });
+  } else {
+    document.getElementById("verifyBtn")?.addEventListener("click", verifyCertificate);
+  }
   
   // Home CTAs set signup type
   document.getElementById('homeGraduateBtn')?.addEventListener('click', () => { desiredSignupType = 'holder'; });
   document.getElementById('homeIssuerBtn')?.addEventListener('click', () => { desiredSignupType = 'issuer'; });
   document.getElementById('homeVerifyBtn')?.addEventListener('click', () => { desiredSignupType = null; });
+  // Ensure hero CTA buttons navigate on all screen sizes
+  const homeVerify = document.getElementById('homeVerifyBtn');
+  const homeIssuer = document.getElementById('homeIssuerBtn');
+  if (homeVerify) homeVerify.addEventListener('click', (e) => { e.preventDefault(); navigate('test'); });
+  if (homeIssuer) homeIssuer.addEventListener('click', (e) => { e.preventDefault(); navigate('apply'); });
 
   // Wire holder page init on navigation
   document.querySelectorAll('[data-page]').forEach(btn => {
@@ -958,15 +986,40 @@ document.addEventListener("DOMContentLoaded", () => {
       if (p === 'holder') initHolderDashboard();
     });
   });
+
+  // Mobile nav toggle
+  const navToggle = document.getElementById('navToggle');
+  navToggle && navToggle.addEventListener('click', () => {
+    const links = document.querySelector('.nav-links');
+    if (!links) return;
+    const isHidden = getComputedStyle(links).display === 'none';
+    links.style.display = isHidden ? 'flex' : 'none';
+  });
+  // Show toggle on small screens
+  function updateNavForWidth() {
+    const links = document.querySelector('.nav-links');
+    const toggle = document.getElementById('navToggle');
+    if (window.innerWidth <= 900) {
+      if (links) links.style.display = 'none';
+      if (toggle) toggle.style.display = 'inline-block';
+    } else {
+      if (links) links.style.display = 'flex';
+      if (toggle) toggle.style.display = 'none';
+    }
+  }
+  updateNavForWidth();
+  window.addEventListener('resize', updateNavForWidth);
 });
 
 /* ═══════════════════════════════════════════════
    NAVBAR — scroll shadow
 ═══════════════════════════════════════════════ */
 const navbar = document.getElementById("navbar");
-window.addEventListener("scroll", () => {
-  navbar.classList.toggle("scrolled", window.scrollY > 20);
-}, { passive: true });
+if (navbar) {
+  window.addEventListener("scroll", () => {
+    navbar.classList.toggle("scrolled", window.scrollY > 20);
+  }, { passive: true });
+}
 
 /* ═══════════════════════════════════════════════
    SCROLL HINT
@@ -979,18 +1032,19 @@ document.getElementById("scrollHint")?.addEventListener("click", () => {
    CUBE PARALLAX
 ═══════════════════════════════════════════════ */
 const cubeWraps = document.querySelectorAll(".cube-wrap");
+if (cubeWraps && cubeWraps.length) {
+  document.addEventListener("mousemove", (e) => {
+    const cx = window.innerWidth  / 2;
+    const cy = window.innerHeight / 2;
+    const dx = (e.clientX - cx) / cx;
+    const dy = (e.clientY - cy) / cy;
 
-document.addEventListener("mousemove", (e) => {
-  const cx = window.innerWidth  / 2;
-  const cy = window.innerHeight / 2;
-  const dx = (e.clientX - cx) / cx;
-  const dy = (e.clientY - cy) / cy;
-
-  cubeWraps.forEach((wrap, i) => {
-    const depth = 0.6 + i * 0.14;
-    wrap.style.transform = `translate(${dx * 18 * depth}px, ${dy * 12 * depth}px)`;
+    cubeWraps.forEach((wrap, i) => {
+      const depth = 0.6 + i * 0.14;
+      wrap.style.transform = `translate(${dx * 18 * depth}px, ${dy * 12 * depth}px)`;
+    });
   });
-});
+}
 
 /* ═══════════════════════════════════════════════
    TPS — live Solana data
@@ -1740,16 +1794,24 @@ function initSignupForm() {
           btn.textContent = 'Create account';
           return;
         }
-      } catch (e) {
-        console.warn('Registration request failed', e);
+        } catch (e) {
+          console.warn('Registration request failed', e);
+          errorEl.textContent = 'Registration failed';
+          errorEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'Create account';
+          return;
+        }
+      } catch (err) {
+        console.warn('Signup flow failed', err);
         errorEl.textContent = 'Registration failed';
         errorEl.style.display = 'block';
         btn.disabled = false;
         btn.textContent = 'Create account';
         return;
       }
-      
-    // Try chain-first via API fallback, then local store
+
+      // Try chain-first via API fallback, then local store
     const token = getAuthToken();
     const storedUser = getStoredUser();
     const userEmail = (storedUser?.email || '').trim();
@@ -1812,7 +1874,6 @@ function initSignupForm() {
     } catch (err) {
       console.warn('Failed to initialize holder dashboard:', err);
       listEl.innerHTML = '<div>No certificates found for your account.</div>';
-    }
     }
 
     try {

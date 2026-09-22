@@ -354,6 +354,19 @@ router.post('/admin/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
+    // If running in DEMO_MODE, allow a built-in admin account without DB.
+    if (process.env.DEMO_MODE === 'true') {
+      const demoEmail = (process.env.ADMIN_EMAIL || 'admin@certicheck.com').toLowerCase();
+      const demoPassword = process.env.ADMIN_PASSWORD || 'admin123';
+      if (email === demoEmail && password === demoPassword) {
+        const token = jwt.sign({ id: 0, email: email, user_type: 'admin', isAdmin: true }, process.env.ADMIN_JWT_SECRET || JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '7d' });
+        await logAudit(0, 'LOGIN', 'admin', 0, 'success');
+        return res.json({ success: true, token, user: { id: 0, email, first_name: 'Admin', last_name: 'User', user_type: 'admin' } });
+      }
+      await logAudit(null, 'LOGIN', 'admin', null, 'failed', 'Invalid admin credentials (demo)');
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
     await ensureSeededAccounts();
 
     const user = await User.verifyPassword(email, password);

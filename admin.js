@@ -19,15 +19,13 @@ const API_BASE_URL = (function() {
 const ADMIN_SESSION_KEY = "certicheck_admin_logged_in";
 const ADMIN_TOKEN_KEY = "certicheck_admin_token";
 const ADMIN_USER_KEY = "certicheck_admin_user";
+// Reduced admin sections: keep only 'audit' and surface other items in audit view
 const ADMIN_SECTIONS = [
-  { id: "pending", label: "Pending approvals" },
-  { id: "rejected", label: "Rejected requests" },
-  { id: "checks", label: "Past certificate checks" },
-  { id: "revoked", label: "Revoked certificates" },
   { id: "audit", label: "Audit log" },
 ];
 
-let adminCurrentSection = "pending";
+let adminCurrentSection = "audit";
+let adminAuditFilter = 'all';
 let adminState = {
   token: localStorage.getItem(ADMIN_TOKEN_KEY) || "",
   user: null,
@@ -97,11 +95,12 @@ function setAdminState(enabled, user = null) {
   const loginCard = document.getElementById("adminLoginCard");
   const dashboard = document.getElementById("adminDashboard");
   const welcome = document.getElementById("adminWelcome");
+  const navbarSignOut = document.getElementById('adminLogoutBtn');
 
   if (enabled) {
     sessionStorage.setItem(ADMIN_SESSION_KEY, "1");
-    loginCard.style.display = "none";
-    dashboard.style.display = "block";
+    if (loginCard) loginCard.style.display = "none";
+    if (dashboard) dashboard.style.display = "block";
     clearAdminError();
     if (welcome) {
       welcome.textContent = user?.first_name || user?.email || "Admin";
@@ -118,7 +117,7 @@ function setAdminState(enabled, user = null) {
       const initials = (user.first_name[0] || 'A') + (user.last_name ? user.last_name[0] : 'D');
       avatar.textContent = initials.toUpperCase();
     }
-    renderAdminTabs();
+      // no visible tabs in simplified UI
     loadAdminDashboard();
   } else {
     sessionStorage.removeItem(ADMIN_SESSION_KEY);
@@ -126,25 +125,29 @@ function setAdminState(enabled, user = null) {
     localStorage.removeItem(ADMIN_USER_KEY);
     adminState.token = "";
     adminState.user = null;
-    loginCard.style.display = "block";
-    dashboard.style.display = "none";
+    if (loginCard) loginCard.style.display = "block";
+    if (dashboard) dashboard.style.display = "none";
     clearAdminError();
   }
 }
 
-function renderAdminTabs() {
-  const tabs = document.getElementById("adminTabs");
-  if (!tabs) return;
-
-  tabs.innerHTML = ADMIN_SECTIONS.map(section => `
-    <button class="admin-tab-button${adminCurrentSection === section.id ? " active" : ""}" data-section="${section.id}">
-      ${section.label}
-    </button>
-  `).join("");
-
-  tabs.querySelectorAll("button[data-section]").forEach(button => {
-    button.addEventListener("click", () => setAdminSection(button.dataset.section));
+// Quick action wiring: filter audit view
+function bindQuickActions() {
+  const container = document.querySelector('.quick-actions');
+  if (!container) return;
+  container.querySelectorAll('button[data-action-quick]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.actionQuick;
+      adminAuditFilter = action || 'all';
+      adminCurrentSection = 'audit';
+      renderAdminDashboard();
+    });
   });
+}
+
+function renderAdminTabs() {
+  // tabs intentionally removed — quick actions control the view
+  return;
 }
 
 function setAdminSection(section) {
@@ -155,6 +158,8 @@ function setAdminSection(section) {
   });
   renderAdminDashboard();
 }
+
+// Apply audit filter inside renderAdminDashboard
 
 function renderAdminDashboard() {
   const list = document.getElementById("adminList");
@@ -183,152 +188,59 @@ function renderAdminDashboard() {
       </div>
     `;
   }
-
   const renderEmpty = message => `
     <div style="padding:24px;border-radius:20px;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);">${message}</div>
   `;
 
-  if (adminCurrentSection === "pending") {
-    const pending = adminState.pendingApps || [];
-    summary.textContent = `${pending.length} pending application${pending.length === 1 ? "" : "s"}`;
-    intro.textContent = "Approve issuer requests and grant certificate issuance access.";
+  // Only audit view is supported in the simplified UI. Merge pending/rejected into audit.
+  const auditLog = (adminState.auditLog || []).slice();
+  // Append pending and rejected applications as audit entries for visibility
+  (adminState.pendingApps || []).forEach(app => {
+    auditLog.unshift({ action_type: 'Pending Application', timestamp: app.submitted_at || app.created_at || new Date().toISOString(), status: 'pending', error_message: `${app.organization_name || app.orgName || 'Organisation'} — ${app.contact_email || app.contactEmail || ''}` });
+  });
+  (adminState.rejectedApps || []).forEach(app => {
+    auditLog.unshift({ action_type: 'Rejected Application', timestamp: app.rejected_at || app.updated_at || new Date().toISOString(), status: 'rejected', error_message: `${app.organization_name || app.orgName || 'Organisation'} — ${app.contact_email || app.contactEmail || ''}` });
+  });
 
-    if (!pending.length) {
-      list.innerHTML = renderEmpty("No issuer applications are waiting for approval.");
-      return;
-    }
+  summary.textContent = `${auditLog.length} audit entries`;
+  intro.textContent = "Review privileged admin activity, pending and rejected issuer applications.";
 
-    list.innerHTML = pending.map(app => `
-      <div class="admin-list-card">
-        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start;">
-          <div>
-            <div style="font-size:15px;font-weight:800;color:var(--text-primary);">${app.organization_name || app.orgName || "Unknown organisation"}</div>
-            <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">${app.organization_type || app.orgType || "—"} · ${app.organization_website || app.orgWebsite || "No website provided"}</div>
-          </div>
-          <div class="admin-action-row">
-            <button class="btn-success" data-action="approve" data-id="${app.id}">Approve</button>
-            <!--<button class="btn-ghost" data-action="create-account" data-id="${app.id}">Create Account</button>-->
-            <button class="btn-danger" data-action="reject" data-id="${app.id}">Reject</button>
-          </div>
-        </div>
-        <div class="admin-detail-grid">
-          <div class="admin-detail-item"><span class="admin-detail-label">Contact</span>${app.contact_name || app.contactName || "-"}<br/><a href="mailto:${app.contact_email || app.contactEmail || ""}" style="color:var(--purple-mid);">${app.contact_email || app.contactEmail || "-"}</a></div>
-          <div class="admin-detail-item"><span class="admin-detail-label">Role</span>${app.contact_role || app.contactRole || "-"}</div>
-          <div class="admin-detail-item"><span class="admin-detail-label">Volume</span>${app.certificate_volume || app.volume || "-"}</div>
-          <div class="admin-detail-item"><span class="admin-detail-label">Wallet</span>${app.wallet_address || app.wallet || "Optional"}</div>
-        </div>
-        <div style="margin-top:14px;color:var(--text-secondary);font-size:13px;">${app.use_case || app.useCase || "No use case described."}</div>
-      </div>
-    `).join("");
-  } else if (adminCurrentSection === "rejected") {
-    const rejected = adminState.rejectedApps || [];
-    summary.textContent = `${rejected.length} rejected request${rejected.length === 1 ? "" : "s"}`;
-    intro.textContent = "Review rejected issuer applications and re-open them if needed.";
-
-    if (!rejected.length) {
-      list.innerHTML = renderEmpty("There are no rejected requests at the moment.");
-      return;
-    }
-
-    list.innerHTML = rejected.map(app => `
-      <div class="admin-list-card">
-        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start;">
-          <div>
-            <div style="font-size:15px;font-weight:800;color:var(--text-primary);">${app.organization_name || app.orgName || "Unknown organisation"}</div>
-            <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">${app.organization_type || app.orgType || "—"} · ${app.organization_website || app.orgWebsite || "No website provided"}</div>
-          </div>
-          <div class="admin-status-pill danger">Rejected</div>
-        </div>
-        <div class="admin-detail-grid">
-          <div class="admin-detail-item"><span class="admin-detail-label">Contact</span>${app.contact_name || app.contactName || "-"}<br/><a href="mailto:${app.contact_email || app.contactEmail || ""}" style="color:var(--purple-mid);">${app.contact_email || app.contactEmail || "-"}</a></div>
-          <div class="admin-detail-item"><span class="admin-detail-label">Role</span>${app.contact_role || app.contactRole || "-"}</div>
-          <div class="admin-detail-item"><span class="admin-detail-label">Volume</span>${app.certificate_volume || app.volume || "-"}</div>
-          <div class="admin-detail-item"><span class="admin-detail-label">Wallet</span>${app.wallet_address || app.wallet || "Optional"}</div>
-        </div>
-      </div>
-    `).join("");
-  } else if (adminCurrentSection === "checks") {
-    const checks = adminState.checks || [];
-    summary.textContent = `${checks.length} certificate check${checks.length === 1 ? "" : "s"}`;
-    intro.textContent = "Review recent certificate verification activity and revoke certificates when needed.";
-
-    if (!checks.length) {
-      list.innerHTML = renderEmpty("No certificate checks have been performed yet.");
-      return;
-    }
-
-    list.innerHTML = checks.map(item => `
-      <div class="admin-list-card">
-        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start;">
-          <div>
-            <div style="font-size:15px;font-weight:800;color:var(--text-primary);">${item.certificate_id || item.certId || "Unknown certificate"}</div>
-            <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">${formatDateTime(item.checked_at || item.checkedAt)}</div>
-          </div>
-          <div class="admin-action-row">
-            <span class="admin-status-pill ${item.verification_status === "revoked" ? "danger" : item.verification_status === "valid" ? "success" : "warning"}">${item.verification_status || item.status || "unknown"}</span>
-            ${item.verification_status !== "revoked" ? `<button class="btn-danger" data-action="revoke" data-id="${item.id}">Revoke</button>` : ""}
-          </div>
-        </div>
-        <div style="margin-top:14px;color:var(--text-secondary);font-size:13px;">Result details: ${item.verification_message || item.message || "No details provided."}</div>
-      </div>
-    `).join("");
-  } else if (adminCurrentSection === "revoked") {
-    const revoked = adminState.revoked || [];
-    summary.textContent = `${revoked.length} revoked certificate${revoked.length === 1 ? "" : "s"}`;
-    intro.textContent = "Manage certificates that were flagged as revoked.";
-
-    if (!revoked.length) {
-      list.innerHTML = renderEmpty("No revoked certificates exist yet.");
-      return;
-    }
-
-    list.innerHTML = revoked.map(item => `
-      <div class="admin-list-card">
-        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start;">
-          <div>
-            <div style="font-size:15px;font-weight:800;color:var(--text-primary);">${item.certificate_id || item.certId || "Unknown certificate"}</div>
-            <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">Revoked on ${formatDateTime(item.revoked_at || item.revokedAt)}</div>
-          </div>
-          <div class="admin-status-pill danger">Revoked</div>
-        </div>
-        <div style="margin-top:14px;color:var(--text-secondary);font-size:13px;">${item.verification_message || item.message || "No details provided."}</div>
-      </div>
-    `).join("");
-  } else if (adminCurrentSection === "audit") {
-    const auditLog = adminState.auditLog || [];
-    summary.textContent = `${auditLog.length} recent audit entr${auditLog.length === 1 ? "y" : "ies"}`;
-    intro.textContent = "Review privileged admin activity and audit history.";
-
-    if (!auditLog.length) {
-      list.innerHTML = renderEmpty("No audit activity has been recorded yet.");
-      return;
-    }
-
-    list.innerHTML = auditLog.map(entry => `
-      <div class="admin-list-card">
-        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start;">
-          <div>
-            <div style="font-size:15px;font-weight:800;color:var(--text-primary);">${entry.action_type || entry.action || "Action"}</div>
-            <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">${formatDateTime(entry.timestamp)}</div>
-          </div>
-          <div class="admin-status-pill ${entry.status === "failed" ? "danger" : "success"}">${entry.status || "success"}</div>
-        </div>
-        <div style="margin-top:14px;color:var(--text-secondary);font-size:13px;">${entry.error_message || "No additional details."}</div>
-      </div>
-    `).join("");
+  if (!auditLog.length) {
+    list.innerHTML = renderEmpty("No audit activity has been recorded yet.");
+    return;
+  }
+  // Apply quick-action filter
+  let rendered = auditLog;
+  if (adminAuditFilter && adminAuditFilter !== 'all') {
+    if (adminAuditFilter === 'pending') rendered = rendered.filter(e => e.status === 'pending' || (e.action_type && e.action_type.toLowerCase().includes('pending')));
+    else if (adminAuditFilter === 'rejected') rendered = rendered.filter(e => e.status === 'rejected' || (e.action_type && e.action_type.toLowerCase().includes('rejected')));
+    else if (adminAuditFilter === 'approved') rendered = adminState.approvedApps.map(a => ({ action_type: 'Approved Application', timestamp: a.approved_at || a.updated_at || a.created_at, status: 'approved', error_message: `${a.organization_name || a.orgName || 'Organisation'} — ${a.contact_email || a.contactEmail || ''}`, details: JSON.stringify(a) }));
+    else if (adminAuditFilter === 'checks') rendered = adminState.checks.map(c => ({ action_type: 'Certificate Check', timestamp: c.checked_at || c.checkedAt || c.timestamp, status: c.verification_status || c.status || 'info', error_message: c.verification_message || c.message || '', details: JSON.stringify(c) }));
+    else if (adminAuditFilter === 'revoked') rendered = adminState.revoked.map(r => ({ action_type: 'Revoked Certificate', timestamp: r.revoked_at || r.revokedAt || r.timestamp, status: 'revoked', error_message: r.reason || r.message || '', details: JSON.stringify(r) }));
+    else if (adminAuditFilter === 'audit') rendered = auditLog;
   }
 
-    list.querySelectorAll("button[data-action]").forEach(button => {
-    button.addEventListener("click", () => {
+  list.innerHTML = rendered.map(entry => `
+    <div class="admin-list-card">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start;">
+        <div>
+          <div style="font-size:15px;font-weight:800;color:var(--text-primary);">${entry.action_type || entry.action || 'Action'}</div>
+          <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">${formatDateTime(entry.timestamp)}</div>
+        </div>
+        <div class="admin-status-pill ${entry.status === 'failed' || entry.status === 'rejected' ? 'danger' : entry.status === 'pending' ? 'warning' : entry.status === 'approved' ? 'success' : 'info'}">${entry.status || 'info'}</div>
+      </div>
+      <div style="margin-top:14px;color:var(--text-secondary);font-size:13px;">${entry.error_message || entry.details || 'No additional details.'}</div>
+      ${entry.status === 'pending' ? `<div style="margin-top:10px;display:flex;gap:8px"><button class="btn-success" data-action="approve" data-id="${entry.id || ''}">Approve</button><button class="btn-danger" data-action="reject" data-id="${entry.id || ''}">Reject</button></div>` : ''}
+    </div>
+  `).join('');
+
+  // bind action buttons where present
+  list.querySelectorAll('button[data-action]').forEach(button => {
+    button.addEventListener('click', () => {
       const action = button.dataset.action;
       const id = button.dataset.id;
-      if (action === "approve" || action === "reject") {
-        handleApplicationAction(action, id);
-      }
-      // 'create-account' action removed — admin will not create linked accounts from the UI
-      } else if (action === "revoke") {
-        handleRevokeAction(id);
-      }
+      if (!id) return;
+      if (action === 'approve' || action === 'reject') handleApplicationAction(action, id);
     });
   });
 }
@@ -374,7 +286,7 @@ async function loadAdminDashboard() {
       requestJson("/applications/rejected?limit=50&offset=0"),
       requestJson("/verify/history?limit=50&offset=0"),
       requestJson("/verify/revoked?limit=50&offset=0"),
-      requestJson("/admin/audit-log?limit=20&offset=0")
+      requestJson("/admin/audit-log?limit=50&offset=0")
     ]);
 
     adminState.stats = dashboardData.stats || null;
@@ -383,6 +295,14 @@ async function loadAdminDashboard() {
     adminState.checks = historyData.history || [];
     adminState.revoked = revokedData.revoked || [];
     adminState.auditLog = auditData.auditLog || [];
+
+    // approved apps endpoint may not exist on all backends; fetch defensively
+    try {
+      const approvedData = await requestJson('/applications/approved?limit=50&offset=0');
+      adminState.approvedApps = approvedData.applications || [];
+    } catch (e) {
+      adminState.approvedApps = [];
+    }
 
     await requestJson("/admin/access-log", {
       method: "POST",
@@ -424,7 +344,12 @@ async function loginAdmin(event) {
     localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(data.user));
     setAdminState(true, data.user);
   } catch (err) {
-    showAdminError(err.message);
+    // If backend is unreachable or login fails, provide clearer feedback.
+    if (err.message && err.message.toLowerCase().includes('failed to fetch')) {
+      showAdminError('Unable to reach backend API. Ensure the backend is running at the expected API URL.');
+    } else {
+      showAdminError(err.message || 'Login failed.');
+    }
   }
 }
 
@@ -432,17 +357,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const loginForm = document.getElementById("adminLoginForm");
   const logoutBtn = document.getElementById("adminLogoutBtn");
   const returnBtn = document.getElementById("adminReturnBtn");
-  const devLoginBtn = document.getElementById("adminDevLoginBtn");
 
   loginForm?.addEventListener("submit", loginAdmin);
-  devLoginBtn?.addEventListener('click', () => {
-    const user = { email: 'admin@certicheck.com', first_name: 'Admin', last_name: 'User', user_type: 'admin' };
-    adminState.token = 'demo-token';
-    adminState.user = user;
-    localStorage.setItem(ADMIN_TOKEN_KEY, adminState.token);
-    localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(user));
-    setAdminState(true, user);
-  });
+  // Wire logout button in navbar/menu
   logoutBtn?.addEventListener("click", () => setAdminState(false));
   returnBtn?.addEventListener("click", () => window.location.href = "index.html");
 
@@ -453,5 +370,38 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (isAdminLoggedIn()) {
     setAdminState(true, adminState.user);
+  }
+  // show sign out in navbar if logged in
+  if (logoutBtn && isAdminLoggedIn()) logoutBtn.style.display = 'inline-block';
+  // bind quick actions after DOM ready
+  try { bindQuickActions(); } catch (e) { /* ignore */ }
+  // navbar profile menu
+  const profileToggle = document.getElementById('adminProfileToggle');
+  const profileMenu = document.getElementById('adminProfileMenu');
+  const menuSignOut = document.getElementById('menuSignOut');
+  const navAdminName = document.getElementById('navAdminName');
+  const navAdminEmail = document.getElementById('navAdminEmail');
+  const menuName = document.getElementById('menuName');
+  const menuEmail = document.getElementById('menuEmail');
+
+  if (profileToggle && profileMenu) {
+    profileToggle.addEventListener('click', () => {
+      profileMenu.style.display = profileMenu.style.display === 'block' ? 'none' : 'block';
+    });
+  }
+
+  if (menuSignOut) {
+    menuSignOut.addEventListener('click', () => setAdminState(false));
+  }
+
+  // update navbar profile when state present
+  if (adminState.user) {
+    try {
+      const name = adminState.user.first_name ? `${adminState.user.first_name} ${adminState.user.last_name || ''}`.trim() : (adminState.user.email || 'Admin');
+      if (navAdminName) navAdminName.textContent = name;
+      if (menuName) menuName.textContent = name;
+      if (navAdminEmail) navAdminEmail.textContent = adminState.user.email || '';
+      if (menuEmail) menuEmail.textContent = adminState.user.email || '';
+    } catch (e) {}
   }
 });
