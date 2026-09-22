@@ -282,6 +282,343 @@ function persistWalletAddress(value) {
   return wallet;
 }
 
+function getPhantomProvider() {
+  if (typeof window === 'undefined') return null;
+  return window.solana && window.solana.isPhantom ? window.solana : null;
+}
+
+function formatWalletShort(value) {
+  const wallet = value ? String(value).trim() : '';
+  if (!wallet) return 'Connect Wallet';
+  if (wallet.length <= 8) return wallet;
+  return `${wallet.slice(0, 4)}...${wallet.slice(-4)}`;
+}
+
+function setWalletConnectionState(walletAddress) {
+  const normalized = walletAddress ? String(walletAddress).trim() : '';
+  if (normalized) {
+    persistWalletAddress(normalized);
+  } else {
+    localStorage.removeItem('certicheck_wallet_address');
+  }
+  updateWalletActionAvailability();
+  return normalized;
+}
+
+function clearWalletConnectionState() {
+  persistWalletAddress('');
+  updateWalletActionAvailability();
+}
+
+function updateWalletUiState() {
+  updateWalletActionAvailability();
+}
+
+function ensureWalletMessage(button) {
+  const parent = button?.parentElement || button?.closest('div') || document.body;
+  if (!parent) return null;
+  let messageEl = parent.querySelector('.wallet-inline-message');
+  if (!messageEl) {
+    messageEl = document.createElement('div');
+    messageEl.className = 'wallet-inline-message';
+    messageEl.style.cssText = 'margin-top:8px;font-size:12px;display:none;line-height:1.4;';
+    parent.appendChild(messageEl);
+  }
+  return messageEl;
+}
+
+function setWalletMessage(button, message, kind = 'error') {
+  const messageEl = ensureWalletMessage(button);
+  if (!messageEl) return;
+  if (!message) {
+    messageEl.textContent = '';
+    messageEl.style.display = 'none';
+    return;
+  }
+  messageEl.textContent = message;
+  messageEl.style.display = 'block';
+  messageEl.style.color = kind === 'success' ? '#059669' : '#dc2626';
+  messageEl.style.fontWeight = '600';
+}
+
+function updateWalletButtonUi(button, walletAddress) {
+  if (!button) return;
+  const connected = Boolean(walletAddress);
+  const label = connected ? formatWalletShort(walletAddress) : 'Connect Wallet';
+  button.innerHTML = connected
+    ? `<span style="display:inline-flex;align-items:center;gap:8px;"><span style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;"></span>${label}</span>`
+    : 'Connect Wallet';
+  button.dataset.connected = connected ? 'true' : 'false';
+  button.setAttribute('aria-label', connected ? `Connected wallet ${walletAddress}` : 'Connect Wallet');
+  button.title = connected ? `Connected wallet: ${walletAddress}` : 'Connect your Phantom wallet';
+  button.classList.toggle('wallet-connected', connected);
+  if (!connected) {
+    button.style.opacity = '1';
+  }
+}
+
+function updateWalletActionAvailability() {
+  const connectedWallet = getConnectedWalletAddress();
+  const hasWallet = Boolean(connectedWallet);
+
+  document.querySelectorAll('[data-wallet-gated="issue"]').forEach((button) => {
+    button.disabled = !hasWallet;
+    button.title = hasWallet ? 'Issue certificate' : 'Connect your wallet to issue certificates';
+    button.setAttribute('aria-disabled', String(!hasWallet));
+  });
+
+  document.querySelectorAll('.revoke-certificate, .table-action.revoke-certificate').forEach((button) => {
+    button.disabled = !hasWallet;
+    button.title = hasWallet ? 'Revoke certificate' : 'Connect your wallet to revoke certificates';
+    button.setAttribute('aria-disabled', String(!hasWallet));
+  });
+
+  document.querySelectorAll('[data-wallet-connect]').forEach((button) => {
+    updateWalletButtonUi(button, connectedWallet);
+  });
+
+  const walletBadge = document.getElementById('connectedWalletBadge');
+  if (walletBadge) {
+    walletBadge.textContent = hasWallet ? formatWalletShort(connectedWallet) : '';
+    walletBadge.title = hasWallet ? connectedWallet : 'No wallet connected';
+  }
+}
+
+async function handleWalletDisconnect(button) {
+  const provider = getPhantomProvider();
+  try {
+    if (provider && typeof provider.disconnect === 'function') {
+      await provider.disconnect();
+    }
+  } catch (error) {
+    console.warn('Phantom disconnect failed', error?.message || error);
+  }
+  persistWalletAddress('');
+  if (button) {
+    updateWalletButtonUi(button, '');
+    setWalletMessage(button, 'Wallet disconnected.', 'success');
+    setTimeout(() => setWalletMessage(button, '', 'success'), 1800);
+  }
+  updateWalletActionAvailability();
+}
+
+async function handleWalletConnect(button) {
+  const provider = getPhantomProvider();
+  if (!provider || !provider.isPhantom) {
+    updateWalletButtonUi(button, '');
+    setWalletMessage(button, 'Phantom is not installed. Please install it from phantom.app and refresh this page.', 'error');
+    return;
+  }
+
+  const connected = button?.dataset?.connected === 'true';
+  if (connected) {
+    await handleWalletDisconnect(button);
+    return;
+  }
+
+  try {
+    const response = await provider.connect();
+    const publicKey = response?.publicKey?.toString ? response.publicKey.toString() : provider.publicKey?.toString?.();
+    if (!publicKey) {
+      setWalletMessage(button, 'Phantom connected but no public key was returned.', 'error');
+      return;
+    }
+    persistWalletAddress(publicKey);
+    updateWalletButtonUi(button, publicKey);
+    updateWalletActionAvailability();
+    setWalletMessage(button, '', 'success');
+  } catch (error) {
+    const message = error?.message || 'Unable to connect Phantom wallet.';
+    setWalletMessage(button, message, 'error');
+  }
+}
+
+function initializePhantomWallet() {
+  const provider = getPhantomProvider();
+  const connectButtons = document.querySelectorAll('[data-wallet-connect]');
+  connectButtons.forEach((button) => {
+    updateWalletButtonUi(button, getConnectedWalletAddress());
+    button.onclick = async (event) => {
+      event.preventDefault();
+      await handleWalletConnect(button);
+    };
+  });
+
+  if (!provider) {
+    updateWalletActionAvailability();
+    return;
+  }
+
+  const syncConnectedWallet = (publicKey) => {
+    const nextAddress = publicKey ? String(publicKey).trim() : '';
+    if (nextAddress) {
+      persistWalletAddress(nextAddress);
+    } else {
+      persistWalletAddress('');
+    }
+    document.querySelectorAll('[data-wallet-connect]').forEach((button) => {
+      updateWalletButtonUi(button, nextAddress);
+    });
+    updateWalletActionAvailability();
+  };
+
+  try {
+    if (provider.isConnected && provider.publicKey) {
+      syncConnectedWallet(provider.publicKey.toString());
+    } else {
+      provider.connect({ onlyIfTrusted: true }).then((response) => {
+        const publicKey = response?.publicKey?.toString ? response.publicKey.toString() : provider.publicKey?.toString?.();
+        if (publicKey) syncConnectedWallet(publicKey);
+      }).catch(() => {});
+    }
+  } catch (error) {
+    console.warn('Eager Phantom connect failed:', error?.message || error);
+  }
+
+  if (typeof provider.on === 'function') {
+    provider.on('connect', (publicKey) => syncConnectedWallet(publicKey?.toString ? publicKey.toString() : publicKey));
+    provider.on('disconnect', () => {
+      persistWalletAddress('');
+      document.querySelectorAll('[data-wallet-connect]').forEach((button) => updateWalletButtonUi(button, ''));
+      updateWalletActionAvailability();
+    });
+    provider.on('accountChanged', (publicKey) => {
+      syncConnectedWallet(publicKey?.toString ? publicKey.toString() : publicKey);
+    });
+  }
+
+  updateWalletActionAvailability();
+}
+
+async function issueCertificateWithPhantomWallet(payload, token) {
+  const provider = getPhantomProvider();
+  if (!provider || !provider.isPhantom) {
+    throw new Error('Phantom wallet is not installed or connected.');
+  }
+
+  const publicKey = provider.publicKey || payload.issuerWallet;
+  if (!publicKey) {
+    throw new Error('Connect your Phantom wallet before issuing certificates on-chain.');
+  }
+
+  const { Connection, PublicKey, SystemProgram } = (window.solanaWeb3 || window.SolanaWeb3 || {}).Web3 || window.solanaWeb3 || {};
+  if (!Connection || !PublicKey || !SystemProgram) {
+    throw new Error('Solana web3 browser library did not load correctly.');
+  }
+
+  if (!window.anchor) {
+    throw new Error('Anchor browser library did not load correctly.');
+  }
+
+  const connection = new Connection(window.solanaWeb3.clusterApiUrl('devnet'), 'confirmed');
+  const wallet = {
+    publicKey: new PublicKey(publicKey),
+    signTransaction: async (tx) => provider.signTransaction(tx),
+    signAllTransactions: async (txs) => provider.signAllTransactions(txs)
+  };
+  const providerInstance = new window.anchor.AnchorProvider(connection, wallet, { commitment: 'confirmed' });
+  const idl = await fetch('/solana-program/idl/certificate_system.json').then((res) => res.json());
+  const programId = new PublicKey('4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob');
+  const program = new window.anchor.Program(idl, programId, providerInstance);
+
+  const [issuerPda] = await PublicKey.findProgramAddress([Buffer.from('issuer'), wallet.publicKey.toBuffer()], program.programId);
+  const [certificatePda] = await PublicKey.findProgramAddress([Buffer.from('certificate'), issuerPda.toBuffer(), Buffer.from(payload.certificateId)], program.programId);
+
+  const holderPublicKey = payload.holderWallet ? new PublicKey(payload.holderWallet) : wallet.publicKey;
+  const metadataUri = payload.ipfsCid ? `ipfs://${payload.ipfsCid}` : '';
+
+  try {
+    const signature = await program.methods
+      .issueCertificate(
+        payload.certificateId,
+        payload.holderName || '',
+        payload.certificateType || '',
+        metadataUri,
+        payload.ipfsCid || ''
+      )
+      .accounts({
+        issuer: issuerPda,
+        holder: holderPublicKey,
+        certificate: certificatePda,
+        authority: wallet.publicKey,
+        systemProgram: SystemProgram.programId
+      })
+      .rpc();
+
+    return { signature, issuerPda: issuerPda.toBase58(), certificatePda: certificatePda.toBase58() };
+  } catch (err) {
+    if (String(err?.message || '').includes('AccountNotFound') || String(err?.message || '').includes('not found')) {
+      const initializeSignature = await program.methods
+        .initializeIssuer(payload.issuerName || 'Certicheck Issuer', metadataUri)
+        .accounts({
+          issuer: issuerPda,
+          authority: wallet.publicKey,
+          systemProgram: SystemProgram.programId
+        })
+        .rpc();
+
+      const afterInitialize = await program.methods
+        .issueCertificate(
+          payload.certificateId,
+          payload.holderName || '',
+          payload.certificateType || '',
+          metadataUri,
+          payload.ipfsCid || ''
+        )
+        .accounts({
+          issuer: issuerPda,
+          holder: holderPublicKey,
+          certificate: certificatePda,
+          authority: wallet.publicKey,
+          systemProgram: SystemProgram.programId
+        })
+        .rpc();
+
+      return { signature: afterInitialize, issuerPda: issuerPda.toBase58(), certificatePda: certificatePda.toBase58(), initializedIssuer: initializeSignature };
+    }
+    throw err;
+  }
+}
+
+async function revokeCertificateWithPhantomWallet(certificateId, reason, issuerWallet) {
+  const provider = getPhantomProvider();
+  if (!provider || !provider.isPhantom) {
+    throw new Error('Phantom wallet is not installed or connected.');
+  }
+
+  const publicKey = provider.publicKey || issuerWallet;
+  if (!publicKey) {
+    throw new Error('Connect your wallet before revoking a certificate.');
+  }
+
+  const { Connection, PublicKey } = window.solanaWeb3;
+  const connection = new Connection(window.solanaWeb3.clusterApiUrl('devnet'), 'confirmed');
+  const wallet = {
+    publicKey: new PublicKey(publicKey),
+    signTransaction: async (tx) => provider.signTransaction(tx),
+    signAllTransactions: async (txs) => provider.signAllTransactions(txs)
+  };
+  const anchorProvider = new window.anchor.AnchorProvider(connection, wallet, { commitment: 'confirmed' });
+  const idl = await fetch('/solana-program/idl/certificate_system.json').then((res) => res.json());
+  const programId = new PublicKey('4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob');
+  const program = new window.anchor.Program(idl, programId, anchorProvider);
+
+  const issuerPubkey = new PublicKey(publicKey);
+  const [issuerPda] = await PublicKey.findProgramAddress([Buffer.from('issuer'), issuerPubkey.toBuffer()], program.programId);
+  const [certificatePda] = await PublicKey.findProgramAddress([Buffer.from('certificate'), issuerPda.toBuffer(), Buffer.from(certificateId)], program.programId);
+
+  const signature = await program.methods
+    .revokeCertificate(reason || 'Revoked by issuer')
+    .accounts({
+      certificate: certificatePda,
+      issuer: issuerPda,
+      authority: issuerPubkey
+    })
+    .rpc();
+
+  return signature;
+}
+
 function updateAuthUi() {
   const navActions = document.querySelector('.nav-actions');
   const navLinks = document.querySelector('.nav-links');
@@ -741,7 +1078,7 @@ function renderRoleLandingHome() {
       </div>
     `;
   } else {
-    const institution = activeProfile.institution || 'Issuer Institution';
+    const institution = activeProfile.institution || activeProfile.display_name || 'Issuer Institution';
     const recent = stats.recent.length ? stats.recent : [
       { certificateId: 'CERT-ISSUER-2026-001', holderName: 'Jane Doe', certificateType: 'Degree Certificate', verificationStatus: 'Valid', issuedAt: '2026-09-18', ipfsCid: 'Qm1...a9s' }
     ];
@@ -756,8 +1093,8 @@ function renderRoleLandingHome() {
     const avatarText = institution.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'IS';
 
     document.getElementById('roleHomeBadge').textContent = 'Issuer Dashboard';
-    document.getElementById('roleHomeTitle').innerHTML = institution;
-    document.getElementById('roleHomeMeta').textContent = `${activeProfile.display_name || 'Issuer account'} • ${activeProfile.email || 'issuer@certicheck.com'}`;
+    document.getElementById('roleHomeTitle').textContent = institution;
+    document.getElementById('roleHomeMeta').textContent = `${institution} • ${activeProfile.email || 'issuer@certicheck.com'}`;
 
     document.getElementById('roleHomeStats').innerHTML = [
       { label: 'Issued', value: issuedCount },
@@ -787,17 +1124,14 @@ function renderRoleLandingHome() {
           <div class="issuer-role-badge">ISSUER</div>
 
           <div class="issuer-meta-list">
-            <div class="issuer-meta-row"><span>Institution</span><strong>${institution}</strong></div>
             <div class="issuer-meta-row"><span>Email</span><strong>${activeProfile.email || 'issuer@certicheck.com'}</strong></div>
             <div class="issuer-meta-row"><span>Role</span><strong>${activeProfile.user_type || 'issuer'}</strong></div>
-            <div class="issuer-meta-row"><span>Wallet</span><strong>${walletAddress ? `${walletAddress.slice(0, 8)}...${walletAddress.slice(-4)}` : 'Not connected'}</strong></div>
+            <div class="issuer-meta-row"><span>Wallet</span><strong>${walletAddress ? formatWalletShort(walletAddress) : 'Not connected'}</strong></div>
           </div>
 
           <div class="issuer-side-actions">
             ${walletStatusMarkup}
-            <button id="issuerWalletConnectButton" class="btn-primary btn-block">${walletAddress ? 'Wallet connected' : 'Connect Wallet'}</button>
-            <button class="btn-ghost btn-block" onclick="renderRoleLandingHome()">Refresh</button>
-              <button class="btn-ghost btn-block" onclick="clearUserIssuerStorage(); localStorage.removeItem('certicheck_auth_token'); localStorage.removeItem('certicheck_user'); localStorage.removeItem('certicheck_wallet_address'); localStorage.removeItem('certicheck_active_profile'); currentUser = null; updateAuthUi(); navigate('home');">Logout</button>
+            <button id="issuerWalletConnectButton" data-wallet-connect class="btn-primary btn-block" type="button">${walletAddress ? formatWalletShort(walletAddress) : 'Connect Wallet'}</button>
           </div>
         </aside>
 
@@ -841,7 +1175,7 @@ function renderRoleLandingHome() {
               </div>
 
               <div class="form-actions" style="margin-top:0; padding-top:0; border-top:none; justify-content:flex-end;">
-                <button class="btn-primary" type="submit">Issue Certificate</button>
+                <button class="btn-primary" type="submit" data-wallet-gated="issue">Issue Certificate</button>
               </div>
             </form>
             <div id="issuerDashboardNotice" style="display:none;margin-top:10px;font-size:13px;color:var(--text-secondary);"></div>
@@ -905,22 +1239,10 @@ function renderRoleLandingHome() {
 
     const walletConnectBtn = document.getElementById('issuerWalletConnectButton');
     if (walletConnectBtn) {
-      walletConnectBtn.addEventListener('click', async () => {
-        try {
-          if (!window.solana || !window.solana.isPhantom) {
-            alert('Phantom wallet not detected in this browser.');
-            return;
-          }
-          const resp = await window.solana.connect();
-          const pub = resp?.publicKey?.toString();
-          if (pub) {
-            persistWalletAddress(pub);
-            renderRoleLandingHome();
-          }
-        } catch (err) {
-          console.warn('Wallet connect failed', err?.message || err);
-        }
-      });
+      walletConnectBtn.onclick = async (event) => {
+        event.preventDefault();
+        await handleWalletConnect(walletConnectBtn);
+      };
     }
 
     document.querySelectorAll('.revoke-certificate').forEach(button => {
@@ -933,7 +1255,15 @@ function renderRoleLandingHome() {
 
         const token = getAuthToken();
         try {
-          if (token) {
+          const connectedWallet = getConnectedWalletAddress();
+          const hasPhantomConnection = Boolean(window.solana && window.solana.isPhantom && connectedWallet);
+
+          if (hasPhantomConnection) {
+            const txSignature = await revokeCertificateWithPhantomWallet(certificateId, reason || 'Revoked by issuer', connectedWallet);
+            if (txSignature) {
+              console.info('Certificate revoked on-chain via Phantom:', txSignature);
+            }
+          } else if (token) {
             const response = await fetch(`${API_BASE_URL}/certificates/revoke/${encodeURIComponent(certificateId)}`, {
               method: 'PUT',
               headers: {
@@ -977,9 +1307,16 @@ function renderRoleLandingHome() {
         const token = getAuthToken();
         const user = getStoredUser();
 
+        const connectedWallet = getConnectedWalletAddress();
         if (!holderName || !certificateType || !token || !user) {
           notice.textContent = 'Please complete the form and ensure you are signed in as an issuer.';
           notice.style.display = 'block';
+          return;
+        }
+        if (!connectedWallet) {
+          notice.textContent = 'Connect your wallet to issue certificates.';
+          notice.style.display = 'block';
+          updateWalletActionAvailability();
           return;
         }
 
@@ -1033,7 +1370,7 @@ function renderRoleLandingHome() {
             holderWallet,
             certificateType,
             issuerName: institution,
-            issuerWallet: getConnectedWalletAddress() || '',
+            issuerWallet: connectedWallet || '',
             verificationStatus: 'Valid',
             status: 'valid',
             issuedAt: new Date().toISOString(),
@@ -1049,7 +1386,7 @@ function renderRoleLandingHome() {
             holderWallet,
             certificateType,
             issuerName: institution,
-            issuerWallet: getConnectedWalletAddress() || '',
+            issuerWallet: connectedWallet || '',
             metadata,
             onChain: false
           };
@@ -1650,7 +1987,15 @@ function initIssuerDashboard() {
 
         const token = getAuthToken();
         try {
-          if (token) {
+          const connectedWallet = getConnectedWalletAddress();
+          const hasPhantomConnection = Boolean(window.solana && window.solana.isPhantom && connectedWallet);
+
+          if (hasPhantomConnection) {
+            const txSignature = await revokeCertificateWithPhantomWallet(certId, 'Revoked via issuer dashboard', connectedWallet);
+            if (txSignature) {
+              console.info('Revocation sent via Phantom:', txSignature);
+            }
+          } else if (token) {
             const res = await fetch(`${API_BASE_URL}/certificates/revoke/${encodeURIComponent(certId)}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -1659,10 +2004,9 @@ function initIssuerDashboard() {
             const json = await res.json();
             if (!res.ok) throw new Error(json.error || 'Revoke failed');
           } else {
-            // Demo fallback: mark locally
-              const allLocal = await loadIssuerCertificates();
-              const updated = allLocal.map(x => x.certificateId === certId ? { ...x, verificationStatus: 'revoked', revokedAt: new Date().toISOString() } : x);
-              setIssuerIssuedCertificates(updated);
+            const allLocal = await loadIssuerCertificates();
+            const updated = allLocal.map(x => x.certificateId === certId ? { ...x, verificationStatus: 'revoked', revokedAt: new Date().toISOString() } : x);
+            setIssuerIssuedCertificates(updated);
           }
 
           // Update UI: mark row revoked
@@ -1684,30 +2028,21 @@ function initIssuerDashboard() {
   const connectBtn = document.getElementById('connectWalletBtn');
   const walletBadge = document.getElementById('connectedWalletBadge');
   if (connectBtn) {
-    connectBtn.addEventListener('click', async () => {
-      try {
-        if (!window.solana || !window.solana.isPhantom) return alert('Phantom wallet not detected in this browser.');
-        const resp = await window.solana.connect();
-        const pub = resp?.publicKey?.toString();
-        if (pub) {
-          persistWalletAddress(pub);
-          walletBadge.textContent = pub;
-          const wInput = document.getElementById('issuerWallet');
-          if (wInput) wInput.value = pub;
-          renderRoleLandingHome();
-        }
-      } catch (err) {
-        console.warn('Wallet connect failed', err?.message || err);
-      }
-    });
+    connectBtn.setAttribute('data-wallet-connect', 'true');
+    connectBtn.onclick = async (event) => {
+      event.preventDefault();
+      await handleWalletConnect(connectBtn);
+    };
   }
 
   const existingWallet = getConnectedWalletAddress();
   if (existingWallet && walletBadge) {
-    walletBadge.textContent = existingWallet;
+    walletBadge.textContent = formatWalletShort(existingWallet);
     const wInput = document.getElementById('issuerWallet');
     if (wInput) wInput.value = existingWallet;
   }
+
+  updateWalletActionAvailability();
 
   button.onclick = async () => {
     errorEl.style.display = "none";
@@ -1733,7 +2068,6 @@ function initIssuerDashboard() {
     try {
       // If issuer requested on-chain issuance and Phantom is connected, perform client-side pin + sign
       if (payload.issueOnChain && window.solana && window.solana.isPhantom) {
-        // 1) Pin metadata to IPFS via backend pin endpoint
         const metadata = {
           certificateId: payload.certificateId,
           holderName: payload.holderName,
@@ -1753,22 +2087,9 @@ function initIssuerDashboard() {
         if (!pinRes.ok || !pinJson.cid) throw new Error(pinJson.error || 'Failed to pin metadata');
         const ipfsCid = pinJson.cid;
 
-        // 2) Build a memo transaction with the IPFS CID and certificate id, sign locally and send
-        const connection = new solanaWeb3.Connection(solanaWeb3.clusterApiUrl('devnet'), 'confirmed');
-        const memoData = JSON.stringify({ certificateId: payload.certificateId, ipfsCid, certificateType: payload.certificateType });
-        const memoProgramId = new solanaWeb3.PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
-        const ix = new solanaWeb3.TransactionInstruction({ keys: [], programId: memoProgramId, data: Buffer.from(memoData) });
-        const tx = new solanaWeb3.Transaction().add(ix);
-        tx.feePayer = window.solana.publicKey;
-        const { blockhash } = await connection.getRecentBlockhash();
-        tx.recentBlockhash = blockhash;
+        const walletPayload = { ...payload, ipfsCid };
+        const onChainResult = await issueCertificateWithPhantomWallet(walletPayload, token);
 
-        const signed = await window.solana.signTransaction(tx);
-        const raw = signed.serialize();
-        const txid = await connection.sendRawTransaction(raw);
-        await connection.confirmTransaction(txid, 'confirmed');
-
-        // 3) Notify backend to record the certificate with the client-signed transaction
         const recordPayload = {
           certificateId: payload.certificateId,
           holderName: payload.holderName,
@@ -1777,7 +2098,7 @@ function initIssuerDashboard() {
           issuerName: payload.issuerName,
           issuerWallet: window.solana.publicKey?.toString() || payload.issuerWallet || null,
           ipfsCid,
-          blockchainTransactionId: txid,
+          blockchainTransactionId: onChainResult?.signature || null,
           metadata
         };
 
@@ -1794,7 +2115,6 @@ function initIssuerDashboard() {
         localStorage.setItem("certicheck_last_certificate", JSON.stringify(certificate));
         localStorage.setItem("certicheck_last_certificate_id", certificateId);
 
-        // Append to issuer certificate list in localStorage for dashboard rendering
         try {
           const arr = getIssuerIssuedCertificates();
           const entry = {

@@ -19,7 +19,7 @@ router.use((req, res, next) => {
       pool.query(
         `INSERT INTO audit_log (user_id, action, action_type, resource_type, resource_id, status, error_message, ip_address, user_agent, metadata, timestamp)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
-        [adminId, 'ADMIN_ACTION', 'admin', 'route', req.path, status, null, req.ip || null, req.get('User-Agent') || null, JSON.stringify(metadata)]
+        [adminId, 'ADMIN_ACTION', 'ADMIN_ACCESS', 'route', req.path, status, null, req.ip || null, req.get('User-Agent') || null, JSON.stringify(metadata)]
       ).catch(err => console.error('Admin audit insert failed:', err.message || err));
     } catch (e) {
       console.error('Admin audit middleware error:', e.message || e);

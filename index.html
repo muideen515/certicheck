@@ -601,7 +601,7 @@
         <div id="issuerNotice" class="alert alert-info">Sign in to issue certificates.</div>
         <div id="issuerFormWrap" style="display:none">
             <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
-              <button id="connectWalletBtn" class="btn-ghost">Connect Wallet (Phantom)</button>
+              <button id="connectWalletBtn" class="btn-ghost" data-wallet-connect type="button">Connect Wallet (Phantom)</button>
               <div id="connectedWalletBadge" style="font-family:var(--font-mono);color:var(--text-secondary)"></div>
             </div>
 
@@ -649,7 +649,7 @@
             <p style="margin:6px 0 0 28px;color:var(--text-secondary);font-size:13px;">Enable this to submit the certificate to the deployed Anchor program.</p>
           </div>
           <div id="issuerError" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
-          <button class="btn-primary" id="issuerSubmitBtn" style="width:100%">Issue Certificate</button>
+          <button class="btn-primary" id="issuerSubmitBtn" data-wallet-gated="issue" style="width:100%">Issue Certificate</button>
           <div id="issuerResult" style="margin-top:16px"></div>
         </div>
       </div>

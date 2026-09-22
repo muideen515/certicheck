@@ -1,5 +1,6 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const pool = require('../db/connection');
 const User = require('../models/User');
 const OTP = require('../models/OTP');
 const EmailService = require('../services/emailService');
@@ -33,11 +34,39 @@ async function ensureSeededAccounts() {
   for (const account of defaultAccounts) {
     const existingUser = await User.findByEmail(account.email);
     if (!existingUser) {
-      await User.create(account.email, account.password, account.firstName, account.lastName, account.userType);
+      const created = await User.create(account.email, account.password, account.firstName, account.lastName, account.userType);
+      if (account.userType === 'issuer') {
+        await pool.query(
+          `INSERT INTO issuer_profiles (user_id, organization_name, organization_type, website, contact_name, contact_role, certificate_volume, use_case, wallet_address, status, approval_timestamp, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'approved', NOW(), NOW(), NOW())
+           ON CONFLICT (user_id) DO UPDATE SET status = 'approved', approval_timestamp = NOW(), updated_at = NOW()`,
+          [created.id, `${account.firstName} ${account.lastName}`, 'Default Issuer', '', `${account.firstName} ${account.lastName}`, 'Administrator', '1-50', 'Default seeded issuer account', '',]
+        );
+      }
       continue;
     }
 
     await User.updatePassword(account.email, account.password);
+
+    if (account.userType === 'issuer') {
+      const profileExists = await pool.query(
+        'SELECT id FROM issuer_profiles WHERE user_id = $1 LIMIT 1',
+        [existingUser.id]
+      );
+
+      if (!profileExists.rows[0]) {
+        await pool.query(
+          `INSERT INTO issuer_profiles (user_id, organization_name, organization_type, website, contact_name, contact_role, certificate_volume, use_case, wallet_address, status, approval_timestamp, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'approved', NOW(), NOW(), NOW())`,
+          [existingUser.id, `${account.firstName} ${account.lastName}`, 'Default Issuer', '', `${account.firstName} ${account.lastName}`, 'Administrator', '1-50', 'Default seeded issuer account', '']
+        );
+      } else {
+        await pool.query(
+          `UPDATE issuer_profiles SET status = 'approved', approval_timestamp = COALESCE(approval_timestamp, NOW()), updated_at = NOW() WHERE user_id = $1`,
+          [existingUser.id]
+        );
+      }
+    }
   }
 }
 

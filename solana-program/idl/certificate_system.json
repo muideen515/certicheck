@@ -17,7 +17,7 @@
     {
       "name": "issueCertificate",
       "accounts": [
-        { "name": "issuer", "isMut": false, "isSigner": false },
+        { "name": "issuer", "isMut": true, "isSigner": false },
         { "name": "holder", "isMut": false, "isSigner": false },
         { "name": "certificate", "isMut": true, "isSigner": false },
         { "name": "authority", "isMut": true, "isSigner": true },

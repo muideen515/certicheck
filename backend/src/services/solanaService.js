@@ -11,7 +11,7 @@ try {
   console.warn('Solana SDK unavailable; on-chain certificate features will be disabled:', err.message);
 }
 
-const DEFAULT_PROGRAM_ID = 'BRVpnQ21mUX5Upy5krTN28cjMJdt8rQ4yAFssWMMZSQJ';
+const DEFAULT_PROGRAM_ID = '4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob';
 
 function getSolanaSdk() {
   if (!web3 || !anchor) {
@@ -136,8 +136,9 @@ async function lookupCertificateOnChain(certificateId, issuerWallet) {
 
     if (issuerWallet) {
       const issuerPubkey = new PublicKey(issuerWallet);
+      const [issuerPda] = await PublicKey.findProgramAddress([Buffer.from('issuer'), issuerPubkey.toBuffer()], program.programId);
       const [certificatePda] = await PublicKey.findProgramAddress(
-        [Buffer.from('cert'), issuerPubkey.toBuffer(), Buffer.from(certificateId)],
+        [Buffer.from('certificate'), issuerPda.toBuffer(), Buffer.from(certificateId)],
         program.programId
       );
 
@@ -202,7 +203,7 @@ async function issueCertificateOnChain({ certificateId, ipfsCid, certificateType
 
   const [issuerPda] = await PublicKey.findProgramAddress([Buffer.from('issuer'), issuerPubkey.toBuffer()], program.programId);
   const [certificatePda] = await PublicKey.findProgramAddress(
-    [Buffer.from('cert'), issuerPubkey.toBuffer(), Buffer.from(certificateId)],
+    [Buffer.from('certificate'), issuerPda.toBuffer(), Buffer.from(certificateId)],
     program.programId
   );
 
@@ -256,7 +257,7 @@ async function revokeCertificateOnChain({ certificateId, reason, issuerWallet })
 
   const [issuerPda] = await PublicKey.findProgramAddress([Buffer.from('issuer'), issuerPubkey.toBuffer()], program.programId);
   const [certificatePda] = await PublicKey.findProgramAddress(
-    [Buffer.from('cert'), issuerPubkey.toBuffer(), Buffer.from(certificateId)],
+    [Buffer.from('certificate'), issuerPda.toBuffer(), Buffer.from(certificateId)],
     program.programId
   );
 

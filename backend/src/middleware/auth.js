@@ -121,18 +121,26 @@ async function verifyIssuer(req, res, next) {
     const isDemoRequest = process.env.DEMO_MODE === 'true' || Boolean(req.headers['x-demo-user-type']);
 
     if (effectiveUserType === 'issuer' && !isDemoRequest) {
-      // Allow approval check by either linked user_id OR by a pending application contact email
+      // Use the refreshed DB data first. A stale JWT may still list the user as a plain user
+      // even though the database has already approved their issuer status.
+      let approved = user?.issuer_status === 'approved';
+
+      // Default seeded issuer accounts are auto-approved so they can issue immediately without a formal pending approval.
+      const defaultIssuerEmail = (process.env.ISSUER_EMAIL || 'issuer@certicheck.com').toLowerCase();
+      if (!approved && req.user.email && req.user.email.toLowerCase() === defaultIssuerEmail) {
+        approved = true;
+      }
+
+      // Allow approval check by either the linked issuer profile OR the pending application email.
       const profileResult = await pool.query(
         'SELECT status, user_id, id AS profile_id FROM issuer_profiles WHERE user_id = $1 LIMIT 1',
         [req.user.id]
       );
 
-      let approved = false;
-      if (profileResult.rows[0] && profileResult.rows[0].status === 'approved') {
+      if (!approved && profileResult.rows[0] && profileResult.rows[0].status === 'approved') {
         approved = true;
       }
 
-      // If not approved via profile, check pending_applications for a matching contact_email to this user's email
       if (!approved && req.user.email) {
         try {
           const emailCheck = await pool.query(

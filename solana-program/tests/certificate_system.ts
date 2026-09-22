@@ -11,7 +11,7 @@ describe("certificate_system tests", () => {
 
   // Load IDL and program id from the crate
   const idl = JSON.parse(fs.readFileSync("./idl/certificate_system.json", "utf8"));
-  const programId = new PublicKey("BRVpnQ21mUX5Upy5krTN28cjMJdt8rQ4yAFssWMMZSQJ");
+  const programId = new PublicKey("4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob");
   const program = new Program(idl, programId, provider) as Program;
 
   const issuerName = "Test Issuer";
