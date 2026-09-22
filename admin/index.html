@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="refresh" content="0; url=/admin.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Redirecting to Certicheck Admin</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #0b1020;
+      color: #f5f7ff;
+      font-family: Arial, sans-serif;
+    }
+    .box {
+      padding: 24px 32px;
+      border-radius: 14px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.12);
+      text-align: center;
+    }
+    a { color: #8b5cf6; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <p>Redirecting to the admin dashboard...</p>
+    <p><a href="/admin.html">Open admin page</a></p>
+  </div>
+  <script>
+    window.location.replace('/admin.html');
+  </script>
+</body>
+</html>

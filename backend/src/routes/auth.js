@@ -22,8 +22,8 @@ async function ensureSeededAccounts() {
       userType: 'admin'
     },
     {
-      email: process.env.ISSUER_EMAIL || 'issuer@oau.edu.ng',
-      password: process.env.ISSUER_PASSWORD || 'issuer123',
+      email: process.env.ISSUER_EMAIL || 'issuer@certicheck.com',
+      password: process.env.ISSUER_PASSWORD || 'password',
       firstName: 'Issuer',
       lastName: 'User',
       userType: 'issuer'

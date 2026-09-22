@@ -1,0 +1,19 @@
+{
+  "name": "certicheck-reference-architecture",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "blockchain"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace apps/web run dev",
+    "build:web": "npm --workspace apps/web run build",
+    "start:web": "npm --workspace apps/web run start",
+    "db:generate": "npm --workspace apps/web exec prisma generate",
+    "db:migrate": "npm --workspace apps/web exec prisma migrate dev",
+    "db:studio": "npm --workspace apps/web exec prisma studio",
+    "chain:compile": "npm --workspace blockchain run compile",
+    "chain:test": "npm --workspace blockchain run test",
+    "chain:node": "npm --workspace blockchain run node"
+  }
+}

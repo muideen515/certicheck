@@ -165,16 +165,105 @@ function setRememberedLoginEmail(email) {
   }
 }
 
+function getSessionHistory() {
+  try {
+    const raw = localStorage.getItem('certicheck_session_history');
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistSessionProfile(user) {
+  const activeUser = user || getStoredUser() || currentUser || {};
+  const lastApp = (() => {
+    try {
+      const raw = localStorage.getItem('certicheck_latest_application');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const draft = loadPendingApplicationDraft();
+  const firstName = activeUser.first_name || activeUser.firstName || '';
+  const lastName = activeUser.last_name || activeUser.lastName || '';
+  const email = activeUser.email || '';
+  const userType = activeUser.user_type || activeUser.userType || 'issuer';
+  const institution = draft?.orgName || lastApp?.organization_name || lastApp?.orgName || activeUser.organization_name || activeUser.institution || [firstName, lastName].filter(Boolean).join(' ') || 'Issuer Institution';
+  const profile = {
+    id: activeUser.id || null,
+    email,
+    first_name: firstName,
+    last_name: lastName,
+    user_type: userType,
+    display_name: activeUser.display_name || activeUser.name || [firstName, lastName].filter(Boolean).join(' ') || 'Issuer User',
+    institution,
+    wallet: getConnectedWalletAddress() || activeUser.wallet || '',
+    signed_in_at: new Date().toISOString()
+  };
+
+  localStorage.setItem('certicheck_active_profile', JSON.stringify(profile));
+
+  const history = getSessionHistory();
+  const nextHistory = [
+    { ...profile, entryType: 'login' },
+    ...history.filter(item => String(item.email || '').toLowerCase() !== String(profile.email || '').toLowerCase())
+  ].slice(0, 12);
+  localStorage.setItem('certicheck_session_history', JSON.stringify(nextHistory));
+  return profile;
+}
+
+function getActiveSessionProfile() {
+  const user = currentUser || getStoredUser() || {};
+  const saved = (() => {
+    try {
+      const raw = localStorage.getItem('certicheck_active_profile');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const lastApp = (() => {
+    try {
+      const raw = localStorage.getItem('certicheck_latest_application');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const draft = loadPendingApplicationDraft();
+  const firstName = user.first_name || user.firstName || saved?.first_name || '';
+  const lastName = user.last_name || user.lastName || saved?.last_name || '';
+  const email = user.email || saved?.email || '';
+  const userType = user.user_type || user.userType || saved?.user_type || 'issuer';
+  const institution = draft?.orgName || lastApp?.organization_name || lastApp?.orgName || saved?.institution || user.organization_name || user.institution || [firstName, lastName].filter(Boolean).join(' ') || 'Issuer Institution';
+
+  return {
+    id: user.id || saved?.id || null,
+    email,
+    first_name: firstName,
+    last_name: lastName,
+    user_type: userType,
+    display_name: user.display_name || user.name || saved?.display_name || [firstName, lastName].filter(Boolean).join(' ') || 'Issuer User',
+    institution,
+    wallet: getConnectedWalletAddress() || user.wallet || saved?.wallet || '',
+    signed_in_at: saved?.signed_in_at || new Date().toISOString()
+  };
+}
+
 function saveAuthSession(token, user) {
   localStorage.setItem("certicheck_auth_token", token);
   localStorage.setItem("certicheck_user", JSON.stringify(user));
   currentUser = user;
+  persistSessionProfile(user);
   updateAuthUi();
 }
 
 function clearAuthSession() {
   localStorage.removeItem("certicheck_auth_token");
   localStorage.removeItem("certicheck_user");
+  localStorage.removeItem("certicheck_active_profile");
   currentUser = null;
   updateAuthUi();
 }
@@ -200,9 +289,8 @@ function updateAuthUi() {
 
   navActions.querySelectorAll('.auth-item').forEach(el => el.remove());
 
-    if (navLinks) {
+  if (navLinks) {
     const user = currentUser || getStoredUser();
-    // Do not expose a public Admin navigation link. Admin console is available at /admin.html
     if (user && user.user_type === 'issuer') {
       navLinks.innerHTML = ``;
     }
@@ -218,14 +306,6 @@ function updateAuthUi() {
     userBadge.style.color = 'var(--text-secondary)';
     userBadge.textContent = `Signed in as ${displayName} (${roleLabel})`;
 
-    const dashBtn = document.createElement('button');
-    dashBtn.className = 'btn-ghost auth-item';
-    dashBtn.textContent = 'Dashboard';
-    dashBtn.addEventListener('click', () => {
-      const page = currentUser.user_type === 'admin' ? 'home' : currentUser.user_type === 'issuer' ? 'home' : 'holder';
-      navigate(page);
-    });
-
     const signoutBtn = document.createElement('button');
     signoutBtn.className = 'btn-ghost auth-item';
     signoutBtn.textContent = 'Sign Out';
@@ -237,7 +317,6 @@ function updateAuthUi() {
     navActions.querySelectorAll('[data-page="signup"],[data-page="login"]').forEach(b => b.style.display = 'none');
 
     navActions.prepend(signoutBtn);
-    navActions.prepend(dashBtn);
     navActions.prepend(userBadge);
   } else {
     navActions.querySelectorAll('[data-page="signup"],[data-page="login"]').forEach(b => b.style.display = 'inline-block');
@@ -380,6 +459,230 @@ function getRoleLandingStats() {
   return { total, valid, revoked, institution: 'OAU', recent: entries.slice(0, 4) };
 }
 
+function getCertificateFieldCatalog() {
+  return {
+    'Degree Certificate': [
+      { name: 'recipientFullName', label: 'Recipient full name', type: 'text', placeholder: 'Jane Doe', required: true },
+      { name: 'institutionName', label: 'Institution / School name', type: 'text', placeholder: 'Obafemi Awolowo University', required: true },
+      { name: 'programName', label: 'Program / Degree title', type: 'text', placeholder: 'B.Sc. Computer Science', required: true },
+      { name: 'graduationYear', label: 'Year of graduation', type: 'number', placeholder: '2026', required: true },
+      { name: 'dateAwarded', label: 'Awarded date', type: 'date', required: true },
+      { name: 'cgpa', label: 'CGPA / final score', type: 'text', placeholder: '4.62 / 5.00', required: false },
+      { name: 'classHonours', label: 'Class of honours', type: 'text', placeholder: 'First Class Honours', required: false },
+      { name: 'remarks', label: 'Additional remarks', type: 'textarea', placeholder: 'Awarded with distinction and leadership in... ', required: false }
+    ],
+    'Transcript': [
+      { name: 'recipientFullName', label: 'Student full name', type: 'text', placeholder: 'Jane Doe', required: true },
+      { name: 'institutionName', label: 'School / institution', type: 'text', placeholder: 'University of Lagos', required: true },
+      { name: 'studentId', label: 'Student ID / registration number', type: 'text', placeholder: 'STU-2024-0158', required: true },
+      { name: 'department', label: 'Department / faculty', type: 'text', placeholder: 'Accounting', required: true },
+      { name: 'yearOfStudy', label: 'Academic year', type: 'text', placeholder: '2024/2025', required: true },
+      { name: 'gpa', label: 'GPA / grade summary', type: 'text', placeholder: '3.82', required: false },
+      { name: 'courseSummary', label: 'Course summary', type: 'textarea', placeholder: 'Business Law, Financial Reporting, Project Management', required: false },
+      { name: 'issueDate', label: 'Issue date', type: 'date', required: true }
+    ],
+    'Professional Diploma': [
+      { name: 'recipientFullName', label: 'Learner full name', type: 'text', placeholder: 'Jane Doe', required: true },
+      { name: 'institutionName', label: 'Training body / institution', type: 'text', placeholder: 'Certicheck Academy', required: true },
+      { name: 'programName', label: 'Diploma title', type: 'text', placeholder: 'AI Product Management', required: true },
+      { name: 'completionDate', label: 'Completion date', type: 'date', required: true },
+      { name: 'duration', label: 'Duration / schedule', type: 'text', placeholder: '6 months', required: false },
+      { name: 'competency', label: 'Key competency delivered', type: 'textarea', placeholder: 'Roadmapping, stakeholder management, decision analysis', required: false }
+    ],
+    'Certificate of Completion': [
+      { name: 'recipientFullName', label: 'Participant full name', type: 'text', placeholder: 'Jane Doe', required: true },
+      { name: 'programName', label: 'Course / program name', type: 'text', placeholder: 'Cybersecurity Fundamentals', required: true },
+      { name: 'institutionName', label: 'Provider / organization', type: 'text', placeholder: 'Certicheck Labs', required: true },
+      { name: 'completionDate', label: 'Completion date', type: 'date', required: true },
+      { name: 'hours', label: 'Training hours / credits', type: 'text', placeholder: '40 hours', required: false },
+      { name: 'achievement', label: 'Completion statement', type: 'textarea', placeholder: 'Completed all learning modules and assessment criteria.', required: true }
+    ],
+    'Will': [
+      { name: 'testatorName', label: 'Testator / will owner full name', type: 'text', placeholder: 'Jane Doe', required: true },
+      { name: 'executorName', label: 'Executor / personal representative', type: 'text', placeholder: 'John Doe', required: true },
+      { name: 'beneficiaries', label: 'Beneficiaries / heirs', type: 'textarea', placeholder: 'Mary Doe, Tunde Doe, etc.', required: true },
+      { name: 'assetSummary', label: 'Assets / estate summary', type: 'textarea', placeholder: 'Household property, shares, vehicle, business interest', required: true },
+      { name: 'executionDate', label: 'Date executed', type: 'date', required: true },
+      { name: 'statement', label: 'Statement by will owner', type: 'textarea', placeholder: 'I declare that this will represents my final wishes...', required: true }
+    ],
+    'Certificate of Ownership': [
+      { name: 'ownerName', label: 'Owner / legal owner full name', type: 'text', placeholder: 'Jane Doe', required: true },
+      { name: 'assetDescription', label: 'Asset description', type: 'text', placeholder: 'Toyota Prado 2022', required: true },
+      { name: 'assetIdentifier', label: 'Asset ID / registration / VIN / serial', type: 'text', placeholder: 'VIN: JT2BG22K...', required: true },
+      { name: 'assetLocation', label: 'Location / jurisdiction', type: 'text', placeholder: 'Lagos State, Nigeria', required: true },
+      { name: 'ownershipDate', label: 'Ownership date', type: 'date', required: true },
+      { name: 'declaration', label: 'Declaration statement', type: 'textarea', placeholder: 'This certifies that the above named owner lawfully possesses the described asset in accordance with applicable law.', required: true }
+    ],
+    'Employment Certificate': [
+      { name: 'employeeName', label: 'Employee full name', type: 'text', placeholder: 'Jane Doe', required: true },
+      { name: 'employerName', label: 'Employer / organization', type: 'text', placeholder: 'Certicheck Limited', required: true },
+      { name: 'roleTitle', label: 'Role / designation', type: 'text', placeholder: 'Senior Product Manager', required: true },
+      { name: 'employmentStart', label: 'Employment start date', type: 'date', required: true },
+      { name: 'employmentEnd', label: 'Employment end date', type: 'date', required: false },
+      { name: 'salaryBand', label: 'Salary / compensation band', type: 'text', placeholder: 'NGN 12,000,000 / annum', required: false },
+      { name: 'employmentStatement', label: 'Employment statement', type: 'textarea', placeholder: 'This individual served in the role with professionalism and diligence.', required: true }
+    ],
+    'Medical Certificate': [
+      { name: 'patientName', label: 'Patient full name', type: 'text', placeholder: 'Jane Doe', required: true },
+      { name: 'diagnosis', label: 'Diagnosis / condition', type: 'text', placeholder: 'Upper respiratory infection', required: true },
+      { name: 'consultationDate', label: 'Consultation date', type: 'date', required: true },
+      { name: 'doctorName', label: 'Doctor / clinician name', type: 'text', placeholder: 'Dr. Ada Okafor', required: true },
+      { name: 'treatment', label: 'Treatment / care summary', type: 'textarea', placeholder: 'Prescribed antibiotics and rest for 5 days.', required: false }
+    ],
+    'Permit / License': [
+      { name: 'permitHolder', label: 'Permit holder / licensee', type: 'text', placeholder: 'Jane Doe', required: true },
+      { name: 'permitTitle', label: 'Permit title / licence number', type: 'text', placeholder: 'Business License No. BL-2025-1048', required: true },
+      { name: 'issuerAuthority', label: 'Issuing authority', type: 'text', placeholder: 'Ministry of Trade', required: true },
+      { name: 'validFrom', label: 'Valid from', type: 'date', required: true },
+      { name: 'validUntil', label: 'Valid until', type: 'date', required: true },
+      { name: 'permitConditions', label: 'Conditions / scope', type: 'textarea', placeholder: 'Valid for retail operations within the city limits.', required: false }
+    ]
+  };
+}
+
+function getCertificateOptions() {
+  return [
+    'Degree Certificate',
+    'Transcript',
+    'Professional Diploma',
+    'Certificate of Completion',
+    'Will',
+    'Certificate of Ownership',
+    'Employment Certificate',
+    'Medical Certificate',
+    'Permit / License'
+  ];
+}
+
+function renderCertificateDetailFields(certificateType) {
+  const container = document.getElementById('issuerDynamicCertificateFields');
+  if (!container) return;
+
+  const catalog = getCertificateFieldCatalog();
+  const fields = catalog[certificateType] || [
+    { name: 'certificateTitle', label: 'Certificate title', type: 'text', placeholder: 'Official certificate', required: true },
+    { name: 'recipientName', label: 'Recipient full name', type: 'text', placeholder: 'Jane Doe', required: true },
+    { name: 'issuedOn', label: 'Issue date', type: 'date', required: true },
+    { name: 'details', label: 'Certificate details', type: 'textarea', placeholder: 'This certificate confirms...', required: true }
+  ];
+
+  const html = fields.map((field) => {
+    const requiredAttr = field.required ? 'required' : '';
+    const placeholder = field.placeholder ? `placeholder="${field.placeholder}"` : '';
+
+    if (field.type === 'textarea') {
+      return `
+        <div class="field">
+          <label class="field-label" for="certField_${field.name}">${field.label}</label>
+          <textarea id="certField_${field.name}" class="field-input" ${requiredAttr} ${placeholder} style="min-height:110px;resize:vertical;"></textarea>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="field">
+        <label class="field-label" for="certField_${field.name}">${field.label}</label>
+        <input id="certField_${field.name}" class="field-input" type="${field.type}" ${requiredAttr} ${placeholder} />
+      </div>
+    `;
+  }).join('');
+
+  const mediaHtml = `
+    <div class="field">
+      <label class="field-label" for="issuerCertificateMediaUpload">Attachment / media to save with certificate</label>
+      <input id="issuerCertificateMediaUpload" class="field-input" type="file" accept="image/*,.pdf,.doc,.docx,.png,.jpg,.jpeg,.webp" />
+    </div>
+    <div id="issuerCertificatePreview" style="display:none;border:1px solid var(--border-light);border-radius:12px;padding:12px;background:rgba(76,29,149,0.03);color:var(--text-secondary);font-size:13px;"></div>
+  `;
+
+  container.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;">
+      ${html}
+    </div>
+    <div style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;">
+      ${mediaHtml}
+    </div>
+  `;
+
+  const mediaInput = document.getElementById('issuerCertificateMediaUpload');
+  const preview = document.getElementById('issuerCertificatePreview');
+  if (mediaInput && preview) {
+    mediaInput.addEventListener('change', () => {
+      const file = mediaInput.files && mediaInput.files[0];
+      if (!file) {
+        preview.style.display = 'none';
+        preview.textContent = '';
+        return;
+      }
+      preview.style.display = 'block';
+      const icon = file.type.startsWith('image/') ? '🖼️' : file.type.includes('pdf') ? '📄' : '📎';
+      preview.innerHTML = `<strong>${icon} Attached file:</strong> ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+    });
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) return resolve(null);
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Unable to read uploaded media'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function collectCertificateFieldValues(certificateType) {
+  const catalog = getCertificateFieldCatalog();
+  const fields = catalog[certificateType] || [];
+  const values = {};
+
+  fields.forEach((field) => {
+    const elem = document.getElementById(`certField_${field.name}`);
+    if (!elem) return;
+    values[field.name] = elem.value.trim();
+  });
+
+  return values;
+}
+
+function downloadCertificateArtifact(certificatePayload) {
+  const certificateHtml = `
+    <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; background: #f8fafc; padding: 32px; }
+          .certificate { max-width: 980px; margin: 0 auto; border: 2px solid #d1d5db; background: #fff; border-radius: 18px; padding: 36px; position: relative; }
+          .crest { position: absolute; top: 28px; right: 40px; width: 92px; height: 92px; border: 2px solid #7c3aed; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; color: #7c3aed; }
+          .title { font-size: 30px; font-weight: 800; text-align: center; color: #1f2937; margin-bottom: 22px; }
+          .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; font-size: 14px; color: #374151; }
+          .label { font-weight: 700; color: #111827; }
+        </style>
+      </head>
+      <body>
+        <div class="certificate">
+          <div class="crest">C</div>
+          <div class="title">${certificatePayload.certificateType}</div>
+          <div class="meta">
+            ${Object.entries(certificatePayload.metadata || {}).map(([key, value]) => `
+              <div><span class="label">${key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}:</span> ${String(value || '—')}</div>
+            `).join('')}
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  const blob = new Blob([certificateHtml], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `${String(certificatePayload.certificateType).replace(/\s+/g, '-').toLowerCase()}-${certificatePayload.certificateId}.html`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 function renderRoleLandingHome() {
   const roleHome = document.getElementById('roleHomePanel');
   const hero = document.querySelector('#page-home .hero');
@@ -392,6 +695,7 @@ function renderRoleLandingHome() {
     return;
   }
 
+  const activeProfile = getActiveSessionProfile();
   const isAdmin = user.user_type === 'admin';
   const isIssuer = user.user_type === 'issuer';
   const stats = getRoleLandingStats();
@@ -401,8 +705,8 @@ function renderRoleLandingHome() {
 
   if (isAdmin) {
     document.getElementById('roleHomeBadge').textContent = 'Admin Control Center';
-    document.getElementById('roleHomeTitle').innerHTML = 'System overview';
-    document.getElementById('roleHomeMeta').textContent = 'Monitor certificates, issuer access, and app health from a single admin view.';
+    document.getElementById('roleHomeTitle').innerHTML = activeProfile.display_name || 'System overview';
+    document.getElementById('roleHomeMeta').textContent = `${activeProfile.email || 'admin@certicheck.com'} • admin console view`;
     document.getElementById('roleHomeStats').innerHTML = [
       { label: 'Total', value: stats.total },
       { label: 'Valid', value: stats.valid },
@@ -431,14 +735,15 @@ function renderRoleLandingHome() {
           <div><strong>Pinata:</strong> connected</div>
           <div><strong>Solana:</strong> enabled</div>
           <div><strong>Wallet:</strong> ${walletAddress ? walletAddress.slice(0, 8) + '…' : 'Not connected'}</div>
+          <div><strong>Account:</strong> ${activeProfile.email || 'admin@certicheck.com'}</div>
           <div><strong>Timestamp:</strong> ${new Date().toLocaleString()}</div>
         </div>
       </div>
     `;
   } else {
-    const institution = 'Obafemi Awolowo University';
+    const institution = activeProfile.institution || 'Issuer Institution';
     const recent = stats.recent.length ? stats.recent : [
-      { certificateId: 'CERT-OAU-2026-001', holderName: 'Jane Doe', certificateType: 'Degree Certificate', verificationStatus: 'Valid', issuedAt: '2026-09-18', ipfsCid: 'Qm1...a9s' }
+      { certificateId: 'CERT-ISSUER-2026-001', holderName: 'Jane Doe', certificateType: 'Degree Certificate', verificationStatus: 'Valid', issuedAt: '2026-09-18', ipfsCid: 'Qm1...a9s' }
     ];
     const issuedCount = recent.length;
     const activeCount = recent.filter(item => String(item.verificationStatus || item.status || 'Valid').toLowerCase() !== 'revoked').length;
@@ -448,10 +753,11 @@ function renderRoleLandingHome() {
     const walletStatusMarkup = walletAddress
       ? `<div style="display:inline-flex;align-items:center;gap:8px;padding:7px 10px;border-radius:999px;background:rgba(5,150,105,0.08);border:1px solid rgba(5,150,105,0.14);color:#059669;font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;"><span style="width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block;"></span>${walletAddress.slice(0, 8)}...${walletAddress.slice(-4)}</div>`
       : `<div style="display:inline-flex;align-items:center;gap:8px;padding:7px 10px;border-radius:999px;background:rgba(148,163,184,0.08);border:1px solid rgba(148,163,184,0.18);color:var(--text-secondary);font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;">Connect Wallet</div>`;
+    const avatarText = institution.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'IS';
 
     document.getElementById('roleHomeBadge').textContent = 'Issuer Dashboard';
     document.getElementById('roleHomeTitle').innerHTML = institution;
-    document.getElementById('roleHomeMeta').textContent = 'Institution control center for certificate issuance and revocation.';
+    document.getElementById('roleHomeMeta').textContent = `${activeProfile.display_name || 'Issuer account'} • ${activeProfile.email || 'issuer@certicheck.com'}`;
 
     document.getElementById('roleHomeStats').innerHTML = [
       { label: 'Issued', value: issuedCount },
@@ -476,14 +782,14 @@ function renderRoleLandingHome() {
     document.getElementById('roleHomeActions').innerHTML = `
       <div class="issuer-dashboard-shell" style="grid-template-columns:320px minmax(0, 1fr); gap:22px; align-items:start;">
         <aside class="issuer-profile-panel" style="padding:24px 20px;">
-          <div class="issuer-avatar">OAU</div>
+          <div class="issuer-avatar">${avatarText}</div>
           <div class="issuer-name">${institution}</div>
           <div class="issuer-role-badge">ISSUER</div>
 
           <div class="issuer-meta-list">
             <div class="issuer-meta-row"><span>Institution</span><strong>${institution}</strong></div>
-            <div class="issuer-meta-row"><span>Email</span><strong>issuer@oau.edu.ng</strong></div>
-            <div class="issuer-meta-row"><span>Role</span><strong>issuer</strong></div>
+            <div class="issuer-meta-row"><span>Email</span><strong>${activeProfile.email || 'issuer@certicheck.com'}</strong></div>
+            <div class="issuer-meta-row"><span>Role</span><strong>${activeProfile.user_type || 'issuer'}</strong></div>
             <div class="issuer-meta-row"><span>Wallet</span><strong>${walletAddress ? `${walletAddress.slice(0, 8)}...${walletAddress.slice(-4)}` : 'Not connected'}</strong></div>
           </div>
 
@@ -491,7 +797,7 @@ function renderRoleLandingHome() {
             ${walletStatusMarkup}
             <button id="issuerWalletConnectButton" class="btn-primary btn-block">${walletAddress ? 'Wallet connected' : 'Connect Wallet'}</button>
             <button class="btn-ghost btn-block" onclick="renderRoleLandingHome()">Refresh</button>
-              <button class="btn-ghost btn-block" onclick="clearUserIssuerStorage(); localStorage.removeItem('certicheck_auth_token'); localStorage.removeItem('certicheck_user'); localStorage.removeItem('certicheck_wallet_address'); currentUser = null; updateAuthUi(); navigate('home');">Logout</button>
+              <button class="btn-ghost btn-block" onclick="clearUserIssuerStorage(); localStorage.removeItem('certicheck_auth_token'); localStorage.removeItem('certicheck_user'); localStorage.removeItem('certicheck_wallet_address'); localStorage.removeItem('certicheck_active_profile'); currentUser = null; updateAuthUi(); navigate('home');">Logout</button>
           </div>
         </aside>
 
@@ -524,15 +830,14 @@ function renderRoleLandingHome() {
                 <label class="field-label" for="issuerHomeType">Certificate type</label>
                 <select class="field-input" id="issuerHomeType" required>
                   <option value="">Select type</option>
-                  <option>Degree Certificate</option>
-                  <option>Transcript</option>
-                  <option>Professional Diploma</option>
-                  <option>Certificate of Completion</option>
+                  ${getCertificateOptions().map(type => `<option value="${type}">${type}</option>`).join('')}
                 </select>
               </div>
 
+              <div id="issuerDynamicCertificateFields"></div>
+
               <div style="padding:12px 14px;border:1px dashed var(--border);border-radius:12px;background:rgba(124,58,237,0.04);color:var(--text-secondary);font-size:13px;">
-                Certificate document is generated automatically when the credential is issued.
+                Certificate document is generated automatically with the Certicheck crest and the stored metadata fields for the selected document type.
               </div>
 
               <div class="form-actions" style="margin-top:0; padding-top:0; border-top:none; justify-content:flex-end;">
@@ -653,6 +958,15 @@ function renderRoleLandingHome() {
 
     const issuerDashboardForm = document.getElementById('issuerDashboardForm');
     if (issuerDashboardForm) {
+      const typeSelector = document.getElementById('issuerHomeType');
+      if (typeSelector) {
+        typeSelector.addEventListener('change', (event) => {
+          const nextType = event.target.value;
+          renderCertificateDetailFields(nextType || '');
+        });
+      }
+      renderCertificateDetailFields(typeSelector?.value || '');
+
       issuerDashboardForm.addEventListener('submit', async (event) => {
         event.preventDefault();
         const notice = document.getElementById('issuerDashboardNotice');
@@ -669,12 +983,49 @@ function renderRoleLandingHome() {
           return;
         }
 
+        const detailFields = collectCertificateFieldValues(certificateType);
+        const missingRequired = Object.entries(detailFields).filter(([key, value]) => {
+          const fieldDef = getCertificateFieldCatalog()[certificateType]?.find(field => field.name === key);
+          return fieldDef?.required && !String(value || '').trim();
+        });
+
+        if (missingRequired.length) {
+          notice.textContent = 'Please complete all required certificate details for the selected document type.';
+          notice.style.display = 'block';
+          return;
+        }
+
         notice.textContent = 'Generating certificate record...';
         notice.style.display = 'block';
         result.innerHTML = '';
 
         try {
+          const mediaFile = document.getElementById('issuerCertificateMediaUpload')?.files?.[0] || null;
+          const mediaData = await readFileAsDataUrl(mediaFile);
           const certificateId = `CERT-${institution.replace(/\s+/g, '').substring(0, 4).toUpperCase()}-${Date.now().toString().slice(-6)}`;
+          const metadata = {
+            type: 'Auto-generated certificate',
+            documentType: certificateType,
+            generatedBy: 'Certicheck issuer dashboard',
+            holderWallet: holderWallet || null,
+            institution,
+            issuerName: institution,
+            issuerEmail: user.email || 'issuer@certicheck.com',
+            issuerAccountType: user.user_type || 'issuer',
+            ...detailFields,
+            media: mediaData ? {
+              name: mediaFile?.name || 'uploaded-media',
+              type: mediaFile?.type || 'application/octet-stream',
+              size: mediaFile?.size || 0,
+              dataUrl: mediaData,
+              uploadLocation: 'Embedded in certificate metadata and certificate record',
+              storage: 'local certificate metadata / IPFS metadata bundle'
+            } : {
+              uploadLocation: 'No media uploaded',
+              storage: 'local certificate metadata / IPFS metadata bundle'
+            }
+          };
+
           const generatedCertificate = {
             certificate_id: certificateId,
             certificateId,
@@ -686,13 +1037,7 @@ function renderRoleLandingHome() {
             verificationStatus: 'Valid',
             status: 'valid',
             issuedAt: new Date().toISOString(),
-            metadata: {
-              type: 'Auto-generated certificate',
-              documentType: certificateType,
-              generatedBy: 'Certicheck issuer dashboard',
-              holderWallet: holderWallet || null,
-              institution
-            },
+            metadata,
             ipfsCid: `generated-${Date.now().toString(16)}`,
             blockchainTransactionId: `TX-${Date.now().toString(16).toUpperCase()}`
           };
@@ -705,7 +1050,7 @@ function renderRoleLandingHome() {
             certificateType,
             issuerName: institution,
             issuerWallet: getConnectedWalletAddress() || '',
-            metadata: generatedCertificate.metadata,
+            metadata,
             onChain: false
           };
 
@@ -746,8 +1091,8 @@ function renderRoleLandingHome() {
             issuedAt: new Date().toISOString(),
             ipfsCid,
             blockchainTransactionId: txSig,
-            issuerEmail: user.email || 'issuer@oau.edu.ng',
-            metadata: generatedCertificate.metadata
+            issuerEmail: user.email || 'issuer@certicheck.com',
+            metadata
           });
           setIssuerIssuedCertificates(list, user);
           setLastIssuerResult({
@@ -765,6 +1110,9 @@ function renderRoleLandingHome() {
                 <div><strong>Certificate ID:</strong> ${nextId}</div>
                 <div><strong>IPFS CID:</strong> ${ipfsCid}</div>
                 <div><strong>Transaction:</strong> ${txSig}</div>
+              </div>
+              <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+                <button type="button" class="btn-ghost" onclick="downloadCertificateArtifact({ certificateId: '${nextId}', certificateType: '${certificateType}', metadata: ${JSON.stringify(metadata).replace(/'/g, "&apos;")}})">Download certificate</button>
               </div>
             </div>
           `;
@@ -1957,7 +2305,7 @@ function initSignupForm() {
       const role = pendingSignupData.userType || desiredSignupType || 'issuer';
       saveDemoAuthSessionWithRole(pendingSignupData.email, pendingSignupData.firstName, pendingSignupData.lastName, role);
       pendingSignupData = null;
-      navigate(role === 'holder' ? 'holder' : role === 'admin' ? 'home' : 'home');
+      navigate(role === 'holder' ? 'holder' : 'home');
     } catch (err) {
       errorEl.textContent = "Demo signup completed locally.";
       errorEl.style.display = "block";
@@ -2276,12 +2624,107 @@ function buildAccordion() {
 ═══════════════════════════════════════════════ */
 let applyStep = 1;
 
+const ROLE_OPTIONS_BY_ORG_TYPE = {
+  university: [
+    "Registrar",
+    "Dean",
+    "Provost",
+    "Academic Director",
+    "Admissions Officer",
+    "Program Manager",
+    "Academic Advisor"
+  ],
+  college: [
+    "Registrar",
+    "Dean of Students",
+    "Admissions Director",
+    "Academic Director",
+    "Program Coordinator",
+    "Career Services Lead"
+  ],
+  bootcamp: [
+    "Co-Founder",
+    "Academic Director",
+    "Admissions Manager",
+    "Career Coach",
+    "Program Lead",
+    "Partnerships Manager"
+  ],
+  corporate: [
+    "CTO",
+    "Head of Compliance",
+    "HR Director",
+    "Operations Manager",
+    "People Lead",
+    "Learning & Development Manager"
+  ],
+  "law-firm": [
+    "Managing Partner",
+    "Senior Counsel",
+    "Legal Director",
+    "Compliance Officer",
+    "Operations Manager",
+    "Client Relationship Lead"
+  ],
+  bank: [
+    "Branch Manager",
+    "Risk Manager",
+    "Compliance Officer",
+    "Operations Director",
+    "Finance Manager",
+    "Head of Digital Banking"
+  ],
+  government: [
+    "Director",
+    "Program Manager",
+    "Policy Analyst",
+    "Chief Administrator",
+    "Department Head",
+    "Public Sector Operations Lead"
+  ],
+  ngo: [
+    "Executive Director",
+    "Program Manager",
+    "Partnerships Lead",
+    "Operations Lead",
+    "Grant Manager",
+    "Community Engagement Manager"
+  ],
+  other: [
+    "Founder",
+    "Director",
+    "Operations Manager",
+    "Administrator",
+    "Program Lead",
+    "Department Head"
+  ]
+};
+
+function updateContactRoleOptions() {
+  const orgType = document.getElementById("orgType")?.value || "other";
+  const roleSelect = document.getElementById("contactRole");
+  if (!roleSelect) return;
+
+  const roleOptions = ROLE_OPTIONS_BY_ORG_TYPE[orgType] || ROLE_OPTIONS_BY_ORG_TYPE.other;
+  const currentValue = roleSelect.value;
+
+  roleSelect.innerHTML = `
+    <option value="">Select a role/title</option>
+    ${roleOptions.map(role => `<option value="${role}">${role}</option>`).join("")}
+  `;
+
+  if (roleOptions.includes(currentValue)) {
+    roleSelect.value = currentValue;
+  }
+}
+
 (function initApplyForm() {
   const nextBtn = document.getElementById("formNext");
   const backBtn = document.getElementById("formBack");
   const volumeSelect = document.getElementById("volume");
   const volumeCustomField = document.getElementById("volumeCustomField");
   const volumeCustomInput = document.getElementById("volumeCustom");
+  const orgTypeSelect = document.getElementById("orgType");
 
   if (!nextBtn) return;
 
@@ -2294,8 +2737,10 @@ let applyStep = 1;
     }
   };
 
+  orgTypeSelect?.addEventListener("change", updateContactRoleOptions);
   volumeSelect?.addEventListener("change", toggleCustomVolume);
   toggleCustomVolume();
+  updateContactRoleOptions();
 
   nextBtn.addEventListener("click", () => {
     if (applyStep < 3) {
@@ -2349,8 +2794,7 @@ function submitApplyForm() {
   }
 
   const authToken = localStorage.getItem('certicheck_auth_token');
-  
-  // Prepare application data
+
   const applicationData = {
     orgName: document.getElementById("orgName")?.value.trim() || "",
     orgType: document.getElementById("orgType")?.value || "",
@@ -2363,40 +2807,36 @@ function submitApplyForm() {
     wallet: document.getElementById("wallet")?.value.trim() || ""
   };
 
-  // Submit to backend if authenticated, otherwise save locally
-  if (authToken) {
-    fetch(`${API_BASE_URL}/applications/submit`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`
-      },
-      body: JSON.stringify(applicationData)
-    })
-    .then(res => res.json())
-    .then(data => {
-      if (data.success || data.id) {
-        // ensure hidden contactEmail input contains the value used
-        const hidden = document.getElementById('contactEmail');
-        if (hidden) hidden.value = email;
-        showSuccessMessage(name, email, volumeText);
-      } else {
-        console.error('Application submission failed:', data);
-        saveApplicationLocally(applicationData);
-        showSuccessMessage(name, email, volumeText);
-      }
-    })
-    .catch(err => {
-      console.error('Error submitting application:', err);
-      saveApplicationLocally(applicationData);
-      const hidden = document.getElementById('contactEmail'); if (hidden) hidden.value = email;
+  const headers = {
+    'Content-Type': 'application/json'
+  };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  fetch(`${API_BASE_URL}/applications/submit`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(applicationData)
+  })
+  .then(async res => {
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.success || data.id || data.application)) {
+      const hidden = document.getElementById('contactEmail');
+      if (hidden) hidden.value = email;
       showSuccessMessage(name, email, volumeText);
-    });
-    } else {
-      // Not authenticated, save locally
-      saveApplicationLocally(applicationData);
-      showSuccessMessage(name, email, volumeText);
+      return;
     }
+
+    console.error('Application submission failed:', data);
+    saveApplicationLocally(applicationData);
+    const hidden = document.getElementById('contactEmail'); if (hidden) hidden.value = email;
+    showSuccessMessage(name, email, volumeText);
+  })
+  .catch(err => {
+    console.error('Error submitting application:', err);
+    saveApplicationLocally(applicationData);
+    const hidden = document.getElementById('contactEmail'); if (hidden) hidden.value = email;
+    showSuccessMessage(name, email, volumeText);
+  });
 }
 
 function saveApplicationLocally(applicationData) {

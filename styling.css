@@ -139,16 +139,24 @@ input, select, textarea { font-family: inherit; }
   letter-spacing:0.08em;
   text-transform:uppercase;
 }
-.admin-header .page-title { font-family:var(--font-display); font-size:24px; margin:0; }
+.admin-header .page-title { font-family:var(--font-display); font-size:30px; margin:0; }
 .status-badge { background:rgba(124,58,237,0.08); color:var(--purple-mid); padding:6px 10px; border-radius:8px; font-weight:700; font-size:12px; }
-.admin-stats .resource-card { background:var(--bg-card); border:1px solid var(--panel-border); padding:14px; border-radius:12px; display:flex; align-items:center; gap:12px; box-shadow:var(--shadow-sm); }
+.admin-stats { margin-bottom: 20px; }
+.admin-stats .resource-card { background:var(--bg-card); border:1px solid var(--panel-border); padding:20px 22px; border-radius:16px; display:flex; flex-direction:column; align-items:flex-start; gap:8px; box-shadow:var(--shadow-sm); min-height:120px; }
 .admin-stats .resource-card .value { font-weight:800; font-size:20px; }
 .admin-stats .resource-card .label { font-size:12px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.08em; }
 
-.admin-main-grid .form-card { border-radius:12px; }
-.admin-secondary .form-card { position:relative; }
-.quick-actions .btn-outline { width:100%; text-align:left; }
+.admin-main-grid { grid-template-columns: minmax(0, 1.8fr) minmax(250px, 0.7fr); gap: 24px; }
+.admin-main-grid .form-card { border-radius:18px; min-height: 640px; }
+.admin-secondary .form-card { position:relative; min-height: 220px; }
+.quick-actions .btn-outline { width:100%; text-align:left; padding:12px 14px; border-radius:12px; font-weight:700; }
 .profile-card .btn-primary, .profile-card .btn-ghost { width:100%; }
+.admin-list-card { background: var(--bg-card); border:1px solid var(--border); border-radius:16px; padding:18px; box-shadow: var(--shadow-sm); margin-bottom:14px; }
+.admin-status-pill { padding:7px 10px; border-radius:999px; font-size:11px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; }
+.admin-status-pill.warning { background: var(--amber-pale); color: var(--amber); }
+.admin-status-pill.success { background: var(--green-pale); color: var(--green); }
+.admin-status-pill.danger { background: var(--red-pale); color: var(--red); }
+.admin-status-pill.info { background: var(--blue-pale); color: var(--blue); }
 
 .audit-activity .timeline-item { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid var(--border-light); }
 .audit-activity .timeline-item .meta { color:var(--text-secondary); font-size:13px }

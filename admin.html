@@ -27,7 +27,7 @@
     </button>
     <div class="nav-actions">
       <button class="btn-ghost" onclick="window.location.href='index.html'">Main site</button>
-      <div class="admin-nav-user" style="display:flex;align-items:center;gap:10px;margin-left:12px;position:relative">
+      <div id="adminSignedInUser" class="admin-nav-user" style="display:none;align-items:center;gap:10px;margin-left:12px;position:relative">
         <button id="adminProfileToggle" class="btn-ghost" style="display:flex;align-items:center;gap:8px">
           <div class="admin-avatar" aria-hidden="true" style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#4f46e5);display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px">AD</div>
           <div style="display:flex;flex-direction:column;text-align:left">
@@ -46,15 +46,14 @@
     </div>
   </nav>
   
-  <div class="page-wrap" style="max-width:1200px; margin:100px auto 80px;">
+  <div class="page-wrap" style="max-width:1440px; margin:100px auto 80px; padding:0 18px;">
 
-    <header class="admin-header" style="margin-bottom:18px">
+    <header class="admin-header" style="margin-bottom:22px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
         <div>
-          <div class="eyebrow">ADMINISTRATION</div>
+          <div class="eyebrow">Admin Portal</div>
           <h1 class="page-title" style="margin:6px 0 6px 0">Issuer Approval Console</h1>
-          <p class="page-desc" style="margin:0;color:var(--text-secondary)">Manage issuer applications, certificate verification activity, revocations, and administrative audit events.</p>
-          <div style="margin-top:8px;font-size:13px;color:var(--text-secondary)">Admin / Issuer Approval</div>
+          <p class="page-desc" style="margin:0;color:var(--text-secondary)">Sign in with an admin account to approve applications, revoke certificates, and review audit events.</p>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
           <div id="adminSummary" style="color:var(--text-secondary);font-size:14px;text-align:right"></div>
@@ -62,11 +61,26 @@
       </div>
     </header>
 
-    <section class="admin-stats" style="margin-bottom:18px">
+    <div id="adminLoginCard" class="form-card" style="max-width:560px;margin:26px auto 0;padding:28px;display:block;">
+      <div id="adminLoginError" class="alert alert-danger" style="display:none;margin-bottom:16px;"></div>
+      <form id="adminLoginForm" style="display:flex;flex-direction:column;gap:16px;">
+        <div>
+          <label for="adminEmail" style="display:block;margin-bottom:8px;font-weight:700;color:var(--text-primary);">Admin Email</label>
+          <input id="adminEmail" type="email" name="email" placeholder="admin@certicheck.com" style="width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg-subtle);color:var(--text-primary);" required />
+        </div>
+        <div>
+          <label for="adminPassword" style="display:block;margin-bottom:8px;font-weight:700;color:var(--text-primary);">Admin Password</label>
+          <input id="adminPassword" type="password" name="password" placeholder="Enter admin password" style="width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg-subtle);color:var(--text-primary);" required />
+        </div>
+        <button type="submit" class="btn-primary" style="width:100%;justify-content:center;">Sign In</button>
+      </form>
+    </div>
+
+    <section class="admin-stats" style="margin-bottom:18px;display:none;">
       <div id="adminStatsGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px"></div>
     </section>
 
-    <div class="admin-main-grid" style="display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start">
+    <div class="admin-main-grid" style="display:none;grid-template-columns:1fr 320px;gap:20px;align-items:start">
 
       <main class="admin-primary">
         <div class="form-card" id="adminDashboard" style="display:none;margin-top:14px;padding:18px">
@@ -89,11 +103,11 @@
         <div class="quick-actions form-card" style="padding:12px">
           <h4 style="margin:0 0 8px 0">Quick Actions</h4>
           <div style="display:grid;gap:8px;margin-top:8px">
-            <button class="btn-outline" data-action-quick="pending">Review Applications</button>
-            <button class="btn-outline" data-action-quick="approved">Approved Requests</button>
-            <button class="btn-outline" data-action-quick="rejected">Rejected Requests</button>
-            <button class="btn-outline" data-action-quick="checks">Certificate Checks</button>
-            <button class="btn-outline" data-action-quick="revoked">Revoked Certificates</button>
+            <button class="btn-outline" data-action-quick="pending">Pending</button>
+            <button class="btn-outline" data-action-quick="approved">Approved</button>
+            <button class="btn-outline" data-action-quick="rejected">Rejected</button>
+            <button class="btn-outline" data-action-quick="revoked">Rejected</button>
+            <button class="btn-outline" data-action-quick="checks">Checks</button>
             <button class="btn-outline" data-action-quick="audit">Audit Log</button>
           </div>
         </div>
@@ -102,6 +116,16 @@
     </div>
 
     <!-- audit-activity section removed (audit view is inside the dashboard) -->
+
+  <div id="adminDetailDrawer" style="position:fixed;right:20px;top:80px;width:min(420px, calc(100vw - 32px));max-height:calc(100vh - 100px);overflow:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow-lg);padding:20px;display:none;z-index:1200;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;">
+      <div style="font-size:18px;font-weight:800;color:var(--text-primary);">Application detail</div>
+      <button id="adminDrawerClose" class="btn-ghost" type="button">Close</button>
+    </div>
+    <div id="adminDetailContent"></div>
+  </div>
+
+  <div id="adminToastStack" style="position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:10px;z-index:1300;"></div>
 
   <script src="admin.js"></script>
 </div>
