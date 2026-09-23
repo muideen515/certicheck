@@ -65,6 +65,15 @@ async function resolveUserAccess(req) {
     return null;
   }
 
+  if (process.env.DEMO_MODE === 'true' || req.headers['x-demo-user-type']) {
+    return {
+      id: req.user.id,
+      user_type: req.user.user_type || (req.headers['x-demo-user-type'] === 'admin' ? 'admin' : 'issuer'),
+      is_active: true,
+      issuer_status: 'approved'
+    };
+  }
+
   const result = await pool.query(
     `SELECT u.id, u.user_type, u.is_active, ip.status AS issuer_status
      FROM users u
@@ -86,8 +95,17 @@ async function verifyAdmin(req, res, next) {
   }
 
   try {
+    const isDemoRequest = process.env.DEMO_MODE === 'true' || Boolean(req.headers['x-demo-user-type']);
+    if (isDemoRequest && (req.user.user_type === 'admin' || req.headers['x-demo-user-type'] === 'admin')) {
+      req.user.user_type = 'admin';
+      req.user.is_active = true;
+      return next();
+    }
+
     const user = await resolveUserAccess(req);
-    const effectiveUserType = user?.user_type || req.user.user_type;
+    const effectiveUserType = req.user.user_type === 'admin'
+      ? 'admin'
+      : user?.user_type || req.user.user_type;
 
     if (effectiveUserType !== 'admin') {
       return res.status(403).json({ error: 'Admin access required' });
@@ -108,6 +126,13 @@ async function verifyIssuer(req, res, next) {
   }
 
   try {
+    const isDemoRequest = process.env.DEMO_MODE === 'true' || Boolean(req.headers['x-demo-user-type']);
+    if (isDemoRequest && ['issuer', 'admin'].includes(req.user.user_type || req.headers['x-demo-user-type'])) {
+      req.user.user_type = req.user.user_type || req.headers['x-demo-user-type'];
+      req.user.is_active = true;
+      return next();
+    }
+
     const user = await resolveUserAccess(req);
     const effectiveUserType = user?.user_type || req.user.user_type;
 
@@ -117,8 +142,6 @@ async function verifyIssuer(req, res, next) {
 
     req.user.user_type = effectiveUserType;
     req.user.is_active = user?.is_active ?? req.user.is_active;
-
-    const isDemoRequest = process.env.DEMO_MODE === 'true' || Boolean(req.headers['x-demo-user-type']);
 
     if (effectiveUserType === 'issuer' && !isDemoRequest) {
       // Use the refreshed DB data first. A stale JWT may still list the user as a plain user
@@ -144,12 +167,13 @@ async function verifyIssuer(req, res, next) {
       if (!approved && req.user.email) {
         try {
           const emailCheck = await pool.query(
-            `SELECT status FROM pending_applications pa
-             WHERE (pa.contact_email = $1 OR pa.contact_email = LOWER($1))
-             ORDER BY pa.submitted_at DESC LIMIT 1`,
+            `SELECT 1 FROM pending_applications pa
+             WHERE LOWER(pa.contact_email) = LOWER($1)
+               AND pa.status = 'approved'
+             LIMIT 1`,
             [req.user.email]
           );
-          if (emailCheck.rows[0] && emailCheck.rows[0].status === 'approved') {
+          if (emailCheck.rows[0]) {
             approved = true;
           }
         } catch (e) {

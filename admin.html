@@ -32,12 +32,12 @@
           <div class="admin-avatar" aria-hidden="true" style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#4f46e5);display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px">AD</div>
           <div style="display:flex;flex-direction:column;text-align:left">
             <div style="font-size:13px;font-weight:700;color:var(--text-primary)" id="navAdminName">Admin</div>
-            <div style="font-size:11px;color:var(--text-secondary)" id="navAdminEmail">admin@certicheck.com</div>
+            <div style="font-size:11px;color:var(--text-secondary)" id="navAdminEmail"></div>
           </div>
         </button>
         <div id="adminProfileMenu" style="position:absolute;right:0;top:44px;display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:10px;min-width:220px;box-shadow:var(--shadow-sm);z-index:999">
           <div style="font-weight:700;margin-bottom:6px" id="menuName">Admin</div>
-          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px" id="menuEmail">admin@certicheck.com</div>
+          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px" id="menuEmail"></div>
           <div style="display:flex;gap:8px;justify-content:flex-end">
             <button id="menuSignOut" class="btn-ghost">Sign out</button>
           </div>
@@ -127,6 +127,10 @@
 
   <div id="adminToastStack" style="position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:10px;z-index:1300;"></div>
 
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+  <script src="firebase-config.js"></script>
   <script src="admin.js"></script>
 </div>
 </body>

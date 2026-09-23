@@ -86,7 +86,7 @@ class Application {
     const result = await pool.query(
       `UPDATE pending_applications SET status = 'approved', reviewed_at = NOW(), reviewer_id = $1
        WHERE id = $2
-       RETURNING id, issuer_id, organization_name, status, reviewed_at`,
+       RETURNING id, issuer_id, organization_name, contact_name, contact_email, status, reviewed_at`,
       [reviewerId, appId]
     );
 
@@ -123,7 +123,7 @@ class Application {
     const result = await pool.query(
       `UPDATE pending_applications SET status = 'rejected', reviewed_at = NOW(), reviewer_id = $1
        WHERE id = $2
-       RETURNING id, issuer_id, status, reviewed_at`,
+       RETURNING id, issuer_id, organization_name, contact_name, contact_email, status, reviewed_at`,
       [reviewerId, appId]
     );
 

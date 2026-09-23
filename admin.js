@@ -31,6 +31,24 @@ let adminReviewFilters = {
   status: 'all',
   sort: 'newest'
 };
+let adminPollTimer = null;
+
+function startAdminDashboardPolling() {
+  if (adminPollTimer) return;
+  adminPollTimer = setInterval(() => {
+    if (isAdminLoggedIn()) {
+      loadAdminDashboard().catch(() => {});
+    }
+  }, 15000);
+}
+
+function stopAdminDashboardPolling() {
+  if (adminPollTimer) {
+    clearInterval(adminPollTimer);
+    adminPollTimer = null;
+  }
+}
+
 let adminState = {
   token: localStorage.getItem(ADMIN_TOKEN_KEY) || "",
   user: null,
@@ -168,6 +186,12 @@ async function requestJson(path, options = {}) {
   return data;
 }
 
+function getApplicationList(data) {
+  if (Array.isArray(data?.applications)) return data.applications;
+  if (Array.isArray(data?.data)) return data.data;
+  return [];
+}
+
 function setAdminState(enabled, user = null) {
   const loginCard = document.getElementById("adminLoginCard");
   const dashboard = document.getElementById("adminDashboard");
@@ -186,6 +210,7 @@ function setAdminState(enabled, user = null) {
 
   if (enabled) {
     sessionStorage.setItem(ADMIN_SESSION_KEY, "1");
+    startAdminDashboardPolling();
     if (loginCard) loginCard.style.display = "none";
     if (dashboard) dashboard.style.display = "block";
     if (statsSection) statsSection.style.display = 'block';
@@ -194,6 +219,17 @@ function setAdminState(enabled, user = null) {
     if (welcome) {
       welcome.textContent = user?.first_name || user?.email || "Admin";
     }
+    const navAdminName = document.getElementById('navAdminName');
+    const navAdminEmail = document.getElementById('navAdminEmail');
+    const menuName = document.getElementById('menuName');
+    const menuEmail = document.getElementById('menuEmail');
+    const displayName = user?.first_name
+      ? `${user.first_name} ${user.last_name || ''}`.trim()
+      : (user?.email || 'Admin');
+    if (navAdminName) navAdminName.textContent = displayName;
+    if (menuName) menuName.textContent = displayName;
+    if (navAdminEmail) navAdminEmail.textContent = user?.email || '';
+    if (menuEmail) menuEmail.textContent = user?.email || '';
     const profileName = document.getElementById('adminProfileName');
     const profileEmail = document.getElementById('adminProfileEmail');
     const profileRole = document.getElementById('adminProfileRole');
@@ -212,6 +248,7 @@ function setAdminState(enabled, user = null) {
   sessionStorage.removeItem(ADMIN_SESSION_KEY);
   localStorage.removeItem(ADMIN_TOKEN_KEY);
   localStorage.removeItem(ADMIN_USER_KEY);
+  stopAdminDashboardPolling();
   adminState.token = "";
   adminState.user = null;
   if (loginCard) loginCard.style.display = "block";
@@ -730,34 +767,37 @@ async function handleRevokeAction(id) {
 
 async function loadAdminDashboard() {
   try {
-    const [dashboardData, pendingData, rejectedData, historyData, revokedData, auditData] = await Promise.all([
+    const results = await Promise.allSettled([
       requestJson("/admin/dashboard"),
       requestJson("/applications/pending?limit=50&offset=0"),
       requestJson("/applications/rejected?limit=50&offset=0"),
+      requestJson("/applications/approved?limit=50&offset=0"),
       requestJson("/verify/history?limit=50&offset=0"),
       requestJson("/verify/revoked?limit=50&offset=0"),
       requestJson("/admin/audit-log?limit=50&offset=0")
     ]);
 
-    adminState.stats = dashboardData.stats || null;
-    adminState.pendingApps = pendingData.applications || [];
-    adminState.rejectedApps = rejectedData.applications || [];
-    adminState.checks = historyData.history || [];
-    adminState.revoked = revokedData.revoked || [];
-    adminState.auditLog = auditData.auditLog || [];
+    const valueAt = index => results[index].status === 'fulfilled' ? results[index].value : {};
+    const dashboardData = valueAt(0);
+    const pendingData = valueAt(1);
+    const rejectedData = valueAt(2);
+    const approvedData = valueAt(3);
+    const historyData = valueAt(4);
+    const revokedData = valueAt(5);
+    const auditData = valueAt(6);
 
-    // approved apps endpoint may not exist on all backends; fetch defensively
-    try {
-      const approvedData = await requestJson('/applications/approved?limit=50&offset=0');
-      adminState.approvedApps = approvedData.applications || [];
-    } catch (e) {
-      adminState.approvedApps = [];
-    }
+    adminState.stats = dashboardData.stats || adminState.stats || null;
+    if (results[1].status === 'fulfilled') adminState.pendingApps = getApplicationList(pendingData);
+    if (results[2].status === 'fulfilled') adminState.rejectedApps = getApplicationList(rejectedData);
+    if (results[3].status === 'fulfilled') adminState.approvedApps = getApplicationList(approvedData);
+    if (results[4].status === 'fulfilled') adminState.checks = Array.isArray(historyData.history) ? historyData.history : [];
+    if (results[5].status === 'fulfilled') adminState.revoked = Array.isArray(revokedData.revoked) ? revokedData.revoked : [];
+    if (results[6].status === 'fulfilled') adminState.auditLog = Array.isArray(auditData.auditLog) ? auditData.auditLog : [];
 
-    await requestJson("/admin/access-log", {
+    requestJson("/admin/access-log", {
       method: "POST",
       body: JSON.stringify({ section: adminCurrentSection, method: "dashboard" })
-    });
+    }).catch(() => {});
 
     renderAdminDashboard();
   } catch (err) {
@@ -778,6 +818,14 @@ async function loginAdmin(event) {
   }
 
   try {
+    if (window.getFirebaseAuth) {
+      try {
+        await window.getFirebaseAuth().signInWithEmailAndPassword(email, password);
+      } catch (firebaseError) {
+        console.warn('Firebase admin sign-in unavailable; using backend admin session:', firebaseError.message || firebaseError);
+      }
+    }
+
     const data = await requestJson("/auth/admin/login", {
       method: "POST",
       body: JSON.stringify({ email, password })
@@ -798,7 +846,7 @@ async function loginAdmin(event) {
     if (err.message && err.message.toLowerCase().includes('failed to fetch')) {
       showAdminError('Unable to reach backend API. Ensure the backend is running at the expected API URL.');
     } else {
-      showAdminError(err.message || 'Login failed.');
+      showAdminError(err.message || 'Incorrect email or password');
     }
   }
 }
@@ -820,6 +868,9 @@ document.addEventListener("DOMContentLoaded", () => {
   signOutButtons.forEach((button) => {
     button.addEventListener('click', (event) => {
       event.preventDefault();
+      if (window.signOutFirebaseUser) {
+        window.signOutFirebaseUser().catch((error) => console.warn('Firebase admin sign-out failed:', error.message || error));
+      }
       setAdminState(false);
     });
   });

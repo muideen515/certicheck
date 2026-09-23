@@ -1,6 +1,6 @@
 const express = require('express');
 const VerifyHistory = require('../models/VerifyHistory');
-const { verifyToken, verifyAdmin, logAudit } = require('../middleware/auth');
+const { verifyToken, verifyAdmin, verifyAdminToken, logAudit } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -29,7 +29,7 @@ router.post('/check', async (req, res) => {
 });
 
 // ── GET VERIFICATION HISTORY (ADMIN) ────────────────────────────────────────
-router.get('/history', verifyToken, verifyAdmin, async (req, res) => {
+router.get('/history', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
     const offset = parseInt(req.query.offset) || 0;
@@ -71,7 +71,7 @@ router.get('/my-history', verifyToken, async (req, res) => {
 });
 
 // ── REVOKE CERTIFICATE (ADMIN) ──────────────────────────────────────────────
-router.put('/:entryId/revoke', verifyToken, verifyAdmin, async (req, res) => {
+router.put('/:entryId/revoke', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const { entryId } = req.params;
 
@@ -91,7 +91,7 @@ router.put('/:entryId/revoke', verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // ── GET REVOKED CERTIFICATES (ADMIN) ────────────────────────────────────────
-router.get('/revoked', verifyToken, verifyAdmin, async (req, res) => {
+router.get('/revoked', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
     const offset = parseInt(req.query.offset) || 0;

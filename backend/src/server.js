@@ -137,17 +137,18 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/certificates', certificateRoutes);
 
 const frontendRoot = path.resolve(__dirname, '..', '..');
-app.use(express.static(frontendRoot));
 
 app.get(['/', '/index', '/index.html'], (req, res) => {
   res.sendFile(path.join(frontendRoot, 'index.html'));
 });
 
-app.get(['/admin', '/admin.html'], (req, res) => {
+app.get(['/admin', '/admin/', '/admin.html'], (req, res) => {
   res.sendFile(path.join(frontendRoot, 'admin.html'));
 });
 
-app.get(/^\/(?!api|health|admin(?:\.html)?$).*/, (req, res, next) => {
+app.use(express.static(frontendRoot, { index: false, redirect: false }));
+
+app.get(/^\/(?!api|health|admin(?:\/?|\.html)?$).*/, (req, res, next) => {
   if (req.path === '/health') return next();
   const requestedFile = path.join(frontendRoot, req.path.replace(/^\//, ''));
   if (requestedFile.endsWith('.html')) {

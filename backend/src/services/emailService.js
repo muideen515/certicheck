@@ -25,6 +25,8 @@ class EmailService {
   static initTransporter() {
     if (this.transporter) return;
 
+    const emailPassword = String(process.env.EMAIL_PASSWORD || '').replace(/\s+/g, '');
+
     // 1. Custom SMTP configuration
     if (process.env.SMTP_HOST && process.env.SMTP_USER) {
       console.log(`✓ EmailService: Using custom SMTP (${process.env.SMTP_HOST}:${process.env.SMTP_PORT || 587})`);
@@ -41,13 +43,13 @@ class EmailService {
     }
 
     // 2. Pre-configured email service (e.g. Gmail)
-    if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
+    if (process.env.EMAIL_USER && emailPassword) {
       console.log(`✓ EmailService: Using ${process.env.EMAIL_SERVICE || 'gmail'} with user ${process.env.EMAIL_USER}`);
       this.transporter = nodemailer.createTransport({
         service: process.env.EMAIL_SERVICE || 'gmail',
         auth: {
           user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASSWORD
+          pass: emailPassword
         }
       });
       return;
@@ -67,6 +69,16 @@ class EmailService {
         console.log('└─────────────────────────────────────────────────────────────┘\n');
         return { response: 'logged to console', messageId: `dev-${Date.now()}` };
       }
+    };
+  }
+
+  static getConfigurationStatus() {
+    const hasCustomSmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+    const hasEmailService = Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD);
+    return {
+      mode: hasCustomSmtp || hasEmailService ? 'smtp' : 'console',
+      provider: hasCustomSmtp ? 'custom-smtp' : hasEmailService ? (process.env.EMAIL_SERVICE || 'gmail') : 'console',
+      sender: process.env.EMAIL_FROM || process.env.EMAIL_USER || null
     };
   }
 
@@ -159,6 +171,72 @@ class EmailService {
       });
     } catch (err) {
       console.error('Error sending welcome email:', err);
+    }
+  }
+
+  static async sendApplicationReceived(email, applicantName, organizationName) {
+    this.initTransporter();
+
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+        <div style="background:#f0f4f8;padding:24px;border-radius:12px;border:1px solid #e2e8f0;">
+          <h2 style="color:#4f46e5;margin-top:0;">Application received</h2>
+          <p style="color:#4b5563;font-size:15px;line-height:1.6;">Hello ${applicantName || 'there'},</p>
+          <p style="color:#4b5563;font-size:15px;line-height:1.6;">We received your issuer application for <strong>${organizationName || 'your institution'}</strong>.</p>
+          <p style="color:#4b5563;font-size:15px;line-height:1.6;">Our team will review it and email you when a decision has been made.</p>
+          <p style="color:#94a3b8;font-size:12px;">CertiCheck — Decentralised Academic &amp; Professional Credentials on Solana</p>
+        </div>
+      </div>
+    `;
+
+    try {
+      return await this.transporter.sendMail({
+        from: this.getFromAddress(),
+        to: normalizedEmail,
+        subject: 'We received your CertiCheck issuer application',
+        html
+      });
+    } catch (err) {
+      console.error('Error sending application received email:', err);
+      return null;
+    }
+  }
+
+  static async sendApplicationDecision(email, applicantName, organizationName, approved, reason = '') {
+    this.initTransporter();
+
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const decision = approved ? 'approved' : 'not approved';
+    const subject = approved
+      ? 'Your CertiCheck issuer application was approved'
+      : 'Update on your CertiCheck issuer application';
+    const reasonMarkup = reason
+      ? `<p style="color:#4b5563;font-size:15px;line-height:1.6;"><strong>Reason:</strong> ${String(reason)}</p>`
+      : '';
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+        <div style="background:#f0f4f8;padding:24px;border-radius:12px;border:1px solid #e2e8f0;">
+          <h2 style="color:#4f46e5;margin-top:0;">Issuer application ${decision}</h2>
+          <p style="color:#4b5563;font-size:15px;line-height:1.6;">Hello ${applicantName || 'there'},</p>
+          <p style="color:#4b5563;font-size:15px;line-height:1.6;">Your issuer application for <strong>${organizationName || 'your institution'}</strong> has been <strong>${decision}</strong>.</p>
+          ${reasonMarkup}
+          ${approved ? '<p style="color:#4b5563;font-size:15px;line-height:1.6;">You can now sign in and access the issuer dashboard.</p>' : '<p style="color:#4b5563;font-size:15px;line-height:1.6;">You may contact the CertiCheck team if you need more information.</p>'}
+          <p style="color:#94a3b8;font-size:12px;">CertiCheck — Decentralised Academic &amp; Professional Credentials on Solana</p>
+        </div>
+      </div>
+    `;
+
+    try {
+      return await this.transporter.sendMail({
+        from: this.getFromAddress(),
+        to: normalizedEmail,
+        subject,
+        html
+      });
+    } catch (err) {
+      console.error('Error sending application decision email:', err);
+      return null;
     }
   }
 

@@ -197,9 +197,6 @@ async function issueCertificateOnChain({ certificateId, ipfsCid, certificateType
   const program = new anchor.Program(idl, programId, provider);
 
   const issuerPubkey = issuerWallet ? new PublicKey(issuerWallet) : payer.publicKey;
-  if (issuerWallet && issuerPubkey.toBase58() !== payer.publicKey.toBase58()) {
-    throw new Error('issuerWallet does not match the configured payer keypair for on-chain issuance.');
-  }
 
   const [issuerPda] = await PublicKey.findProgramAddress([Buffer.from('issuer'), issuerPubkey.toBuffer()], program.programId);
   const [certificatePda] = await PublicKey.findProgramAddress(
@@ -251,9 +248,6 @@ async function revokeCertificateOnChain({ certificateId, reason, issuerWallet })
   const program = new anchor.Program(idl, programId, provider);
 
   const issuerPubkey = issuerWallet ? new PublicKey(issuerWallet) : payer.publicKey;
-  if (issuerWallet && issuerPubkey.toBase58() !== payer.publicKey.toBase58()) {
-    throw new Error('issuerWallet does not match the configured payer keypair for on-chain revocation.');
-  }
 
   const [issuerPda] = await PublicKey.findProgramAddress([Buffer.from('issuer'), issuerPubkey.toBuffer()], program.programId);
   const [certificatePda] = await PublicKey.findProgramAddress(

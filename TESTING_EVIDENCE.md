@@ -56,6 +56,10 @@ anchor build
 ## Evidence Notes
 - The certificate persistence unit test covers local store issue, lookup, and revoke scenarios.
 - A new API integration test covers the backend certificate issue/lookup/revoke flow using demo authentication.
+- `evidence/local-demo-script.txt` captures the complete local flow: application submission, admin approval, issuer login, issue, public valid verification, admin revoke, and public revoked verification.
+- `evidence/backend-npm-test.txt` captures the backend regression suite: 8 passing tests and 1 intentionally skipped Solana test when on-chain mode is disabled.
+- `evidence/solana-cargo-test.txt` captures the Rust program tests: 2 passing tests.
+- `anchor build` completed successfully in the local workspace, but no Solana CLI wallet is configured, so no devnet deployment was performed.
 - The backend now supports a demo token path for local API flow validation without requiring a full user signup.
 - The backend certificate lookup route is wired to query deployed Anchor program state when `CERTIFICATE_PROGRAM_ID` is set and `SOLANA_ENABLE=true`.
 - The Anchor build is documented for local execution, but the program was not compiled in this session due to missing local toolchain access.

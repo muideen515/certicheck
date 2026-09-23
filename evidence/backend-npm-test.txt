@@ -2,21 +2,30 @@
 > certicheck-backend@1.0.0 test
 > node --test tests/*.test.js
 
+[32m✔ admin rate limit returns 429 after threshold exceeded [90m(319.748435ms)[39m[39m
 DEBUG issue body {"certificateId":"CERT-API-001","holderName":"Alice Example","holderEmail":"alice@example.com","certificateType":"API Integration Test","issuerName":"Certicheck Test Issuer","issuerWallet":"demo-wallet","issueOnChain":false}
-Certificate issuance transaction failed, recording local/IPFS only: Non-base58 character
-On-chain revoke failed, continuing with local revocation only: Simulation failed. 
-Message: Transaction simulation failed: Attempt to load a program that does not exist. 
-Logs: 
-[]. 
-Catch the `SendTransactionError` and call `getLogs()` on it for full details.
-✔ backend certificate issue, lookup, and revoke API flow (1281.140837ms)
-✔ issues, looks up, and revokes a certificate (2.27297ms)
-✔ certificate store issue, lookup, revoke (3.701403ms)
-ℹ tests 3
-ℹ suites 0
-ℹ pass 3
-ℹ fail 0
-ℹ cancelled 0
-ℹ skipped 0
-ℹ todo 0
-ℹ duration_ms 11658.233433
+[32m✔ backend certificate issue, lookup, and revoke API flow [90m(407.909891ms)[39m[39m
+[32m✔ issues, looks up, and revokes a certificate [90m(14.364564ms)[39m[39m
+[32m✔ certificate store issue, lookup, revoke [90m(3.137197ms)[39m[39m
+[32m✔ verifyIssuer refreshes authorization from the database before approving a stale issuer token [90m(1.48372ms)[39m[39m
+▶ on-chain issuance skeleton (run only when SOLANA_ENABLE=true)
+  [90m﹣ Solana not enabled in env; skipping on-chain integration test [90m(0.91638ms)[39m # SKIP[39m
+[32m✔ on-chain issuance skeleton (run only when SOLANA_ENABLE=true) [90m(2.441278ms)[39m[39m
+ℹ EmailService: No live SMTP credentials found; running in development console mode.
+
+┌─────────────────────────────────────────────────────────────┐
+│ 📧 EMAIL DISPATCHED (Development / Test Mode)               │
+│ To:      ada@acme.edu                                       │
+│ Subject: We received your CertiCheck issuer application     │
+└─────────────────────────────────────────────────────────────┘
+
+[32m✔ public application submissions are visible to admin review queue [90m(208.18053ms)[39m[39m
+[32m✔ main and admin routes serve their dedicated pages [90m(84.217974ms)[39m[39m
+[34mℹ tests 9[39m
+[34mℹ suites 0[39m
+[34mℹ pass 8[39m
+[34mℹ fail 0[39m
+[34mℹ cancelled 0[39m
+[34mℹ skipped 1[39m
+[34mℹ todo 0[39m
+[34mℹ duration_ms 11221.091537[39m
