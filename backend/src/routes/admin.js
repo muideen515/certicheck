@@ -16,6 +16,9 @@ router.use((req, res, next) => {
       const adminId = req.user?.id || null;
       const status = res.statusCode >= 400 ? 'failed' : 'success';
       const metadata = { method: req.method, path: req.path, statusCode: res.statusCode };
+      if (process.env.DEMO_MODE === 'true') {
+        return;
+      }
       pool.query(
         `INSERT INTO audit_log (user_id, action, action_type, resource_type, resource_id, status, error_message, ip_address, user_agent, metadata, timestamp)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,

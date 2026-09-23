@@ -48,6 +48,15 @@ async function ensureSeededAccounts() {
 
     await User.updatePassword(account.email, account.password);
 
+    if (account.userType === 'admin' && existingUser.user_type !== 'admin') {
+      await pool.query(
+        `UPDATE users
+         SET user_type = 'admin', first_name = $1, last_name = $2, is_active = TRUE, updated_at = NOW()
+         WHERE id = $3`,
+        [account.firstName, account.lastName, existingUser.id]
+      );
+    }
+
     if (account.userType === 'issuer') {
       const profileExists = await pool.query(
         'SELECT id FROM issuer_profiles WHERE user_id = $1 LIMIT 1',
@@ -344,8 +353,8 @@ router.post('/login', async (req, res) => {
     const user = await User.verifyPassword(email, password);
     
     if (!user) {
-      await logAudit(null, 'LOGIN', 'user', null, 'failed', 'Invalid credentials');
-      return res.status(401).json({ error: 'Invalid credentials' });
+      await logAudit(null, 'LOGIN', 'user', null, 'failed', 'Incorrect email or password');
+      return res.status(401).json({ error: 'Incorrect email or password' });
     }
 
     if (!user.is_active) {
@@ -354,6 +363,12 @@ router.post('/login', async (req, res) => {
     }
 
     await logAudit(user.id, 'LOGIN', 'user', user.id, 'success');
+
+    const issuerProfile = await pool.query(
+      'SELECT organization_name, status, wallet_address FROM issuer_profiles WHERE user_id = $1 LIMIT 1',
+      [user.id]
+    );
+    const profile = issuerProfile.rows[0] || {};
 
     const token = jwt.sign(
       { id: user.id, email: user.email, user_type: user.user_type },
@@ -364,7 +379,7 @@ router.post('/login', async (req, res) => {
     res.json({
       success: true,
       message: 'Login successful',
-      user: { id: user.id, email: user.email, first_name: user.first_name, last_name: user.last_name, user_type: user.user_type },
+      user: { id: user.id, email: user.email, first_name: user.first_name, last_name: user.last_name, user_type: user.user_type, organization_name: profile.organization_name || '', issuer_status: profile.status || '', wallet: profile.wallet_address || '' },
       token
     });
   } catch (err) {
@@ -393,7 +408,7 @@ router.post('/admin/login', async (req, res) => {
         return res.json({ success: true, token, user: { id: 0, email, first_name: 'Admin', last_name: 'User', user_type: 'admin' } });
       }
       await logAudit(null, 'LOGIN', 'admin', null, 'failed', 'Invalid admin credentials (demo)');
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ error: 'Incorrect email or password' });
     }
 
     await ensureSeededAccounts();
@@ -402,7 +417,7 @@ router.post('/admin/login', async (req, res) => {
     if (!user || user.user_type !== 'admin') {
       // generic error to avoid account enumeration
       await logAudit(null, 'LOGIN', 'admin', null, 'failed', 'Invalid admin credentials');
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ error: 'Incorrect email or password' });
     }
 
     if (!user.is_active) {

@@ -1,7 +1,8 @@
 const express = require('express');
 const Application = require('../models/Application');
 const pool = require('../db/connection');
-const { verifyToken, verifyAdmin, logAudit } = require('../middleware/auth');
+const { verifyToken, verifyAdmin, verifyAdminToken, logAudit } = require('../middleware/auth');
+const EmailService = require('../services/emailService');
 
 const router = express.Router();
 
@@ -36,6 +37,8 @@ router.post('/submit', async (req, res) => {
       userId, orgName, orgType, website, contactName, contactEmail, contactRole, volume, useCase, wallet
     );
 
+    await EmailService.sendApplicationReceived(contactEmail, contactName, orgName);
+
     await logAudit(userId, 'APPLICATION_SUBMIT', 'application', app.id, 'success');
 
     res.status(201).json({
@@ -50,7 +53,7 @@ router.post('/submit', async (req, res) => {
 });
 
 // ── GET PENDING APPLICATIONS (ADMIN) ────────────────────────────────────────
-router.get('/pending', verifyToken, verifyAdmin, async (req, res) => {
+router.get('/pending', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
     const offset = parseInt(req.query.offset) || 0;
@@ -72,7 +75,7 @@ router.get('/pending', verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // ── GET REJECTED APPLICATIONS (ADMIN) ───────────────────────────────────────
-router.get('/rejected', verifyToken, verifyAdmin, async (req, res) => {
+router.get('/rejected', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
     const offset = parseInt(req.query.offset) || 0;
@@ -94,7 +97,7 @@ router.get('/rejected', verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // ── GET APPROVED APPLICATIONS (ADMIN) ───────────────────────────────────────
-router.get('/approved', verifyToken, verifyAdmin, async (req, res) => {
+router.get('/approved', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
     const offset = parseInt(req.query.offset) || 0;
@@ -116,11 +119,20 @@ router.get('/approved', verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // ── APPROVE APPLICATION (ADMIN) ─────────────────────────────────────────────
-router.put('/:appId/approve', verifyToken, verifyAdmin, async (req, res) => {
+router.put('/:appId/approve', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const { appId } = req.params;
 
     const app = await Application.approve(appId, req.user.id);
+
+    if (app?.contact_email) {
+      await EmailService.sendApplicationDecision(
+        app.contact_email,
+        app.contact_name,
+        app.organization_name,
+        true
+      );
+    }
 
     await logAudit(req.user.id, 'APPLICATION_APPROVE', 'application', appId, 'success');
 
@@ -136,7 +148,7 @@ router.put('/:appId/approve', verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // ── CREATE OR LINK ISSUER ACCOUNT FOR APPLICATION (ADMIN) ──────────────────
-router.post('/:appId/create-account', verifyToken, verifyAdmin, async (req, res) => {
+router.post('/:appId/create-account', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const { appId } = req.params;
 
@@ -203,11 +215,21 @@ router.post('/:appId/create-account', verifyToken, verifyAdmin, async (req, res)
 });
 
 // ── REJECT APPLICATION (ADMIN) ──────────────────────────────────────────────
-router.put('/:appId/reject', verifyToken, verifyAdmin, async (req, res) => {
+router.put('/:appId/reject', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const { appId } = req.params;
 
     const app = await Application.reject(appId, req.user.id);
+
+    if (app?.contact_email) {
+      await EmailService.sendApplicationDecision(
+        app.contact_email,
+        app.contact_name,
+        app.organization_name,
+        false,
+        req.body?.reason || ''
+      );
+    }
 
     await logAudit(req.user.id, 'APPLICATION_REJECT', 'application', appId, 'success');
 
@@ -223,7 +245,7 @@ router.put('/:appId/reject', verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // ── GET ALL APPLICATIONS (ADMIN) ────────────────────────────────────────────
-router.get('/', verifyToken, verifyAdmin, async (req, res) => {
+router.get('/', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
     const offset = parseInt(req.query.offset) || 0;

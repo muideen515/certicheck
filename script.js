@@ -190,7 +190,7 @@ function persistSessionProfile(user) {
   const lastName = activeUser.last_name || activeUser.lastName || '';
   const email = activeUser.email || '';
   const userType = activeUser.user_type || activeUser.userType || 'issuer';
-  const institution = draft?.orgName || lastApp?.organization_name || lastApp?.orgName || activeUser.organization_name || activeUser.institution || [firstName, lastName].filter(Boolean).join(' ') || 'Issuer Institution';
+  const institution = activeUser.organization_name || activeUser.institution || draft?.orgName || lastApp?.organization_name || lastApp?.orgName || [firstName, lastName].filter(Boolean).join(' ') || 'Issuer Institution';
   const profile = {
     id: activeUser.id || null,
     email,
@@ -237,7 +237,7 @@ function getActiveSessionProfile() {
   const lastName = user.last_name || user.lastName || saved?.last_name || '';
   const email = user.email || saved?.email || '';
   const userType = user.user_type || user.userType || saved?.user_type || 'issuer';
-  const institution = draft?.orgName || lastApp?.organization_name || lastApp?.orgName || saved?.institution || user.organization_name || user.institution || [firstName, lastName].filter(Boolean).join(' ') || 'Issuer Institution';
+  const institution = user.organization_name || user.institution || saved?.institution || draft?.orgName || lastApp?.organization_name || lastApp?.orgName || [firstName, lastName].filter(Boolean).join(' ') || 'Issuer Institution';
 
   return {
     id: user.id || saved?.id || null,
@@ -264,6 +264,9 @@ function clearAuthSession() {
   localStorage.removeItem("certicheck_auth_token");
   localStorage.removeItem("certicheck_user");
   localStorage.removeItem("certicheck_active_profile");
+  if (window.signOutFirebaseUser) {
+    window.signOutFirebaseUser().catch((error) => console.warn('Firebase sign-out failed:', error.message || error));
+  }
   currentUser = null;
   updateAuthUi();
 }
@@ -781,19 +784,11 @@ function clearUserIssuerStorage(user) {
 
 function getRoleLandingStats() {
   const issued = getIssuerIssuedCertificates();
+  const entries = issued;
+  const valid = entries.filter(item => String(item.verificationStatus || item.status || '').toLowerCase() !== 'revoked').length;
+  const revoked = entries.filter(item => String(item.verificationStatus || item.status || '').toLowerCase() === 'revoked').length;
 
-  const fallback = [
-    { certificateId: 'CERT-OAU-2026-001', holderName: 'Jane Doe', certificateType: 'Degree Certificate', verificationStatus: 'Valid', issuedAt: '2026-09-18' },
-    { certificateId: 'CERT-OAU-2026-002', holderName: 'John Smith', certificateType: 'Certificate of Completion', verificationStatus: 'Valid', issuedAt: '2026-09-18' },
-    { certificateId: 'CERT-OAU-2026-003', holderName: 'Mary Green', certificateType: 'Professional Diploma', verificationStatus: 'Revoked', issuedAt: '2026-09-18' }
-  ];
-
-  const entries = issued.length ? issued : fallback;
-  const total = entries.length || 3;
-  const valid = entries.filter(item => String(item.verificationStatus || item.status || '').toLowerCase() !== 'revoked').length || 2;
-  const revoked = entries.filter(item => String(item.verificationStatus || item.status || '').toLowerCase() === 'revoked').length || 1;
-
-  return { total, valid, revoked, institution: 'OAU', recent: entries.slice(0, 4) };
+  return { total: entries.length, valid, revoked, institution: '', recent: entries.slice(0, 4) };
 }
 
 function getCertificateFieldCatalog() {
@@ -1078,14 +1073,16 @@ function renderRoleLandingHome() {
       </div>
     `;
   } else {
-    const institution = activeProfile.institution || activeProfile.display_name || 'Issuer Institution';
-    const recent = stats.recent.length ? stats.recent : [
-      { certificateId: 'CERT-ISSUER-2026-001', holderName: 'Jane Doe', certificateType: 'Degree Certificate', verificationStatus: 'Valid', issuedAt: '2026-09-18', ipfsCid: 'Qm1...a9s' }
-    ];
+    const institution = activeProfile.institution || 'Issuer Institution';
+    const recent = stats.recent;
     const issuedCount = recent.length;
     const activeCount = recent.filter(item => String(item.verificationStatus || item.status || 'Valid').toLowerCase() !== 'revoked').length;
     const revokedCount = recent.filter(item => String(item.verificationStatus || item.status || '').toLowerCase() === 'revoked').length;
-    const verificationsToday = Math.max(8, recent.length * 2 + 3);
+    const today = new Date().toDateString();
+    const verificationsToday = recent.filter((item) => {
+      const checkedAt = item.checkedAt || item.checked_at;
+      return checkedAt && new Date(checkedAt).toDateString() === today;
+    }).length;
     const walletAddress = getConnectedWalletAddress();
     const walletStatusMarkup = walletAddress
       ? `<div style="display:inline-flex;align-items:center;gap:8px;padding:7px 10px;border-radius:999px;background:rgba(5,150,105,0.08);border:1px solid rgba(5,150,105,0.14);color:#059669;font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;"><span style="width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block;"></span>${walletAddress.slice(0, 8)}...${walletAddress.slice(-4)}</div>`
@@ -1107,6 +1104,21 @@ function renderRoleLandingHome() {
         <div class="role-stat-value">${item.value}</div>
       </div>
     `).join('');
+
+    fetch(`${API_BASE_URL}/verify/my-history?limit=100&offset=0`, {
+      headers: { Authorization: `Bearer ${getAuthToken()}` }
+    }).then((response) => response.ok ? response.json() : null).then((data) => {
+      if (!data?.history) return;
+      const actualToday = data.history.filter((item) => {
+        return item.checked_at && new Date(item.checked_at).toDateString() === today;
+      }).length;
+      const verificationStat = [...document.querySelectorAll('#roleHomeStats .role-stat')]
+        .find((stat) => stat.querySelector('.role-stat-label')?.textContent === 'Verifications today');
+      if (verificationStat) {
+        const value = verificationStat.querySelector('.role-stat-value');
+        if (value) value.textContent = String(actualToday);
+      }
+    }).catch(() => {});
 
       const latestIssuerResult = (() => {
         try {
@@ -1141,10 +1153,6 @@ function renderRoleLandingHome() {
               <div class="issuer-panel-label">Issuer Dashboard</div>
               <div class="issuer-panel-title">Issue a New Certificate</div>
             </div>
-            <div class="issuer-action-row">
-              <button class="btn-ghost" data-page="test">Verify</button>
-              <button class="btn-ghost" data-page="issuer">Issue</button>
-            </div>
           </div>
 
           <div style="background:var(--bg-subtle);border:1px solid var(--border-light);border-radius:18px;padding:18px 18px 12px; margin-bottom:18px;">
@@ -1175,7 +1183,7 @@ function renderRoleLandingHome() {
               </div>
 
               <div class="form-actions" style="margin-top:0; padding-top:0; border-top:none; justify-content:flex-end;">
-                <button class="btn-primary" type="submit" data-wallet-gated="issue">Issue Certificate</button>
+                <button class="btn-primary" type="submit">Issue Certificate</button>
               </div>
             </form>
             <div id="issuerDashboardNotice" style="display:none;margin-top:10px;font-size:13px;color:var(--text-secondary);"></div>
@@ -1313,13 +1321,6 @@ function renderRoleLandingHome() {
           notice.style.display = 'block';
           return;
         }
-        if (!connectedWallet) {
-          notice.textContent = 'Connect your wallet to issue certificates.';
-          notice.style.display = 'block';
-          updateWalletActionAvailability();
-          return;
-        }
-
         const detailFields = collectCertificateFieldValues(certificateType);
         const missingRequired = Object.entries(detailFields).filter(([key, value]) => {
           const fieldDef = getCertificateFieldCatalog()[certificateType]?.find(field => field.name === key);
@@ -1609,6 +1610,42 @@ async function verifyCertificate() {
   }
 }
 
+const REMEMBERED_FIELD_PREFIX = 'certicheck_field_';
+
+function isRememberableField(field) {
+  if (!field?.id) return false;
+  const type = String(field.type || '').toLowerCase();
+  return !['password', 'file', 'hidden', 'radio', 'checkbox', 'submit', 'button'].includes(type)
+    && !/otp|one[-_ ]?time|verification[-_ ]?code/i.test(field.id);
+}
+
+function restoreRememberedFields(root = document) {
+  root.querySelectorAll?.('input, textarea, select').forEach((field) => {
+    if (!isRememberableField(field)) return;
+    const remembered = localStorage.getItem(`${REMEMBERED_FIELD_PREFIX}${field.id}`);
+    if (remembered !== null && field.value !== remembered) field.value = remembered;
+  });
+}
+
+function initializeRememberedFields() {
+  restoreRememberedFields();
+
+  document.addEventListener('input', (event) => {
+    const field = event.target;
+    if (!isRememberableField(field)) return;
+    localStorage.setItem(`${REMEMBERED_FIELD_PREFIX}${field.id}`, field.value);
+  });
+
+  document.addEventListener('change', (event) => {
+    const field = event.target;
+    if (!isRememberableField(field)) return;
+    localStorage.setItem(`${REMEMBERED_FIELD_PREFIX}${field.id}`, field.value);
+  });
+
+  const observer = new MutationObserver(() => restoreRememberedFields());
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
 // Wire all nav buttons & CTAs
 document.addEventListener("DOMContentLoaded", () => {
   bindPreviewLinks();
@@ -1622,12 +1659,14 @@ document.addEventListener("DOMContentLoaded", () => {
       const page = btn.dataset.page;
       if (page) navigate(page);
     });
-  } else {
-    // Fallback binding for any stray elements
-    document.querySelectorAll('[data-page]').forEach(el => el.addEventListener('click', () => navigate(el.dataset.page)));
   }
+  document.querySelectorAll('[data-page]').forEach((element) => {
+    if (navbarEl?.contains(element)) return;
+    element.addEventListener('click', () => navigate(element.dataset.page));
+  });
   currentUser = getStoredUser();
   initTheme();
+  initializeRememberedFields();
   initSignupForm();
   initLoginForm();
   initForgotPasswordForm();
@@ -2444,12 +2483,16 @@ function initSignupForm() {
 
     try {
       btn.disabled = true;
-      btn.textContent = "Sending OTP...";
+      btn.textContent = "Creating account...";
 
-      // Direct registration (OTP removed): create account immediately
       try {
-        btn.disabled = true;
-        btn.textContent = 'Creating account...';
+        const firebaseUser = await createUserWithFirebaseAuth(email, password);
+        console.log('Firebase Auth account created for:', firebaseUser?.user?.email || email);
+      } catch (firebaseErr) {
+        console.warn('Firebase Auth registration failed or unavailable:', firebaseErr?.message || firebaseErr);
+      }
+
+      try {
         const registerResponse = await fetch(`${API_BASE_URL}/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2666,6 +2709,22 @@ function initSignupForm() {
   });
 }
 
+async function signInWithFirebaseAuth(email, password) {
+  const auth = window.getFirebaseAuth ? window.getFirebaseAuth() : (typeof firebase !== 'undefined' ? firebase.auth() : null);
+  if (!auth || typeof auth.signInWithEmailAndPassword !== 'function') {
+    throw new Error('Firebase Auth is not available yet.');
+  }
+  return auth.signInWithEmailAndPassword(email, password);
+}
+
+async function createUserWithFirebaseAuth(email, password) {
+  const auth = window.getFirebaseAuth ? window.getFirebaseAuth() : (typeof firebase !== 'undefined' ? firebase.auth() : null);
+  if (!auth || typeof auth.createUserWithEmailAndPassword !== 'function') {
+    throw new Error('Firebase Auth is not available yet.');
+  }
+  return auth.createUserWithEmailAndPassword(email, password);
+}
+
 function initLoginForm() {
   const btn = document.getElementById("loginBtn");
   const emailEl = document.getElementById("loginEmail");
@@ -2709,6 +2768,13 @@ function initLoginForm() {
       btn.disabled = true;
       btn.textContent = "Signing in...";
 
+      try {
+        const firebaseUser = await signInWithFirebaseAuth(email, password);
+        console.log('Firebase Auth sign-in successful for:', firebaseUser?.user?.email || email);
+      } catch (firebaseErr) {
+        console.warn('Firebase Auth sign-in unavailable or failed:', firebaseErr?.message || firebaseErr);
+      }
+
       const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2725,7 +2791,7 @@ function initLoginForm() {
       }
 
       // Non-OK response: show error message returned by API
-      let errMsg = 'Invalid credentials';
+      let errMsg = 'Incorrect email or password';
       try {
         const errData = await response.json();
         if (errData && errData.error) errMsg = errData.error;
@@ -2747,6 +2813,14 @@ function initLoginForm() {
   });
 }
 
+async function sendPasswordResetEmailWithFirebase(email) {
+  const auth = window.getFirebaseAuth ? window.getFirebaseAuth() : (typeof firebase !== 'undefined' ? firebase.auth() : null);
+  if (!auth || typeof auth.sendPasswordResetEmail !== 'function') {
+    throw new Error('Firebase Auth is not available yet.');
+  }
+  return auth.sendPasswordResetEmail(email);
+}
+
 function initForgotPasswordForm() {
   const btn = document.getElementById("forgotBtn");
   const emailEl = document.getElementById("forgotEmail");
@@ -2766,26 +2840,28 @@ function initForgotPasswordForm() {
 
     try {
       btn.disabled = true;
-      btn.textContent = "Sending code...";
+      btn.textContent = "Sending reset email...";
 
       try {
-        await fetch(`${API_BASE_URL}/auth/forgot-password`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email })
-        });
-      } catch {}
+        await sendPasswordResetEmailWithFirebase(email);
+        console.log('Firebase password reset email sent to:', email);
+        errorEl.textContent = "Password reset email sent. Check your inbox and follow the link.";
+        errorEl.style.display = "block";
+        errorEl.style.color = "var(--success)";
+      } catch (firebaseErr) {
+        console.warn('Firebase password reset failed or unavailable:', firebaseErr?.message || firebaseErr);
+        errorEl.textContent = "Unable to send reset email. Check the email address and try again.";
+        errorEl.style.display = "block";
+        errorEl.style.color = "var(--text-primary)";
+      }
 
-      pendingForgotEmail = email;
-      errorEl.textContent = "Demo mode: reset code skipped. Use any 6-digit code to continue.";
-      errorEl.style.display = "block";
-      navigate('verify-reset-otp');
-      
+      btn.disabled = false;
+      btn.textContent = "Send Reset Email";
     } catch (err) {
-      errorEl.textContent = "Demo reset flow is ready.";
+      errorEl.textContent = "Unable to send reset email. Please try again.";
       errorEl.style.display = "block";
       btn.disabled = false;
-      btn.textContent = "Send Reset Code";
+      btn.textContent = "Send Reset Email";
     }
   });
 }

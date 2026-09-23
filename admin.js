@@ -194,6 +194,17 @@ function setAdminState(enabled, user = null) {
     if (welcome) {
       welcome.textContent = user?.first_name || user?.email || "Admin";
     }
+    const navAdminName = document.getElementById('navAdminName');
+    const navAdminEmail = document.getElementById('navAdminEmail');
+    const menuName = document.getElementById('menuName');
+    const menuEmail = document.getElementById('menuEmail');
+    const displayName = user?.first_name
+      ? `${user.first_name} ${user.last_name || ''}`.trim()
+      : (user?.email || 'Admin');
+    if (navAdminName) navAdminName.textContent = displayName;
+    if (menuName) menuName.textContent = displayName;
+    if (navAdminEmail) navAdminEmail.textContent = user?.email || '';
+    if (menuEmail) menuEmail.textContent = user?.email || '';
     const profileName = document.getElementById('adminProfileName');
     const profileEmail = document.getElementById('adminProfileEmail');
     const profileRole = document.getElementById('adminProfileRole');
@@ -778,6 +789,14 @@ async function loginAdmin(event) {
   }
 
   try {
+    if (window.getFirebaseAuth) {
+      try {
+        await window.getFirebaseAuth().signInWithEmailAndPassword(email, password);
+      } catch (firebaseError) {
+        console.warn('Firebase admin sign-in unavailable; using backend admin session:', firebaseError.message || firebaseError);
+      }
+    }
+
     const data = await requestJson("/auth/admin/login", {
       method: "POST",
       body: JSON.stringify({ email, password })
@@ -798,7 +817,7 @@ async function loginAdmin(event) {
     if (err.message && err.message.toLowerCase().includes('failed to fetch')) {
       showAdminError('Unable to reach backend API. Ensure the backend is running at the expected API URL.');
     } else {
-      showAdminError(err.message || 'Login failed.');
+      showAdminError(err.message || 'Incorrect email or password');
     }
   }
 }
@@ -820,6 +839,9 @@ document.addEventListener("DOMContentLoaded", () => {
   signOutButtons.forEach((button) => {
     button.addEventListener('click', (event) => {
       event.preventDefault();
+      if (window.signOutFirebaseUser) {
+        window.signOutFirebaseUser().catch((error) => console.warn('Firebase admin sign-out failed:', error.message || error));
+      }
       setAdminState(false);
     });
   });
