@@ -406,5 +406,22 @@
     "revoked_at": "2026-09-23T07:40:35.037Z",
     "revoked_by": 8,
     "created_by": 17
+  },
+  {
+    "id": 25,
+    "certificate_id": "AUTH-CHECK-001",
+    "certificate_type": "Test Certificate",
+    "verification_status": "valid",
+    "verification_message": "Issued via Certicheck",
+    "blockchain_hash": "c378a2ecdf8b54368ec7dfc6d50e50e4a75749e2066ea87bc3d8d3e528bbe251",
+    "blockchain_transaction_id": null,
+    "holder_name": "Auth Check Holder",
+    "holder_email": "holder@example.com",
+    "issuer_name": "Approved Test Issuer",
+    "issuer_wallet": null,
+    "checked_at": "2026-09-23T14:20:55.988Z",
+    "revoked_at": null,
+    "revoked_by": null,
+    "created_by": 10
   }
 ]

@@ -56,3 +56,46 @@ test('verifyIssuer refreshes authorization from the database before approving a 
   assert.equal(nextCalled, true);
   assert.equal(res.code, undefined);
 });
+
+test('verifyIssuer does not let a later pending application hide an approved application', async () => {
+  pool.query = async (sql) => {
+    if (sql.includes('FROM users u')) {
+      return {
+        rows: [{ id: 10, user_type: 'issuer', is_active: true, issuer_status: 'pending' }]
+      };
+    }
+
+    if (sql.includes('FROM issuer_profiles')) {
+      return { rows: [{ status: 'pending' }] };
+    }
+
+    if (sql.includes("pa.status = 'approved'")) {
+      return { rows: [{ '?column?': 1 }] };
+    }
+
+    return { rows: [] };
+  };
+
+  const req = {
+    user: { id: 10, email: 'issuer@example.com', user_type: 'issuer' },
+    headers: {}
+  };
+  const res = {
+    status(code) {
+      this.code = code;
+      return this;
+    },
+    json(payload) {
+      this.payload = payload;
+      return this;
+    }
+  };
+  let nextCalled = false;
+
+  await verifyIssuer(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, true);
+  assert.equal(res.code, undefined);
+});

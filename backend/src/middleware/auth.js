@@ -103,7 +103,9 @@ async function verifyAdmin(req, res, next) {
     }
 
     const user = await resolveUserAccess(req);
-    const effectiveUserType = user?.user_type || req.user.user_type;
+    const effectiveUserType = req.user.user_type === 'admin'
+      ? 'admin'
+      : user?.user_type || req.user.user_type;
 
     if (effectiveUserType !== 'admin') {
       return res.status(403).json({ error: 'Admin access required' });
@@ -165,12 +167,13 @@ async function verifyIssuer(req, res, next) {
       if (!approved && req.user.email) {
         try {
           const emailCheck = await pool.query(
-            `SELECT status FROM pending_applications pa
-             WHERE (pa.contact_email = $1 OR pa.contact_email = LOWER($1))
-             ORDER BY pa.submitted_at DESC LIMIT 1`,
+            `SELECT 1 FROM pending_applications pa
+             WHERE LOWER(pa.contact_email) = LOWER($1)
+               AND pa.status = 'approved'
+             LIMIT 1`,
             [req.user.email]
           );
-          if (emailCheck.rows[0] && emailCheck.rows[0].status === 'approved') {
+          if (emailCheck.rows[0]) {
             approved = true;
           }
         } catch (e) {

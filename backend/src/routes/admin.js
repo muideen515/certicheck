@@ -1,5 +1,6 @@
 const express = require('express');
 const pool = require('../db/connection');
+const demoAppStore = require('../services/demoApplicationStore');
 const { verifyToken, verifyAdmin, logAudit, verifyAdminToken } = require('../middleware/auth');
 
 const { adminRateLimiter } = require('../middleware/rateLimit');
@@ -34,6 +35,36 @@ router.use((req, res, next) => {
 // ── ADMIN DASHBOARD STATS ───────────────────────────────────────────────────
 router.get('/dashboard', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
+    if (process.env.DEMO_MODE === 'true') {
+      const allApps = demoAppStore.getAllApplications(200, 0);
+      const pendingApplications = allApps.filter(app => app.status === 'pending').length;
+      const approvedApplications = allApps.filter(app => app.status === 'approved').length;
+      const rejectedApplications = allApps.filter(app => app.status === 'rejected').length;
+      const recentAudit = allApps.slice().reverse().map(app => ({
+        id: app.id,
+        action_type: app.status === 'approved' ? 'APPLICATION_APPROVE' : app.status === 'rejected' ? 'APPLICATION_REJECT' : 'APPLICATION_SUBMIT',
+        status: app.status,
+        timestamp: app.reviewed_at || app.submitted_at,
+        metadata: JSON.stringify({
+          organization_name: app.organization_name,
+          contact_email: app.contact_email,
+          action: app.status
+        })
+      }));
+
+      return res.json({
+        success: true,
+        stats: {
+          pendingApplications,
+          approvedApplications,
+          rejectedApplications,
+          revokedCertificates: 0,
+          totalVerifications: 0
+        },
+        recentAudit
+      });
+    }
+
     const pendingApps = await pool.query(
       'SELECT COUNT(*) as count FROM pending_applications WHERE status = $1',
       ['pending']
@@ -76,6 +107,10 @@ router.get('/dashboard', verifyAdminToken, verifyAdmin, async (req, res) => {
 // ── ADMIN ACCESS LOG ────────────────────────────────────────────────────────
 router.post('/access-log', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
+    if (process.env.DEMO_MODE === 'true') {
+      return res.json({ success: true, message: 'Access logged' });
+    }
+
     const { section, method } = req.body;
 
     await pool.query(
@@ -96,6 +131,29 @@ router.post('/access-log', verifyAdminToken, verifyAdmin, async (req, res) => {
 // ── GET AUDIT LOG ───────────────────────────────────────────────────────────
 router.get('/audit-log', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
+    if (process.env.DEMO_MODE === 'true') {
+      const apps = demoAppStore.getAllApplications(100, 0);
+      const auditLog = apps.map(app => ({
+        id: app.id,
+        action_type: app.status === 'approved' ? 'APPLICATION_APPROVE' : app.status === 'rejected' ? 'APPLICATION_REJECT' : 'APPLICATION_SUBMIT',
+        status: app.status,
+        timestamp: app.reviewed_at || app.submitted_at,
+        error_message: `${app.organization_name || 'Organisation'} — ${app.contact_email || 'No contact email'}`,
+        metadata: JSON.stringify({
+          organization_name: app.organization_name,
+          contact_email: app.contact_email,
+          action: app.status
+        })
+      }));
+
+      return res.json({
+        success: true,
+        auditLog,
+        limit: parseInt(req.query.limit) || 100,
+        offset: parseInt(req.query.offset) || 0
+      });
+    }
+
     const limit = parseInt(req.query.limit) || 100;
     const offset = parseInt(req.query.offset) || 0;
     const actionType = req.query.actionType;

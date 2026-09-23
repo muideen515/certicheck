@@ -3138,7 +3138,8 @@ function updateContactRoleOptions() {
   toggleCustomVolume();
   updateContactRoleOptions();
 
-  nextBtn.addEventListener("click", () => {
+  nextBtn.addEventListener("click", (event) => {
+    event.preventDefault();
     if (applyStep < 3) {
       setApplyStep(applyStep + 1);
     } else {
@@ -3146,7 +3147,8 @@ function updateContactRoleOptions() {
     }
   });
 
-  backBtn?.addEventListener("click", () => {
+  backBtn?.addEventListener("click", (event) => {
+    event.preventDefault();
     if (applyStep > 1) setApplyStep(applyStep - 1);
   });
 })();
@@ -3265,6 +3267,7 @@ function clearPendingApplicationDraft() {
 }
 
 function showSuccessMessage(name, email, volumeText) {
+  navigate("apply");
   document.getElementById(`form-step-${applyStep}`)?.classList.remove("active");
   document.getElementById("form-step-success")?.classList.add("active");
   document.getElementById("formActions").style.display = "none";

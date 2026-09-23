@@ -31,6 +31,24 @@ let adminReviewFilters = {
   status: 'all',
   sort: 'newest'
 };
+let adminPollTimer = null;
+
+function startAdminDashboardPolling() {
+  if (adminPollTimer) return;
+  adminPollTimer = setInterval(() => {
+    if (isAdminLoggedIn()) {
+      loadAdminDashboard().catch(() => {});
+    }
+  }, 15000);
+}
+
+function stopAdminDashboardPolling() {
+  if (adminPollTimer) {
+    clearInterval(adminPollTimer);
+    adminPollTimer = null;
+  }
+}
+
 let adminState = {
   token: localStorage.getItem(ADMIN_TOKEN_KEY) || "",
   user: null,
@@ -168,6 +186,12 @@ async function requestJson(path, options = {}) {
   return data;
 }
 
+function getApplicationList(data) {
+  if (Array.isArray(data?.applications)) return data.applications;
+  if (Array.isArray(data?.data)) return data.data;
+  return [];
+}
+
 function setAdminState(enabled, user = null) {
   const loginCard = document.getElementById("adminLoginCard");
   const dashboard = document.getElementById("adminDashboard");
@@ -186,6 +210,7 @@ function setAdminState(enabled, user = null) {
 
   if (enabled) {
     sessionStorage.setItem(ADMIN_SESSION_KEY, "1");
+    startAdminDashboardPolling();
     if (loginCard) loginCard.style.display = "none";
     if (dashboard) dashboard.style.display = "block";
     if (statsSection) statsSection.style.display = 'block';
@@ -223,6 +248,7 @@ function setAdminState(enabled, user = null) {
   sessionStorage.removeItem(ADMIN_SESSION_KEY);
   localStorage.removeItem(ADMIN_TOKEN_KEY);
   localStorage.removeItem(ADMIN_USER_KEY);
+  stopAdminDashboardPolling();
   adminState.token = "";
   adminState.user = null;
   if (loginCard) loginCard.style.display = "block";
@@ -741,34 +767,37 @@ async function handleRevokeAction(id) {
 
 async function loadAdminDashboard() {
   try {
-    const [dashboardData, pendingData, rejectedData, historyData, revokedData, auditData] = await Promise.all([
+    const results = await Promise.allSettled([
       requestJson("/admin/dashboard"),
       requestJson("/applications/pending?limit=50&offset=0"),
       requestJson("/applications/rejected?limit=50&offset=0"),
+      requestJson("/applications/approved?limit=50&offset=0"),
       requestJson("/verify/history?limit=50&offset=0"),
       requestJson("/verify/revoked?limit=50&offset=0"),
       requestJson("/admin/audit-log?limit=50&offset=0")
     ]);
 
-    adminState.stats = dashboardData.stats || null;
-    adminState.pendingApps = pendingData.applications || [];
-    adminState.rejectedApps = rejectedData.applications || [];
-    adminState.checks = historyData.history || [];
-    adminState.revoked = revokedData.revoked || [];
-    adminState.auditLog = auditData.auditLog || [];
+    const valueAt = index => results[index].status === 'fulfilled' ? results[index].value : {};
+    const dashboardData = valueAt(0);
+    const pendingData = valueAt(1);
+    const rejectedData = valueAt(2);
+    const approvedData = valueAt(3);
+    const historyData = valueAt(4);
+    const revokedData = valueAt(5);
+    const auditData = valueAt(6);
 
-    // approved apps endpoint may not exist on all backends; fetch defensively
-    try {
-      const approvedData = await requestJson('/applications/approved?limit=50&offset=0');
-      adminState.approvedApps = approvedData.applications || [];
-    } catch (e) {
-      adminState.approvedApps = [];
-    }
+    adminState.stats = dashboardData.stats || adminState.stats || null;
+    if (results[1].status === 'fulfilled') adminState.pendingApps = getApplicationList(pendingData);
+    if (results[2].status === 'fulfilled') adminState.rejectedApps = getApplicationList(rejectedData);
+    if (results[3].status === 'fulfilled') adminState.approvedApps = getApplicationList(approvedData);
+    if (results[4].status === 'fulfilled') adminState.checks = Array.isArray(historyData.history) ? historyData.history : [];
+    if (results[5].status === 'fulfilled') adminState.revoked = Array.isArray(revokedData.revoked) ? revokedData.revoked : [];
+    if (results[6].status === 'fulfilled') adminState.auditLog = Array.isArray(auditData.auditLog) ? auditData.auditLog : [];
 
-    await requestJson("/admin/access-log", {
+    requestJson("/admin/access-log", {
       method: "POST",
       body: JSON.stringify({ section: adminCurrentSection, method: "dashboard" })
-    });
+    }).catch(() => {});
 
     renderAdminDashboard();
   } catch (err) {

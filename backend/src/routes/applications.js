@@ -17,20 +17,24 @@ router.post('/submit', async (req, res) => {
 
     let userId = req.user?.id || null;
     if (!userId) {
-      const User = require('../models/User');
-      const normalizedEmail = String(contactEmail).trim().toLowerCase();
-      const defaultIssuerPassword = process.env.ISSUER_PASSWORD || 'password';
-      let existingUser = await User.findByEmail(normalizedEmail);
-
-      if (!existingUser) {
-        const firstName = String(contactName).trim().split(/\s+/)[0] || 'Applicant';
-        const lastName = String(contactName).trim().split(/\s+/).slice(1).join(' ') || 'User';
-        existingUser = await User.create(normalizedEmail, defaultIssuerPassword, firstName, lastName, 'issuer');
+      if (process.env.DEMO_MODE === 'true') {
+        userId = 1;
       } else {
-        await User.updatePassword(normalizedEmail, defaultIssuerPassword);
-      }
+        const User = require('../models/User');
+        const normalizedEmail = String(contactEmail).trim().toLowerCase();
+        const defaultIssuerPassword = process.env.ISSUER_PASSWORD || 'password';
+        let existingUser = await User.findByEmail(normalizedEmail);
 
-      userId = existingUser.id;
+        if (!existingUser) {
+          const firstName = String(contactName).trim().split(/\s+/)[0] || 'Applicant';
+          const lastName = String(contactName).trim().split(/\s+/).slice(1).join(' ') || 'User';
+          existingUser = await User.create(normalizedEmail, defaultIssuerPassword, firstName, lastName, 'issuer');
+        } else {
+          await User.updatePassword(normalizedEmail, defaultIssuerPassword);
+        }
+
+        userId = existingUser.id;
+      }
     }
 
     const app = await Application.create(
