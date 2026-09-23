@@ -1,0 +1,18 @@
+{
+  "applicationSubmit": 201,
+  "adminLogin": 200,
+  "applicationId": 16,
+  "approval": 200,
+  "issuerLogin": 200,
+  "certificateId": "CERT-DEMO-1790149234876",
+  "issue": 201,
+  "verifyValid": {
+    "status": 200,
+    "certificateStatus": "valid"
+  },
+  "revoke": 200,
+  "verifyRevoked": {
+    "status": 200,
+    "certificateStatus": "revoked"
+  }
+}

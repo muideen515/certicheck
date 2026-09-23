@@ -1,5 +1,11 @@
 # On-chain issuance setup
 
+## Current repository status
+
+The checked-in local configuration is currently demo/off-chain mode: `SOLANA_ENABLE` and `CERTIFICATE_PROGRAM_ID` are not configured. Certificate issuance and verification therefore use the database/IPFS fallback, and the on-chain integration test is skipped. Do not describe local certificates as live Solana transactions until a funded devnet deploy has been completed and a transaction signature has been captured.
+
+The former program keypair was removed from the repository. Keep replacement keypairs outside the repository, such as `~/.config/solana/certicheck-program-rotated.json`, with restrictive permissions.
+
 To enable real on-chain issuance you must provide a funded Solana keypair for the backend payer and set the following environment variables in `backend/.env` or your deployment environment:
 
 - `SOLANA_ENABLE=true`

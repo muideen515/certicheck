@@ -1,6 +1,6 @@
 const express = require('express');
 const pool = require('../db/connection');
-const { verifyToken, verifyAdmin, verifyIssuer, logAudit } = require('../middleware/auth');
+const { verifyToken, verifyAdmin, verifyAdminToken, verifyIssuer, logAudit } = require('../middleware/auth');
 const { pinJsonToIpfs } = require('../services/ipfsService');
 const { issueCertificateOnChain, revokeCertificateOnChain, lookupCertificateOnChain, getTransactionStatus } = require('../services/solanaService');
 const { getDemoCertificate } = require('../services/demoCertificateService');
@@ -450,7 +450,7 @@ router.get('/lookup-by-holder', async (req, res) => {
   }
 });
 
-router.put('/revoke/:certificateId', verifyToken, verifyAdmin, async (req, res) => {
+router.put('/revoke/:certificateId', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     const { certificateId } = req.params;
     const { reason = 'Revoked by admin' } = req.body;

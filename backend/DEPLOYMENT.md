@@ -2,6 +2,10 @@
 
 This document outlines recommended steps to deploy the Certicheck backend to production.
 
+## Current deployment limitation
+
+This workspace has a local DB-backed deployment, but no verified public frontend/backend URL is configured here. Vercel/Render deployment still requires a hosted database, production secrets, CORS configuration, and a public smoke test. Until those are supplied, report the system as local/demo mode rather than live production.
+
 1. Environment variables
    - Create a `.env` file with required values:
      - `PORT=5000`

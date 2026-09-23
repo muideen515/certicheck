@@ -83,5 +83,39 @@
     "submitted_at": "2026-09-22T11:17:23.999Z",
     "reviewed_at": null,
     "reviewer_id": null
+  },
+  {
+    "id": "demo-app-1790148811610-skl7ko",
+    "issuer_id": 4,
+    "organization_name": "Acme University",
+    "organization_type": "university",
+    "organization_website": "https://acme.edu",
+    "contact_name": "Ada Lovelace",
+    "contact_email": "ada@acme.edu",
+    "contact_role": "Registrar",
+    "certificate_volume": "1 – 100 certificates",
+    "use_case": "Academic credential issuance",
+    "wallet_address": "demo-wallet",
+    "status": "pending",
+    "submitted_at": "2026-09-23T07:33:31.610Z",
+    "reviewed_at": null,
+    "reviewer_id": null
+  },
+  {
+    "id": "demo-app-1790149262465-6fkj59",
+    "issuer_id": 4,
+    "organization_name": "Acme University",
+    "organization_type": "university",
+    "organization_website": "https://acme.edu",
+    "contact_name": "Ada Lovelace",
+    "contact_email": "ada@acme.edu",
+    "contact_role": "Registrar",
+    "certificate_volume": "1 – 100 certificates",
+    "use_case": "Academic credential issuance",
+    "wallet_address": "demo-wallet",
+    "status": "pending",
+    "submitted_at": "2026-09-23T07:41:02.465Z",
+    "reviewed_at": null,
+    "reviewer_id": null
   }
 ]

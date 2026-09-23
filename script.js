@@ -1064,8 +1064,8 @@ function renderRoleLandingHome() {
         <strong>System health</strong>
         <div style="margin-top:8px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
           <div><strong>API:</strong> online</div>
-          <div><strong>Pinata:</strong> connected</div>
-          <div><strong>Solana:</strong> enabled</div>
+          <div><strong>Pinata:</strong> configured only when a server PINATA_JWT is present</div>
+          <div><strong>Solana:</strong> demo/local fallback unless devnet is configured</div>
           <div><strong>Wallet:</strong> ${walletAddress ? walletAddress.slice(0, 8) + '…' : 'Not connected'}</div>
           <div><strong>Account:</strong> ${activeProfile.email || 'admin@certicheck.com'}</div>
           <div><strong>Timestamp:</strong> ${new Date().toLocaleString()}</div>

@@ -25,6 +25,8 @@ class EmailService {
   static initTransporter() {
     if (this.transporter) return;
 
+    const emailPassword = String(process.env.EMAIL_PASSWORD || '').replace(/\s+/g, '');
+
     // 1. Custom SMTP configuration
     if (process.env.SMTP_HOST && process.env.SMTP_USER) {
       console.log(`✓ EmailService: Using custom SMTP (${process.env.SMTP_HOST}:${process.env.SMTP_PORT || 587})`);
@@ -41,13 +43,13 @@ class EmailService {
     }
 
     // 2. Pre-configured email service (e.g. Gmail)
-    if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
+    if (process.env.EMAIL_USER && emailPassword) {
       console.log(`✓ EmailService: Using ${process.env.EMAIL_SERVICE || 'gmail'} with user ${process.env.EMAIL_USER}`);
       this.transporter = nodemailer.createTransport({
         service: process.env.EMAIL_SERVICE || 'gmail',
         auth: {
           user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASSWORD
+          pass: emailPassword
         }
       });
       return;
@@ -67,6 +69,16 @@ class EmailService {
         console.log('└─────────────────────────────────────────────────────────────┘\n');
         return { response: 'logged to console', messageId: `dev-${Date.now()}` };
       }
+    };
+  }
+
+  static getConfigurationStatus() {
+    const hasCustomSmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+    const hasEmailService = Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD);
+    return {
+      mode: hasCustomSmtp || hasEmailService ? 'smtp' : 'console',
+      provider: hasCustomSmtp ? 'custom-smtp' : hasEmailService ? (process.env.EMAIL_SERVICE || 'gmail') : 'console',
+      sender: process.env.EMAIL_FROM || process.env.EMAIL_USER || null
     };
   }
 

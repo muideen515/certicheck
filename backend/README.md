@@ -59,6 +59,8 @@ SOLANA_PAYER_SECRET=
 CERTIFICATE_PROGRAM_ID=
 ```
 
+Without `PINATA_JWT`, metadata pinning uses the documented local/demo fallback and no real Pinata CID should be claimed. Without `SOLANA_ENABLE=true`, `SOLANA_KEYPAIR_PATH` or `SOLANA_PAYER_SECRET`, and a deployed `CERTIFICATE_PROGRAM_ID`, on-chain issuance is disabled and the Solana test is skipped.
+
 If you want on-chain certificate issuance and revocation, set `SOLANA_ENABLE=true` and provide either `SOLANA_KEYPAIR_PATH` or `SOLANA_PAYER_SECRET`.
 
 If you have deployed the Anchor certificate program, set `CERTIFICATE_PROGRAM_ID` to the deployed program ID. This value should match the `declare_id!` value in `solana-program/src/lib.rs` and is used by backend monitoring and Solana integration. When configured, certificate verification will first query the deployed Anchor program state on Solana for matching certificate accounts, then fall back to local or DB records if the on-chain lookup returns nothing.
