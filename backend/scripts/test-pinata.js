@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { pinJsonToIpfs } = require('../src/services/ipfsService');
 
 async function run() {

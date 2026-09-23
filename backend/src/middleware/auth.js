@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const pool = require('../db/connection');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
+const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || JWT_SECRET;
 
 function getDemoUser(req) {
   if (process.env.DEMO_MODE === 'true' || req.headers.authorization?.split(' ')[1] === 'demo-token') {
@@ -12,6 +13,29 @@ function getDemoUser(req) {
     };
   }
   return null;
+}
+
+function verifyAdminToken(req, res, next) {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Authentication required' });
+
+  // Demo token support for admin via header
+  const demoUser = getDemoUser(req);
+  if (demoUser && (req.headers['x-demo-user-type'] === 'admin' || process.env.DEMO_MODE === 'true')) {
+    req.user = { ...demoUser, user_type: 'admin' };
+    return next();
+  }
+
+  try {
+    const decoded = jwt.verify(token, ADMIN_JWT_SECRET);
+    if (!decoded || decoded.user_type !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    req.user = decoded;
+    return next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
 }
 
 function verifyToken(req, res, next) {
@@ -97,12 +121,43 @@ async function verifyIssuer(req, res, next) {
     const isDemoRequest = process.env.DEMO_MODE === 'true' || Boolean(req.headers['x-demo-user-type']);
 
     if (effectiveUserType === 'issuer' && !isDemoRequest) {
+      // Use the refreshed DB data first. A stale JWT may still list the user as a plain user
+      // even though the database has already approved their issuer status.
+      let approved = user?.issuer_status === 'approved';
+
+      // Default seeded issuer accounts are auto-approved so they can issue immediately without a formal pending approval.
+      const defaultIssuerEmail = (process.env.ISSUER_EMAIL || 'issuer@certicheck.com').toLowerCase();
+      if (!approved && req.user.email && req.user.email.toLowerCase() === defaultIssuerEmail) {
+        approved = true;
+      }
+
+      // Allow approval check by either the linked issuer profile OR the pending application email.
       const profileResult = await pool.query(
-        'SELECT status FROM issuer_profiles WHERE user_id = $1 LIMIT 1',
+        'SELECT status, user_id, id AS profile_id FROM issuer_profiles WHERE user_id = $1 LIMIT 1',
         [req.user.id]
       );
 
-      if (!profileResult.rows[0] || profileResult.rows[0].status !== 'approved') {
+      if (!approved && profileResult.rows[0] && profileResult.rows[0].status === 'approved') {
+        approved = true;
+      }
+
+      if (!approved && req.user.email) {
+        try {
+          const emailCheck = await pool.query(
+            `SELECT status FROM pending_applications pa
+             WHERE (pa.contact_email = $1 OR pa.contact_email = LOWER($1))
+             ORDER BY pa.submitted_at DESC LIMIT 1`,
+            [req.user.email]
+          );
+          if (emailCheck.rows[0] && emailCheck.rows[0].status === 'approved') {
+            approved = true;
+          }
+        } catch (e) {
+          console.warn('Email-based approval check failed:', e.message);
+        }
+      }
+
+      if (!approved) {
         return res.status(403).json({ error: 'Approved issuer access required' });
       }
     }
@@ -126,5 +181,12 @@ module.exports = {
   verifyToken,
   verifyAdmin,
   verifyIssuer,
-  logAudit
+  logAudit,
+  verifyAdminToken
 };
+
+
+
+
+
+

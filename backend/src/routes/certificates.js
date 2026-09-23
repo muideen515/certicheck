@@ -401,6 +401,55 @@ router.get('/lookup/:certificateId', async (req, res) => {
   }
 });
 
+// Lookup certificates for a holder (chain-first, DB/local fallback)
+router.get('/lookup-by-holder', async (req, res) => {
+  try {
+    const { email, wallet } = req.query;
+    if (!email && !wallet) return res.status(400).json({ error: 'Provide email or wallet query param' });
+
+    // First try chain-based search if wallet provided
+    if (wallet) {
+      try {
+        // solanaService.lookupCertificateOnChain supports searching by issuer+certId only,
+        // so we fall back to local store when looking up by holder wallet
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // Search local certificate store
+    const store = getCertificateStore();
+    const all = store.read();
+    const normalizedEmail = (email || '').toLowerCase();
+    const matches = all.filter(c => {
+      const holderEmail = String(c.holder_email || c.holderEmail || '').toLowerCase();
+      const holderWallet = String(c.holder_wallet || c.holderWallet || '');
+      return (normalizedEmail && holderEmail === normalizedEmail) || (wallet && holderWallet === wallet);
+    });
+
+    // If none found, try DB verify_history as fallback (demo-mode friendly)
+    if (!matches.length) {
+      try {
+        const result = await safeQuery(
+          `SELECT id, certificate_id, certificate_type, verification_status, verification_message, blockchain_hash, blockchain_transaction_id, checked_at
+           FROM verify_history WHERE LOWER(holder_email) = LOWER($1) LIMIT 50`,
+          [email]
+        );
+        if (result.rows && result.rows.length) {
+          return res.json({ success: true, certificates: result.rows });
+        }
+      } catch (err) {
+        // ignore DB errors in demo mode
+      }
+    }
+
+    return res.json({ success: true, certificates: matches });
+  } catch (err) {
+    console.error('Lookup by holder error:', err);
+    return res.status(500).json({ error: 'Failed to lookup by holder' });
+  }
+});
+
 router.put('/revoke/:certificateId', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const { certificateId } = req.params;

@@ -1,8 +1,24 @@
 const pool = require('../db/connection');
 const User = require('./User');
+const demoAppStore = require('../services/demoApplicationStore');
 
 class Application {
   static async create(issuerId, orgName, orgType, website, contactName, contactEmail, contactRole, volume, useCase, wallet) {
+    if (process.env.DEMO_MODE === 'true') {
+      return demoAppStore.createApplication({
+        issuerId,
+        orgName,
+        orgType,
+        website,
+        contactName,
+        contactEmail,
+        contactRole,
+        volume,
+        useCase,
+        wallet
+      });
+    }
+
     const existingProfile = await pool.query(
       'SELECT id FROM issuer_profiles WHERE user_id = $1 LIMIT 1',
       [issuerId]
@@ -38,6 +54,10 @@ class Application {
   }
 
   static async getPending(limit = 50, offset = 0) {
+    if (process.env.DEMO_MODE === 'true') {
+      return demoAppStore.getApplicationsByStatus('pending', limit, offset);
+    }
+
     const result = await pool.query(
       `SELECT * FROM pending_applications WHERE status = 'pending' LIMIT $1 OFFSET $2`,
       [limit, offset]
@@ -46,6 +66,10 @@ class Application {
   }
 
   static async getByStatus(status, limit = 50, offset = 0) {
+    if (process.env.DEMO_MODE === 'true') {
+      return demoAppStore.getApplicationsByStatus(status, limit, offset);
+    }
+
     const result = await pool.query(
       `SELECT * FROM pending_applications WHERE status = $1 LIMIT $2 OFFSET $3`,
       [status, limit, offset]
@@ -54,6 +78,11 @@ class Application {
   }
 
   static async approve(appId, reviewerId) {
+    if (process.env.DEMO_MODE === 'true') {
+      const app = demoAppStore.updateStatus(appId, 'approved', reviewerId);
+      return app ? { id: app.id, issuer_id: app.issuer_id, organization_name: app.organization_name, status: app.status, reviewed_at: app.reviewed_at } : null;
+    }
+
     const result = await pool.query(
       `UPDATE pending_applications SET status = 'approved', reviewed_at = NOW(), reviewer_id = $1
        WHERE id = $2
@@ -86,6 +115,11 @@ class Application {
   }
 
   static async reject(appId, reviewerId) {
+    if (process.env.DEMO_MODE === 'true') {
+      const app = demoAppStore.updateStatus(appId, 'rejected', reviewerId);
+      return app ? { id: app.id, issuer_id: app.issuer_id, status: app.status, reviewed_at: app.reviewed_at } : null;
+    }
+
     const result = await pool.query(
       `UPDATE pending_applications SET status = 'rejected', reviewed_at = NOW(), reviewer_id = $1
        WHERE id = $2
@@ -104,6 +138,10 @@ class Application {
   }
 
   static async getAll(limit = 50, offset = 0) {
+    if (process.env.DEMO_MODE === 'true') {
+      return demoAppStore.getAllApplications(limit, offset);
+    }
+
     const result = await pool.query(
       `SELECT * FROM pending_applications LIMIT $1 OFFSET $2`,
       [limit, offset]
@@ -112,6 +150,10 @@ class Application {
   }
 
   static async countByStatus(status) {
+    if (process.env.DEMO_MODE === 'true') {
+      return demoAppStore.countByStatus(status);
+    }
+
     const result = await pool.query(
       `SELECT COUNT(*) as count FROM pending_applications WHERE status = $1`,
       [status]

@@ -6,7 +6,7 @@ const { verifyToken, verifyAdmin, logAudit } = require('../middleware/auth');
 const router = express.Router();
 
 // ── SUBMIT APPLICATION ──────────────────────────────────────────────────────
-router.post('/submit', verifyToken, async (req, res) => {
+router.post('/submit', async (req, res) => {
   try {
     const { orgName, orgType, website, contactName, contactEmail, contactRole, volume, useCase, wallet } = req.body;
 
@@ -14,11 +14,29 @@ router.post('/submit', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    let userId = req.user?.id || null;
+    if (!userId) {
+      const User = require('../models/User');
+      const normalizedEmail = String(contactEmail).trim().toLowerCase();
+      const defaultIssuerPassword = process.env.ISSUER_PASSWORD || 'password';
+      let existingUser = await User.findByEmail(normalizedEmail);
+
+      if (!existingUser) {
+        const firstName = String(contactName).trim().split(/\s+/)[0] || 'Applicant';
+        const lastName = String(contactName).trim().split(/\s+/).slice(1).join(' ') || 'User';
+        existingUser = await User.create(normalizedEmail, defaultIssuerPassword, firstName, lastName, 'issuer');
+      } else {
+        await User.updatePassword(normalizedEmail, defaultIssuerPassword);
+      }
+
+      userId = existingUser.id;
+    }
+
     const app = await Application.create(
-      req.user.id, orgName, orgType, website, contactName, contactEmail, contactRole, volume, useCase, wallet
+      userId, orgName, orgType, website, contactName, contactEmail, contactRole, volume, useCase, wallet
     );
 
-    await logAudit(req.user.id, 'APPLICATION_SUBMIT', 'application', app.id, 'success');
+    await logAudit(userId, 'APPLICATION_SUBMIT', 'application', app.id, 'success');
 
     res.status(201).json({
       success: true,
@@ -75,6 +93,28 @@ router.get('/rejected', verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+// ── GET APPROVED APPLICATIONS (ADMIN) ───────────────────────────────────────
+router.get('/approved', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = parseInt(req.query.offset) || 0;
+
+    const apps = await Application.getByStatus('approved', limit, offset);
+    const count = await Application.countByStatus('approved');
+
+    res.json({
+      success: true,
+      applications: apps,
+      total: count,
+      limit,
+      offset
+    });
+  } catch (err) {
+    console.error('Fetch approved apps error:', err);
+    res.status(500).json({ error: 'Failed to fetch applications' });
+  }
+});
+
 // ── APPROVE APPLICATION (ADMIN) ─────────────────────────────────────────────
 router.put('/:appId/approve', verifyToken, verifyAdmin, async (req, res) => {
   try {
@@ -125,18 +165,18 @@ router.post('/:appId/create-account', verifyToken, verifyAdmin, async (req, res)
 
     const User = require('../models/User');
 
-    // If user exists, link it
+    // If user exists, link it and reset to the default issuer password
     const existing = await User.findByEmail(contactEmail);
     if (existing) {
-      // Link issuer_profile to existing user
+      await User.updatePassword(contactEmail, process.env.ISSUER_PASSWORD || 'password');
       if (app.issuer_profile_id) {
         await pool.query('UPDATE issuer_profiles SET user_id = $1, updated_at = NOW() WHERE id = $2', [existing.id, app.issuer_profile_id]);
       }
       return res.json({ success: true, user: { id: existing.id, email: existing.email, first_name: existing.first_name, last_name: existing.last_name } });
     }
 
-    // Generate temporary password
-    const tmpPassword = 'pw-' + Math.random().toString(36).slice(2, 10);
+    // Default issuer password for accounts created from approved applications
+    const tmpPassword = process.env.ISSUER_PASSWORD || 'password';
 
     // Split contact name into first/last
     const contactName = String(app.contact_name || app.contactName || '').trim();

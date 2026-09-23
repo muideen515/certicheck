@@ -1,0 +1,95 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  ISSUER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+  REJECTED
+}
+
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum CertificateStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  image         String?
+  role          UserRole  @default(USER)
+  status        UserStatus @default(PENDING)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  applications  Application[]
+  auditLogs     AuditLog[] @relation("AdminAuditLogs")
+  certificates  Certificate[]
+
+  @@map("users")
+}
+
+model Application {
+  id              String             @id @default(cuid())
+  userId          String
+  status          ApplicationStatus  @default(PENDING)
+  submissionData  Json
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  reviewedAt      DateTime?
+  reviewedById    String?
+
+  user            User               @relation(fields: [userId], references: [id])
+  reviewedBy      User?              @relation("AdminAuditLogs", fields: [reviewedById], references: [id])
+
+  @@map("applications")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  adminId     String?
+  action      String
+  targetId    String?
+  reasoning   String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  admin       User?    @relation("AdminAuditLogs", fields: [adminId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model Certificate {
+  id              String            @id @default(cuid())
+  recipientId     String?
+  certificateData Json
+  txHash          String?
+  blockNumber     BigInt?
+  status          CertificateStatus @default(ACTIVE)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  recipient       User?             @relation(fields: [recipientId], references: [id])
+
+  @@map("certificates")
+}

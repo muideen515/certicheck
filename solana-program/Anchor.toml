@@ -3,7 +3,7 @@ default = []
 seeds = false
 
 [programs.devnet]
-certi_check = "BRVpnQ21mUX5Upy5krTN28cjMJdt8rQ4yAFssWMMZSQJ"
+certi_check = "4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob"
 
 [provider]
 cluster = "devnet"

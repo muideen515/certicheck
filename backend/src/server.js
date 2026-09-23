@@ -21,25 +21,28 @@ const PORT = process.env.PORT || 5000;
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5000',
+  'http://localhost:5500',
   'http://localhost:4173',
   'http://localhost:5173',
   'http://127.0.0.1:5000',
+  'http://127.0.0.1:5500',
   'http://127.0.0.1:4173',
   'http://127.0.0.1:5173',
   'file://'
 ];
 app.use(cors({
   origin: function(origin, cb) {
-    // allow local development origins without forcing one host over another
+    // allow local development origins and GitHub Codespaces port-forwarded domains
     if (!origin) return cb(null, true);
     if (allowedOrigins.includes(origin)) return cb(null, true);
     if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return cb(null, true);
+    if (/^https:\/\/[a-zA-Z0-9-]+\.(app\.github\.dev|githubpreview\.dev)(:\d+)?$/.test(origin)) return cb(null, true);
     return cb(new Error('Not allowed by CORS'));
   },
   credentials: true
 }));
-app.use(bodyParser.json({ limit: '10mb' }));
-app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
 app.get('/health', async (req, res) => {
@@ -135,9 +138,22 @@ app.use('/api/certificates', certificateRoutes);
 
 const frontendRoot = path.resolve(__dirname, '..', '..');
 app.use(express.static(frontendRoot));
-app.get(/^\/(?!api).*/, (req, res, next) => {
-  if (req.path === '/health') return next();
+
+app.get(['/', '/index', '/index.html'], (req, res) => {
   res.sendFile(path.join(frontendRoot, 'index.html'));
+});
+
+app.get(['/admin', '/admin.html'], (req, res) => {
+  res.sendFile(path.join(frontendRoot, 'admin.html'));
+});
+
+app.get(/^\/(?!api|health|admin(?:\.html)?$).*/, (req, res, next) => {
+  if (req.path === '/health') return next();
+  const requestedFile = path.join(frontendRoot, req.path.replace(/^\//, ''));
+  if (requestedFile.endsWith('.html')) {
+    return res.sendFile(requestedFile);
+  }
+  return res.sendFile(path.join(frontendRoot, 'index.html'));
 });
 
 // ── 404 HANDLER ────────────────────────────────────────────────────────────
@@ -154,10 +170,32 @@ app.use((err, req, res, next) => {
 // ── START SERVER ───────────────────────────────────────────────────────────
 async function startServer() {
   try {
-    const dbReady = await initializeDatabase();
-    if (!dbReady) {
-      console.error('PostgreSQL is not reachable. Start the database first: docker compose up -d db');
-      process.exit(1);
+    const isDemo = process.env.DEMO_MODE === 'true';
+    // Production safety checks
+    if (process.env.NODE_ENV === 'production') {
+      if (!process.env.ADMIN_JWT_SECRET) {
+        console.error('ADMIN_JWT_SECRET must be set in production environment');
+        process.exit(1);
+      }
+    }
+
+    // Solana on-chain configuration validation
+    if (process.env.SOLANA_ENABLE === 'true') {
+      const hasKeyPath = !!process.env.SOLANA_KEYPAIR_PATH;
+      const hasSecret = !!process.env.SOLANA_PAYER_SECRET;
+      if (!hasKeyPath && !hasSecret) {
+        console.error('SOLANA_ENABLE=true but no SOLANA_KEYPAIR_PATH or SOLANA_PAYER_SECRET provided. Aborting startup.');
+        process.exit(1);
+      }
+    }
+    if (!isDemo) {
+      const dbReady = await initializeDatabase();
+      if (!dbReady) {
+        console.error('PostgreSQL is not reachable. Start the database first: docker compose up -d db');
+        process.exit(1);
+      }
+    } else {
+      console.log('✓ Running in DEMO_MODE — skipping database initialization');
     }
 
     app.listen(PORT, () => {

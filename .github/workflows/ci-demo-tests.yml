@@ -1,0 +1,28 @@
+name: CI - Demo Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  demo-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install root deps
+        run: npm install
+      - name: Install backend deps
+        run: |
+          cd backend
+          npm install
+      - name: Run backend demo tests
+        run: |
+          cd backend
+          export DEMO_MODE=true
+          npm test

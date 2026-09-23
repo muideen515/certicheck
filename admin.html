@@ -26,72 +26,108 @@
       <span class="nav-brand">Certicheck Admin</span>
     </button>
     <div class="nav-actions">
-      <button class="btn-outline" onclick="window.location.href='index.html'">Main site</button>
+      <button class="btn-ghost" onclick="window.location.href='index.html'">Main site</button>
+      <div id="adminSignedInUser" class="admin-nav-user" style="display:none;align-items:center;gap:10px;margin-left:12px;position:relative">
+        <button id="adminProfileToggle" class="btn-ghost" style="display:flex;align-items:center;gap:8px">
+          <div class="admin-avatar" aria-hidden="true" style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#4f46e5);display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px">AD</div>
+          <div style="display:flex;flex-direction:column;text-align:left">
+            <div style="font-size:13px;font-weight:700;color:var(--text-primary)" id="navAdminName">Admin</div>
+            <div style="font-size:11px;color:var(--text-secondary)" id="navAdminEmail">admin@certicheck.com</div>
+          </div>
+        </button>
+        <div id="adminProfileMenu" style="position:absolute;right:0;top:44px;display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:10px;min-width:220px;box-shadow:var(--shadow-sm);z-index:999">
+          <div style="font-weight:700;margin-bottom:6px" id="menuName">Admin</div>
+          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px" id="menuEmail">admin@certicheck.com</div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button id="menuSignOut" class="btn-ghost">Sign out</button>
+          </div>
+        </div>
+      </div>
     </div>
   </nav>
+  
+  <div class="page-wrap" style="max-width:1440px; margin:100px auto 80px; padding:0 18px;">
 
-  <div class="page-wrap" style="max-width:860px; margin:120px auto 80px;">
-    <div class="page-header">
-      <div class="page-tag">Admin Portal</div>
-      <h1 class="page-title">Issuer Approval <span class="gradient-text">Console</span></h1>
-      <p class="page-desc">Sign in with an admin account to approve applications, revoke certificates, and review audit events.</p>
-    </div>
+    <header class="admin-header" style="margin-bottom:22px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+        <div>
+          <div class="eyebrow">Admin Portal</div>
+          <h1 class="page-title" style="margin:6px 0 6px 0">Issuer Approval Console</h1>
+          <p class="page-desc" style="margin:0;color:var(--text-secondary)">Sign in with an admin account to approve applications, revoke certificates, and review audit events.</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <div id="adminSummary" style="color:var(--text-secondary);font-size:14px;text-align:right"></div>
+        </div>
+      </div>
+    </header>
 
-    <div class="form-card" id="adminLoginCard">
-      <form id="adminLoginForm">
-        <div class="field">
-          <label class="field-label" for="adminEmail">Admin Email</label>
-          <input class="field-input" id="adminEmail" type="email" placeholder="admin@certicheck.com" required />
+    <div id="adminLoginCard" class="form-card" style="max-width:560px;margin:26px auto 0;padding:28px;display:block;">
+      <div id="adminLoginError" class="alert alert-danger" style="display:none;margin-bottom:16px;"></div>
+      <form id="adminLoginForm" style="display:flex;flex-direction:column;gap:16px;">
+        <div>
+          <label for="adminEmail" style="display:block;margin-bottom:8px;font-weight:700;color:var(--text-primary);">Admin Email</label>
+          <input id="adminEmail" type="email" name="email" placeholder="admin@certicheck.com" style="width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg-subtle);color:var(--text-primary);" required />
         </div>
-        <div class="field">
-          <label class="field-label" for="adminPassword">Admin Password</label>
-          <input class="field-input" id="adminPassword" type="password" placeholder="Enter your admin password" required />
+        <div>
+          <label for="adminPassword" style="display:block;margin-bottom:8px;font-weight:700;color:var(--text-primary);">Admin Password</label>
+          <input id="adminPassword" type="password" name="password" placeholder="Enter admin password" style="width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--bg-subtle);color:var(--text-primary);" required />
         </div>
-        <div class="form-actions" style="justify-content:flex-start; gap:12px;">
-          <button class="btn-primary" type="submit" id="adminLoginBtn">Sign In</button>
-        </div>
+        <button type="submit" class="btn-primary" style="width:100%;justify-content:center;">Sign In</button>
       </form>
-      <div id="adminLoginError" style="color:#dc2626;margin-top:12px;display:none;"></div>
     </div>
 
-    <div class="form-card" id="adminDashboard" style="display:none;">
-      <div class="admin-dashboard-shell" style="display:grid;grid-template-columns:260px 1fr;gap:20px;">
-        <aside id="adminProfile" style="padding:18px;">
-          <div style="display:flex;flex-direction:column;gap:12px;">
-            <div style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;display:grid;place-items:center;font-weight:800;font-size:20px;">AD</div>
+    <section class="admin-stats" style="margin-bottom:18px;display:none;">
+      <div id="adminStatsGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px"></div>
+    </section>
+
+    <div class="admin-main-grid" style="display:none;grid-template-columns:1fr 320px;gap:20px;align-items:start">
+
+      <main class="admin-primary">
+        <div class="form-card" id="adminDashboard" style="display:none;margin-top:14px;padding:18px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
             <div>
-              <div style="font-weight:800;font-size:18px;" id="adminProfileName">Admin</div>
-              <div style="color:var(--text-secondary);font-size:13px;margin-top:6px;" id="adminProfileEmail">admin@certicheck.com</div>
-              <div style="margin-top:10px;" id="adminProfileRole"><span style="background:rgba(124,58,237,0.08);color:var(--purple-mid);padding:6px 10px;border-radius:999px;font-weight:700;font-size:12px;">ADMIN</span></div>
-            </div>
-
-            <div style="margin-top:8px;display:grid;gap:8px;">
-              <button class="btn-primary btn-block" id="adminReturnBtn">Return to main page</button>
-              <button class="btn-ghost btn-block" id="adminLogoutBtn">Logout</button>
-            </div>
-
-            <div style="margin-top:8px;font-size:13px;color:var(--text-secondary);">Signed in as <strong id="adminWelcome">Admin</strong></div>
-          </div>
-        </aside>
-
-        <main style="padding:18px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
-            <div>
-              <div class="page-tag">Issuer Administration</div>
+              <div class="page-tag">Overview</div>
               <p class="page-desc" style="margin:0;">Review pending approvals, rejected requests, certificate checks, revoked certificates, and admin activity.</p>
             </div>
             <div style="text-align:right;color:var(--text-secondary);" id="adminSummary"></div>
           </div>
 
-          <div id="adminStatsGrid" style="margin-top:20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;"></div>
-          <div class="admin-tabs" id="adminTabs" style="margin-top:24px;"></div>
+          <!-- tabs removed; actions available in Quick Actions -->
           <div id="adminSectionIntro" class="page-desc" style="margin:12px 0 0 0;color:var(--text-secondary);"></div>
+          <div id="adminList" style="margin-top:18px;"></div>
+        </div>
 
-          <div id="adminList" style="margin-top:20px;"></div>
-        </main>
-      </div>
+      </main>
+
+      <aside class="admin-secondary">
+        <div class="quick-actions form-card" style="padding:12px">
+          <h4 style="margin:0 0 8px 0">Quick Actions</h4>
+          <div style="display:grid;gap:8px;margin-top:8px">
+            <button class="btn-outline" data-action-quick="pending">Pending</button>
+            <button class="btn-outline" data-action-quick="approved">Approved</button>
+            <button class="btn-outline" data-action-quick="rejected">Rejected</button>
+            <button class="btn-outline" data-action-quick="revoked">Rejected</button>
+            <button class="btn-outline" data-action-quick="checks">Checks</button>
+            <button class="btn-outline" data-action-quick="audit">Audit Log</button>
+          </div>
+        </div>
+      </aside>
+
     </div>
 
+    <!-- audit-activity section removed (audit view is inside the dashboard) -->
+
+  <div id="adminDetailDrawer" style="position:fixed;right:20px;top:80px;width:min(420px, calc(100vw - 32px));max-height:calc(100vh - 100px);overflow:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow-lg);padding:20px;display:none;z-index:1200;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;">
+      <div style="font-size:18px;font-weight:800;color:var(--text-primary);">Application detail</div>
+      <button id="adminDrawerClose" class="btn-ghost" type="button">Close</button>
+    </div>
+    <div id="adminDetailContent"></div>
+  </div>
+
+  <div id="adminToastStack" style="position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:10px;z-index:1300;"></div>
+
   <script src="admin.js"></script>
+</div>
 </body>
 </html>

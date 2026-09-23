@@ -18,6 +18,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "express-rate-limit": "^6.8.0",
     "@coral-xyz/anchor": "^0.29.0",
     "@solana/web3.js": "^1.99.0",
     "bcryptjs": "^2.4.3",
