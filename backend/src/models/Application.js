@@ -3,7 +3,7 @@ const User = require('./User');
 const demoAppStore = require('../services/demoApplicationStore');
 
 class Application {
-  static async create(issuerId, orgName, orgType, website, contactName, contactEmail, contactRole, volume, useCase, wallet) {
+  static async create(issuerId, orgName, orgType, website, contactName, contactEmail, generatedEmail, contactRole, volume, useCase, wallet) {
     if (process.env.DEMO_MODE === 'true') {
       return demoAppStore.createApplication({
         issuerId,
@@ -12,6 +12,7 @@ class Application {
         website,
         contactName,
         contactEmail,
+        generatedEmail,
         contactRole,
         volume,
         useCase,
@@ -45,10 +46,10 @@ class Application {
 
     const result = await pool.query(
       `INSERT INTO pending_applications 
-       (issuer_id, organization_name, organization_type, organization_website, contact_name, contact_email, contact_role, certificate_volume, use_case, wallet_address)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING id, organization_name, status, submitted_at`,
-      [issuerProfileId, orgName, orgType, website, contactName, contactEmail, contactRole, volume, useCase, wallet]
+      (issuer_id, organization_name, organization_type, organization_website, contact_name, contact_email, generated_email, contact_role, certificate_volume, use_case, wallet_address)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING id, organization_name, generated_email, status, submitted_at`,
+          [issuerProfileId, orgName, orgType, website, contactName, contactEmail, generatedEmail, contactRole, volume, useCase, wallet]
     );
     return result.rows[0];
   }
@@ -105,7 +106,7 @@ class Application {
 
       if (profile.rows[0]?.user_id) {
         await pool.query(
-          `UPDATE users SET user_type = 'issuer', updated_at = NOW() WHERE id = $1`,
+          `UPDATE users SET user_type = 'issuer', is_active = TRUE, updated_at = NOW() WHERE id = $1`,
           [profile.rows[0].user_id]
         );
       }

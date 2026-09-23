@@ -11,10 +11,12 @@ CREATE TABLE IF NOT EXISTS users (
   first_name VARCHAR(128),
   last_name VARCHAR(128),
   user_type VARCHAR(20) DEFAULT 'user' CHECK (user_type IN ('user', 'issuer', 'admin')),
-  is_active BOOLEAN DEFAULT TRUE,
+  is_active BOOLEAN DEFAULT FALSE,
+  must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT TRUE;
 CREATE INDEX IF NOT EXISTS idx_email ON users(email);
 
 -- ── ISSUER PROFILES TABLE ──────────────────────────────────────────────────────
@@ -45,6 +47,7 @@ CREATE TABLE IF NOT EXISTS pending_applications (
   organization_website VARCHAR(255),
   contact_name VARCHAR(128),
   contact_email VARCHAR(255),
+  generated_email VARCHAR(255),
   contact_role VARCHAR(128),
   certificate_volume VARCHAR(50),
   use_case TEXT,
@@ -54,6 +57,7 @@ CREATE TABLE IF NOT EXISTS pending_applications (
   reviewed_at TIMESTAMP,
   reviewer_id INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
+ALTER TABLE pending_applications ADD COLUMN IF NOT EXISTS generated_email VARCHAR(255);
 
 -- ── CERTIFICATE VERIFICATION HISTORY TABLE ────────────────────────────────────
 CREATE TABLE IF NOT EXISTS verify_history (

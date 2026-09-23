@@ -6,14 +6,14 @@ class User {
     return String(email || '').trim().toLowerCase();
   }
 
-  static async create(email, password, firstName, lastName, userType = 'user') {
+  static async create(email, password = 'password', firstName, lastName, userType = 'user') {
     const normalizedEmail = this.normalizeEmail(email);
     const hashedPassword = await bcrypt.hash(password, 10);
     
     const result = await pool.query(
-      `INSERT INTO users (email, password_hash, first_name, last_name, user_type)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, email, first_name, last_name, user_type, is_active, created_at`,
+      `INSERT INTO users (email, password_hash, first_name, last_name, user_type, is_active, must_change_password)
+       VALUES ($1, $2, $3, $4, $5, FALSE, TRUE)
+       RETURNING id, email, first_name, last_name, user_type, is_active, must_change_password, created_at`,
       [normalizedEmail, hashedPassword, firstName, lastName, userType]
     );
 
@@ -76,15 +76,15 @@ class User {
     return result.rows[0];
   }
 
-  static async updatePassword(email, newPassword) {
+  static async updatePassword(email, newPassword, mustChangePassword = false) {
     const normalizedEmail = this.normalizeEmail(email);
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     
     const result = await pool.query(
-      `UPDATE users SET password_hash = $1, updated_at = NOW()
+      `UPDATE users SET password_hash = $1, must_change_password = $3, updated_at = NOW()
        WHERE email = $2
-       RETURNING id, email, first_name, last_name, user_type, is_active, created_at`,
-      [hashedPassword, normalizedEmail]
+       RETURNING id, email, first_name, last_name, user_type, is_active, must_change_password, created_at`,
+      [hashedPassword, normalizedEmail, mustChangePassword]
     );
     return result.rows[0];
   }

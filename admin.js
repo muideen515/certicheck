@@ -4,16 +4,23 @@ const API_BASE_URL = (function() {
   try {
     const host = window.location.hostname;
     const port = window.location.port;
-    if (host === '127.0.0.1' || host === 'localhost') {
-      if (port && port !== '5000') return 'http://127.0.0.1:5000/api';
+
+    const isLocalDevOrigin = ['127.0.0.1', 'localhost'].includes(host) && (!port || ['3000', '4173', '5000', '5173', '5500', '8080'].includes(port));
+    if (isLocalDevOrigin) {
+      return `${window.location.origin}/api`;
     }
+
     if (host.includes('.app.github.dev') || host.includes('.githubpreview.dev')) {
-      const backendHost = host.replace(/-5500\./, '-5000.').replace(/-3000\./, '-5000.');
-      return `https://${backendHost}/api`;
+      return `${window.location.origin}/api`;
+    }
+
+    if (host === '127.0.0.1' || host === 'localhost') {
+      return 'http://127.0.0.1:5000/api';
     }
   } catch (e) {
     return 'http://127.0.0.1:5000/api';
   }
+
   return `${window.location.origin}/api`;
 })();
 const ADMIN_SESSION_KEY = "certicheck_admin_logged_in";

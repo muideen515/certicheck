@@ -13,6 +13,14 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
+function isCertiCheckEmail(email) {
+  return normalizeEmail(email).endsWith('@certicheck.com');
+}
+
+function validateNewPassword(password) {
+  return typeof password === 'string' && password.length >= 6 && password !== 'password';
+}
+
 async function ensureSeededAccounts() {
   const defaultAccounts = [
     {
@@ -35,6 +43,10 @@ async function ensureSeededAccounts() {
     const existingUser = await User.findByEmail(account.email);
     if (!existingUser) {
       const created = await User.create(account.email, account.password, account.firstName, account.lastName, account.userType);
+      await pool.query(
+        'UPDATE users SET is_active = TRUE, must_change_password = FALSE, updated_at = NOW() WHERE id = $1',
+        [created.id]
+      );
       if (account.userType === 'issuer') {
         await pool.query(
           `INSERT INTO issuer_profiles (user_id, organization_name, organization_type, website, contact_name, contact_role, certificate_volume, use_case, wallet_address, status, approval_timestamp, created_at, updated_at)
@@ -88,8 +100,8 @@ router.post('/send-otp', async (req, res) => {
       return res.status(400).json({ error: 'Email is required' });
     }
 
-    if (!EmailService.isValidEmail(email)) {
-      return res.status(400).json({ error: 'Please enter a valid email address (e.g. name@example.com)' });
+    if (!EmailService.isValidEmail(email) || !isCertiCheckEmail(email)) {
+      return res.status(400).json({ error: 'Please use a valid @certicheck.com email address' });
     }
 
     // Check if email already registered
@@ -120,8 +132,8 @@ router.post('/resend-otp', async (req, res) => {
   try {
     const email = normalizeEmail(req.body.email);
 
-    if (!email || !EmailService.isValidEmail(email)) {
-      return res.status(400).json({ error: 'Valid email is required' });
+    if (!email || !EmailService.isValidEmail(email) || !isCertiCheckEmail(email)) {
+      return res.status(400).json({ error: 'A valid @certicheck.com email is required' });
     }
 
     const existingUser = await User.findByEmail(email);
@@ -184,12 +196,8 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields: email, password, firstName, lastName' });
     }
 
-    if (!EmailService.isValidEmail(email)) {
-      return res.status(400).json({ error: 'Please enter a valid email address' });
-    }
-
-    if (String(password).length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+    if (!EmailService.isValidEmail(email) || !isCertiCheckEmail(email)) {
+      return res.status(400).json({ error: 'Please use a valid @certicheck.com email address' });
     }
 
     // Verify OTP requirement: check if verified in session or via direct OTP parameter
@@ -210,7 +218,7 @@ router.post('/register', async (req, res) => {
       return res.status(409).json({ error: 'Email already registered' });
     }
 
-    const newUser = await User.create(email, password, firstName, lastName, userType);
+    const newUser = await User.create(email, 'password', firstName, lastName, userType);
     
     // Invalidate the verified OTP now that registration is complete
     await OTP.consume(email, 'signup');
@@ -247,10 +255,16 @@ router.post('/forgot-password', async (req, res) => {
       return res.status(400).json({ error: 'Email is required' });
     }
 
-    // Check if email exists
+    // Only users who completed the initial password change may use this flow.
     const user = await User.findByEmail(email);
     if (!user) {
       // Don't reveal if email exists for security
+      return res.json({
+        success: true,
+        message: 'If email exists, OTP will be sent'
+      });
+    }
+    if (user.must_change_password) {
       return res.json({
         success: true,
         message: 'If email exists, OTP will be sent'
@@ -322,6 +336,13 @@ router.post('/reset-password', async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
+    if (user.must_change_password) {
+      return res.status(403).json({ error: 'Set your new password before using password recovery' });
+    }
+
+    if (!validateNewPassword(newPassword)) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters and cannot be "password"' });
+    }
 
     // Update password
     await User.updatePassword(email, newPassword);
@@ -335,6 +356,26 @@ router.post('/reset-password', async (req, res) => {
   } catch (err) {
     console.error('Reset password error:', err);
     res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
+// ── SET INITIAL PASSWORD ────────────────────────────────────────────────────
+router.post('/change-password', verifyToken, async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    if (!validateNewPassword(newPassword)) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters and cannot be "password"' });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    await User.updatePassword(user.email, newPassword, false);
+    await logAudit(user.id, 'PASSWORD_CHANGE', 'user', user.id, 'success');
+    res.json({ success: true, message: 'Password changed successfully' });
+  } catch (err) {
+    console.error('Change password error:', err);
+    res.status(500).json({ error: 'Failed to change password' });
   }
 });
 
@@ -379,7 +420,7 @@ router.post('/login', async (req, res) => {
     res.json({
       success: true,
       message: 'Login successful',
-      user: { id: user.id, email: user.email, first_name: user.first_name, last_name: user.last_name, user_type: user.user_type, organization_name: profile.organization_name || '', issuer_status: profile.status || '', wallet: profile.wallet_address || '' },
+      user: { id: user.id, email: user.email, first_name: user.first_name, last_name: user.last_name, user_type: user.user_type, must_change_password: user.must_change_password, organization_name: profile.organization_name || '', issuer_status: profile.status || '', wallet: profile.wallet_address || '' },
       token
     });
   } catch (err) {

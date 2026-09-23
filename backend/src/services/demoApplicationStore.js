@@ -43,7 +43,7 @@ function normalizeApp(app) {
   };
 }
 
-function createApplication({ issuerId, orgName, orgType, website, contactName, contactEmail, contactRole, volume, useCase, wallet }) {
+function createApplication({ issuerId, orgName, orgType, website, contactName, contactEmail, generatedEmail, contactRole, volume, useCase, wallet }) {
   const records = readStore();
   const app = normalizeApp({
     id: makeId(),
@@ -53,6 +53,7 @@ function createApplication({ issuerId, orgName, orgType, website, contactName, c
     organization_website: website,
     contact_name: contactName,
     contact_email: contactEmail,
+    generated_email: generatedEmail,
     contact_role: contactRole,
     certificate_volume: volume,
     use_case: useCase,
@@ -67,6 +68,7 @@ function createApplication({ issuerId, orgName, orgType, website, contactName, c
   return {
     id: app.id,
     organization_name: app.organization_name,
+    generated_email: app.generated_email,
     status: app.status,
     submitted_at: app.submitted_at
   };
