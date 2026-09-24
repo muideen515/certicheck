@@ -88,29 +88,9 @@ const FAQ_DATA = [
   },
 ];
 
-const API_BASE_URL = (function() {
-  try {
-    const host = window.location.hostname;
-    const port = window.location.port;
-
-    const isLocalDevOrigin = ['127.0.0.1', 'localhost'].includes(host) && (!port || ['3000', '4173', '5000', '5173', '5500', '8080'].includes(port));
-    if (isLocalDevOrigin) {
-      return `${window.location.origin}/api`;
-    }
-
-    if (host.includes('.app.github.dev') || host.includes('.githubpreview.dev')) {
-      return `${window.location.origin}/api`;
-    }
-
-    if (host === '127.0.0.1' || host === 'localhost') {
-      return 'http://127.0.0.1:5000/api';
-    }
-  } catch (e) {
-    return 'http://127.0.0.1:5000/api';
-  }
-
-  return `${window.location.origin}/api`;
-})();
+const API_BASE_URL = window.location.hostname === "localhost"
+  ? "http://localhost:5000/api"
+  : "https://certicheck-backend.onrender.com/api";
 
 function getPreviewBaseUrl() {
   try {

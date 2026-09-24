@@ -582,5 +582,41 @@
     "submitted_at": "2026-09-23T18:12:23.206Z",
     "reviewed_at": "2026-09-23T18:12:23.217Z",
     "reviewer_id": 1
+  },
+  {
+    "id": "demo-app-1790245355388-8tcwsq",
+    "issuer_id": 1,
+    "organization_name": "Acme University",
+    "organization_type": "university",
+    "organization_website": "https://acme.edu",
+    "contact_name": "Ada Lovelace",
+    "contact_email": "ada@acme.edu",
+    "generated_email": "ada.lovelace@certicheck.com",
+    "contact_role": "Registrar",
+    "certificate_volume": "1 – 100 certificates",
+    "use_case": "Academic credential issuance",
+    "wallet_address": "demo-wallet",
+    "status": "pending",
+    "submitted_at": "2026-09-24T10:22:35.388Z",
+    "reviewed_at": null,
+    "reviewer_id": null
+  },
+  {
+    "id": "demo-app-1790245355434-ho7g6t",
+    "issuer_id": 1,
+    "organization_name": "Demo Approved Org",
+    "organization_type": "school",
+    "organization_website": "https://demo-approved.example",
+    "contact_name": "Grace Hopper",
+    "contact_email": "grace@demo-approved.example",
+    "generated_email": "grace.hopper@certicheck.com",
+    "contact_role": "Operations Lead",
+    "certificate_volume": "1 – 100 certificates",
+    "use_case": "Testing admin dashboard",
+    "wallet_address": "demo-wallet-approved",
+    "status": "approved",
+    "submitted_at": "2026-09-24T10:22:35.434Z",
+    "reviewed_at": "2026-09-24T10:22:35.447Z",
+    "reviewer_id": 1
   }
 ]
