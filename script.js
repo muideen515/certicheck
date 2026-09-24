@@ -88,9 +88,7 @@ const FAQ_DATA = [
   },
 ];
 
-const API_BASE_URL = window.location.hostname === "localhost"
-  ? "http://localhost:5000/api"
-  : "https://certicheck-backend.onrender.com/api";
+const API_BASE_URL = "https://certicheck-backend-8hu3.onrender.com/api";
 
 function getPreviewBaseUrl() {
   try {

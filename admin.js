@@ -1,8 +1,6 @@
 "use strict";
 
-const API_BASE_URL = window.location.hostname === "localhost"
-  ? "http://localhost:5000/api"
-  : "https://certicheck-backend.onrender.com/api";
+const API_BASE_URL = "https://certicheck-backend-8hu3.onrender.com/api";
 const ADMIN_SESSION_KEY = "certicheck_admin_logged_in";
 const ADMIN_TOKEN_KEY = "certicheck_admin_token";
 const ADMIN_USER_KEY = "certicheck_admin_user";

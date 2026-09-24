@@ -41,7 +41,9 @@ app.use(cors({
     if (/^https:\/\/[a-zA-Z0-9-]+\.(app\.github\.dev|githubpreview\.dev)(:\d+)?$/.test(origin)) return cb(null, true);
     return cb(new Error('Not allowed by CORS'));
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
