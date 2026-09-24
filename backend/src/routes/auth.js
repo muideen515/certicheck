@@ -21,6 +21,16 @@ function validateNewPassword(password) {
   return typeof password === 'string' && password.length >= 6 && password !== 'password';
 }
 
+function setAuthCookie(res, token) {
+  const isProduction = process.env.NODE_ENV === 'production';
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000
+  });
+}
+
 async function ensureSeededAccounts() {
   const defaultAccounts = [
     {
@@ -417,6 +427,8 @@ router.post('/login', async (req, res) => {
       { expiresIn: process.env.JWT_EXPIRE || '7d' }
     );
 
+    setAuthCookie(res, token);
+
     res.json({
       success: true,
       message: 'Login successful',
@@ -445,6 +457,7 @@ router.post('/admin/login', async (req, res) => {
       const demoPassword = process.env.ADMIN_PASSWORD || 'admin123';
       if (email === demoEmail && password === demoPassword) {
         const token = jwt.sign({ id: 0, email: email, user_type: 'admin', isAdmin: true }, process.env.ADMIN_JWT_SECRET || JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '7d' });
+        setAuthCookie(res, token);
         await logAudit(0, 'LOGIN', 'admin', 0, 'success');
         return res.json({ success: true, token, user: { id: 0, email, first_name: 'Admin', last_name: 'User', user_type: 'admin' } });
       }
@@ -467,6 +480,7 @@ router.post('/admin/login', async (req, res) => {
     }
 
     const token = jwt.sign({ id: user.id, email: user.email, user_type: 'admin', isAdmin: true }, process.env.ADMIN_JWT_SECRET || JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '7d' });
+  setAuthCookie(res, token);
 
     await logAudit(user.id, 'LOGIN', 'admin', user.id, 'success');
 
