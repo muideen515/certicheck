@@ -16,6 +16,7 @@ const certificateRoutes = require('./routes/certificates');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const HOST = '0.0.0.0';
 
 // ── MIDDLEWARE ─────────────────────────────────────────────────────────────
 const allowedOrigins = [
@@ -200,9 +201,9 @@ async function startServer() {
       console.log('✓ Running in DEMO_MODE — skipping database initialization');
     }
 
-    app.listen(PORT, () => {
-      console.log(`✓ Certicheck backend running on http://localhost:${PORT}`);
-      console.log(`✓ Health check: http://localhost:${PORT}/health`);
+    app.listen(PORT, HOST, () => {
+      console.log(`✓ Certicheck backend running on http://${HOST}:${PORT}`);
+      console.log(`✓ Health check: http://${HOST}:${PORT}/health`);
     });
   } catch (err) {
     console.error('Failed to start backend:', err.message || err);
