@@ -89,6 +89,8 @@ const FAQ_DATA = [
 ];
 
 const API_BASE_URL = "https://certicheck-backend-8hu3.onrender.com/api";
+const nativeFetch = window.fetch.bind(window);
+window.fetch = (url, options = {}) => nativeFetch(url, { ...options, credentials: "include" });
 
 function getPreviewBaseUrl() {
   try {

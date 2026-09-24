@@ -1,6 +1,7 @@
 "use strict";
 
 const API_BASE_URL = "https://certicheck-backend-8hu3.onrender.com/api";
+const apiFetch = (url, options = {}) => fetch(url, { ...options, credentials: "include" });
 const ADMIN_SESSION_KEY = "certicheck_admin_logged_in";
 const ADMIN_TOKEN_KEY = "certicheck_admin_token";
 const ADMIN_USER_KEY = "certicheck_admin_user";
@@ -156,7 +157,7 @@ function getAuthHeaders(body = null) {
 }
 
 async function requestJson(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await apiFetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers: {
       ...getAuthHeaders(options.body),
