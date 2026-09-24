@@ -19,6 +19,7 @@ const PORT = process.env.PORT || 5000;
 
 // ── MIDDLEWARE ─────────────────────────────────────────────────────────────
 const allowedOrigins = [
+  'https://certicheck-psi.vercel.app',
   'http://localhost:3000',
   'http://localhost:5000',
   'http://localhost:5500',
