@@ -1,10 +1,33 @@
 const express = require('express');
 const Application = require('../models/Application');
+const User = require('../models/User');
 const pool = require('../db/connection');
 const { verifyToken, verifyAdmin, verifyAdminToken, logAudit } = require('../middleware/auth');
 const EmailService = require('../services/emailService');
 
 const router = express.Router();
+
+function generateEmailSlug(name) {
+  const slug = String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '.')
+    .replace(/^\.|\.$/g, '');
+  return `${slug || 'applicant'}@certicheck.com`;
+}
+
+async function generateUniqueEmail(name) {
+  const base = generateEmailSlug(name).replace('@certicheck.com', '');
+  let candidate = `${base}@certicheck.com`;
+  let suffix = 2;
+
+  while (await User.findByEmail(candidate)) {
+    candidate = `${base}${suffix}@certicheck.com`;
+    suffix += 1;
+  }
+
+  return candidate;
+}
 
 // ── SUBMIT APPLICATION ──────────────────────────────────────────────────────
 router.post('/submit', async (req, res) => {
@@ -15,30 +38,25 @@ router.post('/submit', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    const generatedEmail = process.env.DEMO_MODE === 'true'
+      ? generateEmailSlug(contactName)
+      : await generateUniqueEmail(contactName);
+
     let userId = req.user?.id || null;
     if (!userId) {
       if (process.env.DEMO_MODE === 'true') {
         userId = 1;
       } else {
-        const User = require('../models/User');
-        const normalizedEmail = String(contactEmail).trim().toLowerCase();
-        const defaultIssuerPassword = process.env.ISSUER_PASSWORD || 'password';
-        let existingUser = await User.findByEmail(normalizedEmail);
-
-        if (!existingUser) {
-          const firstName = String(contactName).trim().split(/\s+/)[0] || 'Applicant';
-          const lastName = String(contactName).trim().split(/\s+/).slice(1).join(' ') || 'User';
-          existingUser = await User.create(normalizedEmail, defaultIssuerPassword, firstName, lastName, 'issuer');
-        } else {
-          await User.updatePassword(normalizedEmail, defaultIssuerPassword);
-        }
-
-        userId = existingUser.id;
+        const nameParts = String(contactName).trim().split(/\s+/).filter(Boolean);
+        const firstName = nameParts.shift() || 'Issuer';
+        const lastName = nameParts.join(' ') || 'User';
+        const generatedUser = await User.create(generatedEmail, 'password', firstName, lastName, 'issuer');
+        userId = generatedUser.id;
       }
     }
 
     const app = await Application.create(
-      userId, orgName, orgType, website, contactName, contactEmail, contactRole, volume, useCase, wallet
+      userId, orgName, orgType, website, contactName, contactEmail, generatedEmail, contactRole, volume, useCase, wallet
     );
 
     await EmailService.sendApplicationReceived(contactEmail, contactName, orgName);
@@ -48,7 +66,7 @@ router.post('/submit', async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Application submitted successfully',
-      application: app
+      application: { ...app, generated_email: app.generated_email || generatedEmail }
     });
   } catch (err) {
     console.error('Application submit error:', err);
@@ -168,7 +186,8 @@ router.post('/:appId/create-account', verifyAdminToken, verifyAdmin, async (req,
     const app = appRes.rows[0];
     if (!app) return res.status(404).json({ error: 'Application not found' });
 
-    // If there's already a linked user, return that info (no-op)
+    // If there's already a linked user, return that info (no-op). Admins never
+    // receive or modify password data.
     if (app.user_id) {
       const userRes = await pool.query('SELECT id, email, first_name, last_name FROM users WHERE id = $1 LIMIT 1', [app.user_id]);
       const user = userRes.rows[0];
@@ -176,42 +195,21 @@ router.post('/:appId/create-account', verifyAdminToken, verifyAdmin, async (req,
     }
 
     // Create a new user account for the contact email
-    const contactEmail = String(app.contact_email || app.contactEmail || '').trim().toLowerCase();
+    const contactEmail = String(app.generated_email || app.generatedEmail || app.contact_email || app.contactEmail || '').trim().toLowerCase();
     if (!contactEmail) return res.status(400).json({ error: 'No contact email available to create account' });
 
     const User = require('../models/User');
 
-    // If user exists, link it and reset to the default issuer password
+    // An account must be created by the user through the signup flow; admins
+    // cannot set or disclose passwords.
     const existing = await User.findByEmail(contactEmail);
     if (existing) {
-      await User.updatePassword(contactEmail, process.env.ISSUER_PASSWORD || 'password');
       if (app.issuer_profile_id) {
         await pool.query('UPDATE issuer_profiles SET user_id = $1, updated_at = NOW() WHERE id = $2', [existing.id, app.issuer_profile_id]);
       }
       return res.json({ success: true, user: { id: existing.id, email: existing.email, first_name: existing.first_name, last_name: existing.last_name } });
     }
-
-    // Default issuer password for accounts created from approved applications
-    const tmpPassword = process.env.ISSUER_PASSWORD || 'password';
-
-    // Split contact name into first/last
-    const contactName = String(app.contact_name || app.contactName || '').trim();
-    const parts = contactName.split(/\s+/).filter(Boolean);
-    const firstName = parts.shift() || 'Issuer';
-    const lastName = parts.join(' ') || 'User';
-
-    // Create user and set as issuer
-    const newUser = await User.create(contactEmail, tmpPassword, firstName, lastName, 'issuer');
-
-    // Link issuer profile
-    if (app.issuer_profile_id) {
-      await pool.query("UPDATE issuer_profiles SET user_id = $1, status = COALESCE(status, 'approved'), updated_at = NOW() WHERE id = $2", [newUser.id, app.issuer_profile_id]);
-    }
-
-    // Also update users table to ensure user_type=issuer (already set by create)
-
-    // Return generated credentials to admin
-    res.json({ success: true, credentials: { email: contactEmail, password: tmpPassword }, user: { id: newUser.id, email: newUser.email, first_name: newUser.first_name, last_name: newUser.last_name } });
+    return res.status(409).json({ error: 'The contact must complete signup before an account can be linked' });
   } catch (err) {
     console.error('Create account for application error:', err);
     res.status(500).json({ error: 'Failed to create or link account for application' });

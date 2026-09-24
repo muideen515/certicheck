@@ -88,23 +88,9 @@ const FAQ_DATA = [
   },
 ];
 
-const API_BASE_URL = (function() {
-  try {
-    const host = window.location.hostname;
-    const port = window.location.port;
-    if (host === '127.0.0.1' || host === 'localhost') {
-      if (port && port !== '5000') return 'http://127.0.0.1:5000/api';
-    }
-    if (host.includes('.app.github.dev') || host.includes('.githubpreview.dev')) {
-      // Map Codespaces preview ports (e.g. -5500, -5501, -3000) to backend port -5000
-      const backendHost = host.replace(/-\d{4}\./, '-5000.');
-      return `https://${backendHost}/api`;
-    }
-  } catch (e) {
-    return 'http://127.0.0.1:5000/api';
-  }
-  return `${window.location.origin}/api`;
-})();
+const API_BASE_URL = "https://certicheck-backend-8hu3.onrender.com/api";
+const nativeFetch = window.fetch.bind(window);
+window.fetch = (url, options = {}) => nativeFetch(url, { ...options, credentials: "include" });
 
 function getPreviewBaseUrl() {
   try {
@@ -644,7 +630,7 @@ function updateAuthUi() {
     userBadge.className = 'auth-item';
     userBadge.style.marginRight = '8px';
     userBadge.style.color = 'var(--text-secondary)';
-    userBadge.textContent = `Signed in as ${displayName} (${roleLabel})`;
+    userBadge.textContent = 'Signed in';
 
     const signoutBtn = document.createElement('button');
     signoutBtn.className = 'btn-ghost auth-item';
@@ -1018,12 +1004,16 @@ function downloadCertificateArtifact(certificatePayload) {
 function renderRoleLandingHome() {
   const roleHome = document.getElementById('roleHomePanel');
   const hero = document.querySelector('#page-home .hero');
+  const features = document.querySelector('#page-home .features');
+  const footer = document.querySelector('.site-footer');
   const user = currentUser || getStoredUser();
   if (!roleHome || !hero) return;
 
   if (!user || (user.user_type !== 'issuer' && user.user_type !== 'admin')) {
     roleHome.style.display = 'none';
     hero.style.display = 'block';
+    if (features) features.style.display = 'block';
+    if (footer && currentPage === 'home') footer.style.display = '';
     return;
   }
 
@@ -1034,6 +1024,8 @@ function renderRoleLandingHome() {
 
   hero.style.display = 'none';
   roleHome.style.display = 'block';
+  if (features) features.style.display = 'none';
+  if (footer) footer.style.display = 'none';
 
   if (isAdmin) {
     document.getElementById('roleHomeBadge').textContent = 'Admin Control Center';
@@ -1192,7 +1184,7 @@ function renderRoleLandingHome() {
                 <strong>${latestIssuerResult.title || 'Certificate issued successfully.'}</strong>
                 <div style="margin-top:12px;display:grid;gap:8px;font-size:13px;">
                   <div><strong>Certificate ID:</strong> ${latestIssuerResult.certificateId || 'N/A'}</div>
-                  <div><strong>IPFS CID:</strong> ${latestIssuerResult.ipfsCid || 'N/A'}</div>
+                  <div class="issuer-cid"><strong>IPFS CID:</strong> <span>${latestIssuerResult.ipfsCid || 'N/A'}</span></div>
                   <div><strong>Transaction:</strong> ${latestIssuerResult.transaction || 'N/A'}</div>
                 </div>
               </div>
@@ -1446,7 +1438,7 @@ function renderRoleLandingHome() {
               <strong>Certificate issued successfully.</strong>
               <div style="margin-top:12px;display:grid;gap:8px;font-size:13px;">
                 <div><strong>Certificate ID:</strong> ${nextId}</div>
-                <div><strong>IPFS CID:</strong> ${ipfsCid}</div>
+                <div class="issuer-cid"><strong>IPFS CID:</strong> <span>${ipfsCid}</span></div>
                 <div><strong>Transaction:</strong> ${txSig}</div>
               </div>
               <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
@@ -1512,6 +1504,9 @@ function navigate(page) {
   const el = document.getElementById(`page-${page}`);
   if (el) { el.classList.add("active"); currentPage = page; }
 
+  const footer = document.querySelector('.site-footer');
+  if (footer) footer.style.display = page === 'home' && !(currentUser || getStoredUser()) ? '' : 'none';
+
   if (page === 'home') {
     renderRoleLandingHome();
   }
@@ -1535,6 +1530,7 @@ function navigate(page) {
 function initAuthPageForms(page) {
   if (page === "verify-otp") initOTPVerificationForm();
   if (page === "verify-reset-otp") initVerifyResetOTPForm();
+  if (page === "change-password") initChangePasswordForm();
 }
 
 async function renderVerifyResult(response) {
@@ -1699,19 +1695,13 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById('homeIssuerBtn')?.addEventListener('click', (e) => { desiredSignupType = 'issuer'; });
   document.getElementById('homeVerifyBtn')?.addEventListener('click', () => { desiredSignupType = null; });
 
-  // When opening the apply/signup page, prefill the contact email input with registered email if available
+  // Keep the application email as the official company or department contact.
   document.querySelectorAll('[data-page="apply"],[data-page="signup"]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const stored = getStoredUser();
       const emailInput = document.getElementById('contactEmailInput');
       const emailHidden = document.getElementById('contactEmail');
-      if (stored && stored.email) {
-        if (emailInput) emailInput.value = stored.email;
-        if (emailHidden) emailHidden.value = stored.email;
-      } else {
-        if (emailInput) emailInput.value = '';
-        if (emailHidden) emailHidden.value = '';
-      }
+      if (emailInput) emailInput.value = '';
+      if (emailHidden) emailHidden.value = '';
     });
   });
   // Ensure hero CTA buttons navigate on all screen sizes
@@ -1750,6 +1740,14 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   updateNavForWidth();
   window.addEventListener('resize', updateNavForWidth);
+
+  // Make sure the default landing page is active exactly once and auth UI is synced.
+  document.getElementById("page-home")?.classList.add("active");
+  document.querySelector('[data-page="home"]')?.classList.add("active");
+  currentUser = getStoredUser();
+  updateAuthUi();
+  renderRoleLandingHome();
+  try { initTheme(); } catch (e) {}
 });
 
 /* ═══════════════════════════════════════════════
@@ -2011,7 +2009,7 @@ function initIssuerDashboard() {
       <tr data-cert-id="${c.certificateId}">
         <td style="font-family:var(--font-mono)">${c.certificateId}</td>
         <td>${c.certificateType || '—'}</td>
-        <td style="font-family:var(--font-mono)">${c.ipfsCid ? `<a href="${c.ipfsUri || 'https://ipfs.io/ipfs/' + c.ipfsCid}" target="_blank">${c.ipfsCid}</a>` : '—'}</td>
+        <td class="issuer-cid">${c.ipfsCid ? `<a href="${c.ipfsUri || 'https://ipfs.io/ipfs/' + c.ipfsCid}" target="_blank">${c.ipfsCid}</a>` : '—'}</td>
         <td>${c.blockchainTransactionId ? '<span style="color:#059669">Yes</span>' : 'No'}</td>
         <td>${c.verificationStatus || 'issued'}</td>
         <td>${c.verificationStatus === 'revoked' ? '<em>Revoked</em>' : `<button class="btn-ghost btn-revoke" data-cert="${c.certificateId}">Revoke</button>`}</td>
@@ -2183,7 +2181,7 @@ function initIssuerDashboard() {
               <div><strong>On-chain:</strong> Yes</div>
               <div><strong>Transaction:</strong> ${txid}</div>
               <div><strong>Explorer:</strong> <a href="https://explorer.solana.com/tx/${txid}?cluster=devnet" target="_blank">View on Solana Explorer</a></div>
-              <div><strong>IPFS CID:</strong> ${ipfsCid}</div>
+              <div class="issuer-cid"><strong>IPFS CID:</strong> <span>${ipfsCid}</span></div>
             </div>
           </div>`;
 
@@ -2256,7 +2254,7 @@ function initIssuerDashboard() {
             <div><strong>Transaction:</strong> ${txId}</div>
             <div><strong>Transaction status:</strong> ${certificate.blockchainTransactionId ? txStatus : 'Not submitted'}</div>
             ${explorerLink ? `<div>${explorerLink}</div>` : ''}
-            <div><strong>IPFS CID:</strong> ${certificate.ipfsCid || 'N/A'}</div>
+            <div class="issuer-cid"><strong>IPFS CID:</strong> <span>${certificate.ipfsCid || 'N/A'}</span></div>
           </div>
         </div>`;
 
@@ -2447,8 +2445,6 @@ function initSignupForm() {
   const emailEl = document.getElementById("signupEmail");
   const firstNameEl = document.getElementById("signupFirstName");
   const lastNameEl = document.getElementById("signupLastName");
-  const passwordEl = document.getElementById("signupPassword");
-  const confirmPasswordEl = document.getElementById("signupConfirmPassword");
   const errorEl = document.getElementById("signupError");
   const resendBtn = document.getElementById("resendOtpBtn");
   const otpInput = document.getElementById("otpCode");
@@ -2460,23 +2456,16 @@ function initSignupForm() {
     const email = emailEl.value.trim();
     const firstName = firstNameEl.value.trim();
     const lastName = lastNameEl.value.trim();
-    const password = passwordEl.value;
-    const confirmPassword = confirmPasswordEl.value;
+    const password = "password";
 
-    if (!email || !firstName || !lastName || !password || !confirmPassword) {
+    if (!email || !firstName || !lastName) {
       errorEl.textContent = "All fields are required";
       errorEl.style.display = "block";
       return;
     }
 
-    if (password !== confirmPassword) {
-      errorEl.textContent = "Passwords do not match";
-      errorEl.style.display = "block";
-      return;
-    }
-
-    if (password.length < 6) {
-      errorEl.textContent = "Password must be at least 6 characters";
+    if (!email.toLowerCase().endsWith("@certicheck.com")) {
+      errorEl.textContent = "Use a valid @certicheck.com email address";
       errorEl.style.display = "block";
       return;
     }
@@ -2786,6 +2775,10 @@ function initLoginForm() {
         if (data.token) {
           if (remember) setRememberedLoginEmail(email); else setRememberedLoginEmail("");
           saveAuthSession(data.token, data.user);
+          if (data.user.must_change_password) {
+            navigate('change-password');
+            return;
+          }
           return navigate(data.user.user_type === 'admin' ? 'home' : data.user.user_type === 'issuer' ? 'home' : 'holder');
         }
       }
@@ -2842,26 +2835,65 @@ function initForgotPasswordForm() {
       btn.disabled = true;
       btn.textContent = "Sending reset email...";
 
-      try {
-        await sendPasswordResetEmailWithFirebase(email);
-        console.log('Firebase password reset email sent to:', email);
-        errorEl.textContent = "Password reset email sent. Check your inbox and follow the link.";
-        errorEl.style.display = "block";
-        errorEl.style.color = "var(--success)";
-      } catch (firebaseErr) {
-        console.warn('Firebase password reset failed or unavailable:', firebaseErr?.message || firebaseErr);
-        errorEl.textContent = "Unable to send reset email. Check the email address and try again.";
-        errorEl.style.display = "block";
-        errorEl.style.color = "var(--text-primary)";
-      }
-
-      btn.disabled = false;
-      btn.textContent = "Send Reset Email";
+      const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Unable to send reset OTP');
+      pendingForgotEmail = email;
+      navigate('verify-reset-otp');
     } catch (err) {
-      errorEl.textContent = "Unable to send reset email. Please try again.";
+      errorEl.textContent = err.message || "Unable to send reset OTP. Please try again.";
       errorEl.style.display = "block";
       btn.disabled = false;
       btn.textContent = "Send Reset Email";
+    }
+  });
+}
+
+function initChangePasswordForm() {
+  const btn = document.getElementById("changePasswordBtn");
+  const passwordEl = document.getElementById("changePassword");
+  const confirmPasswordEl = document.getElementById("confirmChangePassword");
+  const errorEl = document.getElementById("changePasswordError");
+
+  if (!btn || btn.dataset.bound === "true") return;
+  btn.dataset.bound = "true";
+
+  btn.addEventListener("click", async () => {
+    const newPassword = passwordEl.value;
+    if (newPassword.length < 6 || newPassword === "password") {
+      errorEl.textContent = 'Password must be at least 6 characters and cannot be "password"';
+      errorEl.style.display = "block";
+      return;
+    }
+    if (newPassword !== confirmPasswordEl.value) {
+      errorEl.textContent = "Passwords do not match";
+      errorEl.style.display = "block";
+      return;
+    }
+
+    try {
+      btn.disabled = true;
+      btn.textContent = "Saving...";
+      const response = await fetch(`${API_BASE_URL}/auth/change-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAuthToken()}` },
+        body: JSON.stringify({ newPassword })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Unable to change password');
+
+      const user = { ...getStoredUser(), must_change_password: false };
+      saveAuthSession(getAuthToken(), user);
+      navigate(user.user_type === 'admin' || user.user_type === 'issuer' ? 'home' : 'holder');
+    } catch (err) {
+      errorEl.textContent = err.message || "Unable to change password";
+      errorEl.style.display = "block";
+      btn.disabled = false;
+      btn.textContent = "Save Password";
     }
   });
 }
@@ -2910,8 +2942,15 @@ function initVerifyResetOTPForm() {
       btn.disabled = true;
       btn.textContent = "Resetting...";
 
-      try {
-        await fetch(`${API_BASE_URL}/auth/reset-password`, {
+      const verifyResponse = await fetch(`${API_BASE_URL}/auth/verify-forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: pendingForgotEmail, otp })
+      });
+      const verifyData = await verifyResponse.json().catch(() => ({}));
+      if (!verifyResponse.ok) throw new Error(verifyData.error || 'Invalid or expired OTP');
+
+      const resetResponse = await fetch(`${API_BASE_URL}/auth/reset-password`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2919,8 +2958,9 @@ function initVerifyResetOTPForm() {
             newPassword,
             otp
           })
-        });
-      } catch {}
+      });
+      const resetData = await resetResponse.json().catch(() => ({}));
+      if (!resetResponse.ok) throw new Error(resetData.error || 'Unable to reset password');
 
       pendingForgotEmail = null;
       navigate('login');
@@ -3177,10 +3217,8 @@ function setApplyStep(step) {
 
 function submitApplyForm() {
   const name  = document.getElementById("contactName")?.value || "";
-  // prefer registered email when available
-  const registered = getStoredUser()?.email || null;
   const emailInput = document.getElementById("contactEmailInput");
-  const email = registered || (emailInput?.value || "");
+  const email = (emailInput?.value || "").trim();
   const volumeSelect = document.getElementById("volume");
   const volumeCustomInput = document.getElementById("volumeCustom");
   let volumeText = volumeSelect?.value || "";
@@ -3205,6 +3243,11 @@ function submitApplyForm() {
     wallet: document.getElementById("wallet")?.value.trim() || ""
   };
 
+  if (!name.trim() || !email || !email.includes('@')) {
+    alert('Enter your name and official company or department email.');
+    return;
+  }
+
   const headers = {
     'Content-Type': 'application/json'
   };
@@ -3218,22 +3261,23 @@ function submitApplyForm() {
   .then(async res => {
     const data = await res.json().catch(() => ({}));
     if (res.ok && (data.success || data.id || data.application)) {
+      const generatedEmail = data.application?.generated_email || generateCertiCheckEmail(name);
       const hidden = document.getElementById('contactEmail');
       if (hidden) hidden.value = email;
-      showSuccessMessage(name, email, volumeText);
+      showSuccessMessage(name, email, generatedEmail, volumeText);
       return;
     }
 
     console.error('Application submission failed:', data);
     saveApplicationLocally(applicationData);
     const hidden = document.getElementById('contactEmail'); if (hidden) hidden.value = email;
-    showSuccessMessage(name, email, volumeText);
+    showSuccessMessage(name, email, generateCertiCheckEmail(name), volumeText);
   })
   .catch(err => {
     console.error('Error submitting application:', err);
     saveApplicationLocally(applicationData);
     const hidden = document.getElementById('contactEmail'); if (hidden) hidden.value = email;
-    showSuccessMessage(name, email, volumeText);
+    showSuccessMessage(name, email, generateCertiCheckEmail(name), volumeText);
   });
 }
 
@@ -3266,16 +3310,29 @@ function clearPendingApplicationDraft() {
   try { localStorage.removeItem('certicheck_pending_application_draft'); } catch (e) {}
 }
 
-function showSuccessMessage(name, email, volumeText) {
+function generateCertiCheckEmail(name) {
+  const slug = String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '.')
+    .replace(/^\.|\.$/g, '');
+  return `${slug || 'applicant'}@certicheck.com`;
+}
+
+function showSuccessMessage(name, officialEmail, generatedEmail, volumeText) {
   navigate("apply");
   document.getElementById(`form-step-${applyStep}`)?.classList.remove("active");
   document.getElementById("form-step-success")?.classList.add("active");
   document.getElementById("formActions").style.display = "none";
 
   const msg = document.getElementById("successMsg");
+  const generatedEmailCard = document.getElementById("generatedEmailCard");
+  const generatedEmailValue = document.getElementById("generatedEmailValue");
+  if (generatedEmailValue) generatedEmailValue.textContent = generatedEmail || generateCertiCheckEmail(name);
+  if (generatedEmailCard) generatedEmailCard.hidden = false;
   if (msg) {
     // Replace previous success wording with a concise waiting state
-    msg.innerHTML = `<div style="font-weight:800;font-size:18px;color:var(--purple-mid);">WAITING FOR REVIEW</div>`;
+    msg.innerHTML = `<div style="font-weight:800;font-size:18px;color:var(--purple-mid);">WAITING FOR REVIEW</div><div style="margin-top:16px;text-align:left;background:var(--bg-subtle);padding:14px;border-radius:8px;"><strong>Official contact:</strong> ${officialEmail}</div>`;
   }
 
   // Mark all steps done
@@ -3328,19 +3385,5 @@ function renderResources() {
   `).join("");
 }
 
-/* ═══════════════════════════════════════════════
-   INIT
-═══════════════════════════════════════════════ */
-document.addEventListener("DOMContentLoaded", () => {
-  // Make sure home page is shown
-  document.getElementById("page-home").classList.add("active");
-  document.querySelector('[data-page="home"]')?.classList.add("active");
-  // Initialize auth UI from stored session
-  currentUser = getStoredUser();
-  updateAuthUi();
-  renderRoleLandingHome();
-  // Initialize theme and other UI bits
-  try { initTheme(); } catch (e) {}
-});
 
 

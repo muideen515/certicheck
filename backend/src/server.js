@@ -16,9 +16,11 @@ const certificateRoutes = require('./routes/certificates');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const HOST = '0.0.0.0';
 
 // ── MIDDLEWARE ─────────────────────────────────────────────────────────────
 const allowedOrigins = [
+  'https://certicheck-psi.vercel.app',
   'http://localhost:3000',
   'http://localhost:5000',
   'http://localhost:5500',
@@ -39,7 +41,9 @@ app.use(cors({
     if (/^https:\/\/[a-zA-Z0-9-]+\.(app\.github\.dev|githubpreview\.dev)(:\d+)?$/.test(origin)) return cb(null, true);
     return cb(new Error('Not allowed by CORS'));
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
@@ -199,9 +203,9 @@ async function startServer() {
       console.log('✓ Running in DEMO_MODE — skipping database initialization');
     }
 
-    app.listen(PORT, () => {
-      console.log(`✓ Certicheck backend running on http://localhost:${PORT}`);
-      console.log(`✓ Health check: http://localhost:${PORT}/health`);
+    app.listen(PORT, HOST, () => {
+      console.log(`✓ Certicheck backend running on http://${HOST}:${PORT}`);
+      console.log(`✓ Health check: http://${HOST}:${PORT}/health`);
     });
   } catch (err) {
     console.error('Failed to start backend:', err.message || err);

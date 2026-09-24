@@ -686,6 +686,18 @@ body.dark .btn-toggle:hover {
   padding: 22px 22px 18px;
 }
 
+.issuer-cid {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.issuer-cid span {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
 .issuer-topbar {
   display: flex;
   align-items: center;
@@ -1073,12 +1085,13 @@ body.dark .btn-toggle:hover {
 .hero-stats {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0;
   padding-top: 32px;
   border-top: 1px solid var(--border-light);
 }
 .stat { padding: 0 24px; }
-.stat:first-child { padding-left: 0; }
+.stat:first-child { padding-left: 24px; }
 .stat-val {
   font-family: var(--font-display);
   font-size: 22px;
@@ -1091,6 +1104,54 @@ body.dark .btn-toggle:hover {
   color: var(--text-muted);
   margin-top: 2px;
 }
+
+.hero-secondary-nav {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin: 28px auto 0;
+  width: min(100%, 320px);
+}
+
+.hero-secondary-nav .nav-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  width: 100%;
+  padding: 10px 17px;
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.hero-secondary-nav .nav-item:hover {
+  color: var(--text-primary);
+  border-color: var(--purple-mid);
+  background: var(--bg-subtle);
+  transform: translateY(-1px);
+}
+
+@media (max-width: 560px) {
+  .hero-secondary-nav {
+    gap: 8px;
+    padding: 0 8px;
+  }
+
+  .hero-secondary-nav .nav-item {
+    min-width: 0;
+  }
+}
+
 .stat-divider {
   width: 1px;
   height: 36px;
@@ -1616,6 +1677,32 @@ body.dark .btn-toggle:hover {
   font-size: 28px;
   color: var(--green);
   margin: 0 auto 24px;
+}
+
+.generated-email-card {
+  margin: 22px auto 0;
+  padding: 18px 20px;
+  border: 1px solid rgba(124, 58, 237, 0.22);
+  border-radius: 12px;
+  background: var(--purple-pale);
+  text-align: center;
+}
+
+.generated-email-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.generated-email-value {
+  margin-top: 6px;
+  color: var(--purple-mid);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 /* ═══════════════════════════════════════════════

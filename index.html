@@ -16,7 +16,6 @@
        NAVBAR
   ══════════════════════════════════════ -->
   <nav id="navbar">
-    
     <button class="nav-logo" data-page="home" aria-label="NebulaCert home">
       <svg width="34" height="34" viewBox="0 0 36 36" fill="none">
         <rect width="36" height="36" rx="8" fill="url(#logoGrad)"/>
@@ -32,18 +31,17 @@
       <span class="nav-brand">Certicheck</span>
     </button>
 
-      <button id="navToggle" class="btn-ghost" aria-label="Toggle menu" title="Menu" style="display:none;">☰</button>
-      <ul class="nav-links" role="list">
-      <li><button type="button" class="nav-item active" data-page="home">Home</button></li>
-      <li><button type="button" class="nav-item" data-page="faqs">FAQs</button></li>
-      <li><button type="button" class="nav-item" data-page="tps">TP/S</button></li>
-      <li><a class="nav-item external" href="https://github.com/" target="_blank" rel="noopener">
+    <div class="nav-links" aria-label="Explore Certicheck">
+      <button type="button" class="nav-item" data-page="faqs">FAQs</button>
+      <button type="button" class="nav-item" data-page="tps">TP/S</button>
+      <a class="nav-item external" href="https://github.com/" target="_blank" rel="noopener">
         View Open Source <span class="ext-icon">↗</span>
-      </a></li>
-      <li><button type="button" class="nav-item" data-page="resources">Resources</button></li>
-    </ul>
+      </a>
+      <button type="button" class="nav-item" data-page="resources">Resources</button>
+    </div>
 
-      <div class="nav-actions">
+    <div class="nav-actions">
+      <button id="navToggle" class="btn-ghost" aria-label="Toggle menu" title="Menu" style="display:none;">☰</button>
       <button id="themeToggle" class="btn-toggle" aria-label="Toggle dark mode" title="Switch to dark mode"></button>
       <button class="btn-ghost" data-page="login">Login</button>
     </div>
@@ -118,6 +116,7 @@
             <div class="stat-label">On-chain</div>
           </div>
         </div>
+
       </div>
 
           <!-- ══════════════════════════════════════
@@ -343,14 +342,7 @@
           <label class="field-label" for="signupLastName">Last Name</label>
           <input class="field-input" id="signupLastName" name="family-name" type="text" autocomplete="family-name" placeholder="Doe"/>
         </div>
-        <div class="field">
-          <label class="field-label" for="signupPassword">Password</label>
-          <input class="field-input" id="signupPassword" name="new-password" type="password" autocomplete="new-password" placeholder="••••••••"/>
-        </div>
-        <div class="field">
-          <label class="field-label" for="signupConfirmPassword">Confirm Password</label>
-          <input class="field-input" id="signupConfirmPassword" name="new-password" type="password" autocomplete="new-password" placeholder="••••••••"/>
-        </div>
+        <p style="font-size:13px;color:var(--text-secondary);margin:8px 0 16px;">Your initial password is set to <strong>password</strong>. You will be required to choose a new password after approval.</p>
         <div id="signupError" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
         <button class="btn-primary" id="signupBtn" style="width:100%">Send OTP</button>
         <p style="text-align:center;color:var(--text-secondary);margin-top:16px;font-size:13px">
@@ -477,6 +469,30 @@
   </div>
 
   <!-- ══════════════════════════════════════
+       PAGE: SET NEW PASSWORD
+  ══════════════════════════════════════ -->
+  <div id="page-change-password" class="page">
+    <div class="page-wrap" style="max-width:500px">
+      <div class="page-header">
+        <h1 class="page-title">Set a new password</h1>
+        <p class="page-desc">Choose a password before continuing to your dashboard.</p>
+      </div>
+      <div class="form-card">
+        <div class="field">
+          <label class="field-label" for="changePassword">New Password</label>
+          <input class="field-input" id="changePassword" type="password" autocomplete="new-password" placeholder="At least 6 characters"/>
+        </div>
+        <div class="field">
+          <label class="field-label" for="confirmChangePassword">Confirm Password</label>
+          <input class="field-input" id="confirmChangePassword" type="password" autocomplete="new-password" placeholder="Repeat your new password"/>
+        </div>
+        <div id="changePasswordError" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
+        <button class="btn-primary" id="changePasswordBtn" style="width:100%">Save Password</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
        PAGE: APPLY
   ══════════════════════════════════════ -->
   <div id="page-apply" class="page">
@@ -529,13 +545,13 @@
             <input class="field-input" id="contactName" placeholder="Jane Doe" type="text"/>
           </div>
           <div class="field">
-            <label class="field-label" for="contactEmail">Contact Email</label>
+            <label class="field-label" for="contactEmail">Official Company / Department Email</label>
             <div id="contactEmailWrapper">
-              <input class="field-input" id="contactEmailInput" placeholder="jane@organisation.com" type="email" autocomplete="email"/>
+              <input class="field-input" id="contactEmailInput" placeholder="jane@organisation.com" type="email" autocomplete="email" required/>
               <div id="contactEmailDisplay" style="display:none;padding:10px 12px;border-radius:8px;background:var(--bg-subtle);color:var(--text-primary);"></div>
               <input type="hidden" id="contactEmail" />
             </div>
-            <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;">Hint: we'll use the email you registered with if available.</div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;">Use an official email for your company, institution, or department. CertiCheck will generate your platform email after submission.</div>
           </div>
           <div class="field">
             <label class="field-label" for="contactRole">Role / Title</label>
@@ -577,6 +593,10 @@
           <div class="success-icon">✓</div>
           <h2 class="font-display" style="font-size:28px;font-weight:800;margin-bottom:12px;color:var(--text-primary)">Application Received</h2>
           <p style="color:var(--text-secondary);line-height:1.8" id="successMsg">Our team will review your application and be in touch within 1–3 business days.</p>
+          <div id="generatedEmailCard" class="generated-email-card" hidden>
+            <div class="generated-email-label">Your CertiCheck email</div>
+            <div id="generatedEmailValue" class="generated-email-value"></div>
+          </div>
         </div>
 
         <div class="form-actions" id="formActions">

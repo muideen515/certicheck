@@ -1,21 +1,7 @@
 "use strict";
 
-const API_BASE_URL = (function() {
-  try {
-    const host = window.location.hostname;
-    const port = window.location.port;
-    if (host === '127.0.0.1' || host === 'localhost') {
-      if (port && port !== '5000') return 'http://127.0.0.1:5000/api';
-    }
-    if (host.includes('.app.github.dev') || host.includes('.githubpreview.dev')) {
-      const backendHost = host.replace(/-5500\./, '-5000.').replace(/-3000\./, '-5000.');
-      return `https://${backendHost}/api`;
-    }
-  } catch (e) {
-    return 'http://127.0.0.1:5000/api';
-  }
-  return `${window.location.origin}/api`;
-})();
+const API_BASE_URL = "https://certicheck-backend-8hu3.onrender.com";
+const apiFetch = (url, options = {}) => fetch(url, { ...options, credentials: "include" });
 const ADMIN_SESSION_KEY = "certicheck_admin_logged_in";
 const ADMIN_TOKEN_KEY = "certicheck_admin_token";
 const ADMIN_USER_KEY = "certicheck_admin_user";
@@ -171,7 +157,7 @@ function getAuthHeaders(body = null) {
 }
 
 async function requestJson(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await apiFetch(`${API_BASE_URL}/api${path}`, {
     ...options,
     headers: {
       ...getAuthHeaders(options.body),
