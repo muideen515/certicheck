@@ -3326,9 +3326,13 @@ function showSuccessMessage(name, officialEmail, generatedEmail, volumeText) {
   document.getElementById("formActions").style.display = "none";
 
   const msg = document.getElementById("successMsg");
+  const generatedEmailCard = document.getElementById("generatedEmailCard");
+  const generatedEmailValue = document.getElementById("generatedEmailValue");
+  if (generatedEmailValue) generatedEmailValue.textContent = generatedEmail || generateCertiCheckEmail(name);
+  if (generatedEmailCard) generatedEmailCard.hidden = false;
   if (msg) {
     // Replace previous success wording with a concise waiting state
-    msg.innerHTML = `<div style="font-weight:800;font-size:18px;color:var(--purple-mid);">WAITING FOR REVIEW</div><div style="margin-top:16px;text-align:left;background:var(--bg-subtle);padding:14px;border-radius:8px;"><strong>Official contact:</strong> ${officialEmail}<br/><strong>Your CertiCheck email:</strong> ${generatedEmail}</div>`;
+    msg.innerHTML = `<div style="font-weight:800;font-size:18px;color:var(--purple-mid);">WAITING FOR REVIEW</div><div style="margin-top:16px;text-align:left;background:var(--bg-subtle);padding:14px;border-radius:8px;"><strong>Official contact:</strong> ${officialEmail}</div>`;
   }
 
   // Mark all steps done

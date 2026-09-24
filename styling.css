@@ -1679,6 +1679,32 @@ body.dark .btn-toggle:hover {
   margin: 0 auto 24px;
 }
 
+.generated-email-card {
+  margin: 22px auto 0;
+  padding: 18px 20px;
+  border: 1px solid rgba(124, 58, 237, 0.22);
+  border-radius: 12px;
+  background: var(--purple-pale);
+  text-align: center;
+}
+
+.generated-email-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.generated-email-value {
+  margin-top: 6px;
+  color: var(--purple-mid);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 /* ═══════════════════════════════════════════════
    TEST / VERIFY
 ═══════════════════════════════════════════════ */
