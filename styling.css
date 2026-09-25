@@ -1081,6 +1081,16 @@ body.dark .btn-toggle:hover {
 .hero-ctas .entry-card { flex: 0 0 auto; min-width: 140px; max-width: 360px; }
 .hero-ctas .entry-actions { display:flex; justify-content: flex-start; }
 .hero-ctas .entry-actions button { width: auto; min-width: 140px; max-width: 260px; padding: 10px 14px; border-radius: 12px; }
+.hero-entry-points .btn-outline {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+  font-weight: 600;
+}
+.hero-entry-points .btn-outline:hover {
+  color: var(--text-primary);
+  border-color: var(--text-primary);
+  background: var(--bg-tint);
+}
 
 .hero-stats {
   display: flex;
@@ -1167,6 +1177,8 @@ body.dark .btn-toggle:hover {
   width: 56%;
   height: 100%;
   perspective: 900px;
+  z-index: 1;
+  opacity: 0.3;
   pointer-events: none;
 }
 
@@ -1893,7 +1905,7 @@ body.dark .btn-toggle:hover {
   #navbar { padding: 0 24px; }
   .nav-links { display: none; }
   .hero { padding: 90px 28px 60px; }
-  .hero-visual { opacity: 0.25; }
+  .hero-visual { opacity: 0.18; transform: scale(0.82); transform-origin: top right; }
   .page-wrap { padding: 90px 28px 60px; }
   .tps-grid { grid-template-columns: 1fr 1fr; }
   .tps-main-card { grid-column: span 2; }
@@ -1978,7 +1990,8 @@ body.dark .btn-toggle:hover {
     max-width: 100%;
     font-size: clamp(30px, 9vw, 46px);
     letter-spacing: 0;
-    overflow-wrap: normal;
+    overflow-wrap: break-word;
+    text-wrap: balance;
   }
 
   .hero-ctas,
