@@ -597,7 +597,7 @@ async function revokeCertificateWithPhantomWallet(certificateId, reason, issuerW
   const [certificatePda] = await PublicKey.findProgramAddress([Buffer.from('certificate'), issuerPda.toBuffer(), Buffer.from(certificateId)], program.programId);
 
   const signature = await program.methods
-    .revokeCertificate(reason || 'Revoked by issuer')
+    .revokeCertificate()
     .accounts({
       certificate: certificatePda,
       issuer: issuerPda,

@@ -61,7 +61,7 @@ describe("certificate_system tests", () => {
     const certAccount: any = await program.account.certificateAccount.fetch(certificatePda);
     assert.strictEqual(certAccount.certId, certId);
     assert.strictEqual(certAccount.holderName, holderName);
-    assert.strictEqual(certAccount.isRevoked, false);
+    assert.strictEqual(certAccount.status, 0);
   });
 
   it("Rejects issuance by unauthorized wallet", async () => {
@@ -115,7 +115,7 @@ describe("certificate_system tests", () => {
 
     // Revoke
     await program.methods
-      .revokeCertificate("Test revoke reason")
+      .revokeCertificate()
       .accounts({
         certificate: certificatePda,
         issuer: issuerPda,
@@ -124,8 +124,8 @@ describe("certificate_system tests", () => {
       .rpc();
 
     const certAccount: any = await program.account.certificateAccount.fetch(certificatePda);
-    assert.strictEqual(certAccount.isRevoked, true);
-    assert.strictEqual(certAccount.revokeReason, "Test revoke reason");
+    assert.strictEqual(certAccount.status, 1);
+    assert.ok(Number(certAccount.revokedAt) > 0);
   });
 
   it("Derives PDAs correctly and can fetch issuer account for verification", async () => {
@@ -260,14 +260,13 @@ describe('certificate_system', () => {
     assert.equal(certAccount.certType, certType);
     assert.equal(certAccount.metadataUri, metadataUri);
     assert.equal(certAccount.metadataHash, metadataHash);
-    assert.equal(certAccount.isRevoked, false);
-    assert.isNull(certAccount.revokedAt);
+    assert.equal(certAccount.status, 0);
+    assert.equal(Number(certAccount.revokedAt), 0);
   });
 
   it('revokes the certificate and updates status', async () => {
-    const reason = 'Credential revoked for testing';
     const tx = await program.methods
-      .revokeCertificate(reason)
+      .revokeCertificate()
       .accounts({
         certificate: certificatePda,
         issuer: issuerPda,
@@ -279,9 +278,8 @@ describe('certificate_system', () => {
     assert.ok(tx);
 
     const certAccount = await program.account.certificateAccount.fetch(certificatePda) as any;
-    assert.equal(certAccount.isRevoked, true);
-    assert.equal(certAccount.revokeReason, reason);
-    assert.isNotNull(certAccount.revokedAt);
+    assert.equal(certAccount.status, 1);
+    assert.ok(Number(certAccount.revokedAt) > 0);
   });
 
   it('derives PDA correctly and fetches account for verification', async () => {

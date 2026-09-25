@@ -173,12 +173,13 @@ function normalizeOnChainCertificate(cert) {
     holder_name: cert.holderName,
     cert_type: cert.certType,
     metadata_uri: cert.metadataUri,
-    is_revoked: Boolean(cert.isRevoked),
+    is_revoked: Number(cert.status || 0) === 1,
+    status: Number(cert.status || 0),
     revoke_reason: cert.revokeReason,
     issued_at: Number(cert.issuedAt),
-    revoked_at: cert.revokedAt ? Number(cert.revokedAt) : null,
+    revoked_at: Number(cert.revokedAt || 0),
     on_chain: true,
-    verification_status: cert.isRevoked ? 'revoked' : 'valid'
+    verification_status: Number(cert.status || 0) === 1 ? 'revoked' : 'valid'
   };
 }
 
@@ -233,7 +234,7 @@ async function issueCertificateOnChain({ certificateId, ipfsCid, certificateType
   return sig;
 }
 
-async function revokeCertificateOnChain({ certificateId, reason, issuerWallet }) {
+async function revokeCertificateOnChain({ certificateId, issuerWallet }) {
   const { PublicKey } = getWeb3();
   const payer = loadPayerKeypair();
   if (!payer) {
@@ -256,7 +257,7 @@ async function revokeCertificateOnChain({ certificateId, reason, issuerWallet })
   );
 
   const sig = await program.methods
-    .revokeCertificate(reason || '')
+    .revokeCertificate()
     .accounts({
       certificate: certificatePda,
       issuer: issuerPda,
