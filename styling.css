@@ -469,40 +469,36 @@ body.dark .btn-ghost:hover {
 
 .btn-toggle {
   position: relative;
-  width: 48px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
   padding: 0;
-  border-radius: 999px;
-  border: 1px solid var(--border-light);
-  background: rgba(15, 23, 42, 0.92);
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
   cursor: pointer;
-  transition: background 0.25s ease, border-color 0.25s ease;
+  transition: background 0.25s ease;
 }
 .btn-toggle::before {
   content: "";
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 20px;
-  height: 20px;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: #fff;
-  transition: transform 0.25s ease, background 0.25s ease;
+  background: #1e1b4b;
+  transform: translate(-50%, -50%);
+  transition: background 0.25s ease;
 }
 .btn-toggle:hover {
-  background: rgba(15, 23, 42, 1);
-  border-color: rgba(255,255,255,0.35);
+  background: rgba(127, 127, 127, 0.12);
 }
 body.dark .btn-toggle {
-  background: rgba(255,255,255,0.18);
-  border-color: rgba(255, 255, 255, 0.35);
+  background: transparent;
 }
 body.dark .btn-toggle::before {
-  transform: translateX(22px);
-  background: #111;
-}
-body.dark .btn-toggle:hover {
-  background: rgba(255,255,255,0.24);
+  background: #fff;
 }
 
 .cta-arrow {
@@ -1000,10 +996,9 @@ body.dark .btn-toggle:hover {
 ═══════════════════════════════════════════════ */
 .hero {
   position: relative;
-  min-height: 100vh;
   display: flex;
   align-items: center;
-  padding: 100px 56px 60px;
+  padding: 100px 56px 80px;
   overflow: hidden;
   background: var(--hero-bg);
 }
@@ -1093,26 +1088,28 @@ body.dark .btn-toggle:hover {
 }
 
 .hero-stats {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
   justify-content: center;
-  gap: 0;
+  gap: 24px;
   padding-top: 32px;
   border-top: 1px solid var(--border-light);
 }
-.stat { padding: 0 24px; }
-.stat:first-child { padding-left: 24px; }
+.stat { min-width: 0; text-align: center; }
 .stat-val {
   font-family: var(--font-display);
   font-size: 22px;
   font-weight: 800;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 .stat-label {
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 2px;
+  line-height: 1.35;
 }
 
 .hero-secondary-nav {
@@ -1240,7 +1237,7 @@ body.dark .btn-toggle:hover {
 
 .scroll-hint {
   position: absolute;
-  bottom: 32px;
+  bottom: 10px;
   right: 44px;
   z-index: 5;
   width: 46px;
@@ -1261,7 +1258,7 @@ body.dark .btn-toggle:hover {
 .features {
   background: var(--bg-subtle);
   border-top: 1px solid var(--border-light);
-  padding: 72px 56px;
+  padding: 48px 56px 72px;
 }
 .features-inner {
   max-width: 960px;
@@ -1915,16 +1912,14 @@ body.dark .btn-toggle:hover {
 @media (max-width: 900px) {
   #navbar { padding: 0 24px; }
   .nav-links { display: none; }
-  .hero { padding: 90px 28px 60px; }
+  .hero { padding: 90px 28px 80px; }
   .hero-visual { opacity: 0.18; transform: scale(0.82); transform-origin: top right; }
   .page-wrap { padding: 90px 28px 60px; }
   .tps-grid { grid-template-columns: 1fr 1fr; }
   .tps-main-card { grid-column: span 2; }
   .info-strip { grid-template-columns: 1fr 1fr; }
   .features-inner { grid-template-columns: 1fr 1fr; }
-  .hero-stats { flex-wrap: wrap; gap: 16px; }
-  .stat-divider { display: none; }
-  .stat { padding: 0; }
+  .hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; }
   /* Make hero CTAs stack and be touch-friendly on small screens */
   .hero-ctas { flex-direction: column; gap: 12px; margin-bottom: 28px; }
   .hero-ctas .entry-actions { width: 100%; }
@@ -1985,7 +1980,7 @@ body.dark .btn-toggle:hover {
   }
 
   .hero {
-    padding: 90px 18px 42px;
+    padding: 90px 18px 80px;
   }
 
   .hero-grid-bg {
@@ -2006,8 +2001,7 @@ body.dark .btn-toggle:hover {
   }
 
   .hero-ctas,
-  .hero-entry-points,
-  .hero-stats {
+  .hero-entry-points {
     grid-template-columns: 1fr;
     flex-direction: column;
   }
