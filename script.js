@@ -109,15 +109,32 @@ function bindPreviewLinks() {
   if (adminLink) adminLink.href = `${base}/admin.html`;
 }
 
+  const iconPaths = {
+    fileText: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/>',
+    zap: '<path d="m13 2-3 8h7l-6 12 1-9H5l8-11Z"/>',
+    shield: '<path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/><path d="m9 12 2 2 4-4"/>',
+    package: '<path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 8 9 5 9-5M3 8v9l9 5 9-5V8M12 13v9"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+    cap: '<path d="m2 10 10-5 10 5-10 5-10-5Z"/><path d="M6 12v5c3.5 3 8.5 3 12 0v-5M22 10v6"/>',
+    vote: '<path d="M9 12 11 14 15 10M5 7h1M5 12h1M5 17h1M9 7h10M9 17h10"/><path d="M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/>',
+    message: '<path d="M21 11.5a8.5 8.5 0 0 1-12.9 7.3L3 20l1.2-4.4A8.5 8.5 0 1 1 21 11.5Z"/><path d="M8 11h.01M12 11h.01M16 11h.01"/>',
+    image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
+    paperclip: '<path d="m21.4 11.1-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/>'
+  };
+
+  function iconSvg(name) {
+    return `<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true">${iconPaths[name] || iconPaths.fileText}</svg>`;
+  }
+
   const RESOURCES_DATA = [
-  { icon: "📄", title: "Documentation",         desc: "Full API reference, SDK docs, and integration guides.",             tag: "Docs", href: "quickstart.html#documentation" },
-  { icon: "⚡", title: "Quick Start Guide",      desc: "Issue your first certificate on Solana devnet in under 5 minutes.", tag: "Guide", href: "quickstart.html" },
-  { icon: "🔐", title: "Security Audit",         desc: "Read the independent smart-contract audit report.",                 tag: "Security" },
-  { icon: "🧩", title: "TypeScript SDK",          desc: "npm install @nebulacert/sdk — type-safe certificate API.",          tag: "SDK" },
-  { icon: "🔗", title: "REST API Reference",     desc: "OpenAPI spec, endpoints, auth, and rate limits.",                   tag: "API" },
-  { icon: "🎓", title: "Example Integrations",   desc: "Next.js, Express, and Django starter templates.",                   tag: "Examples" },
-  { icon: "🗳️", title: "Governance",             desc: "How protocol upgrades are proposed and voted on-chain.",            tag: "DAO" },
-  { icon: "💬", title: "Community Discord",       desc: "Get help, share feedback, and connect with other builders.",        tag: "Community" },
+  { icon: "fileText", title: "Documentation",         desc: "Full API reference, SDK docs, and integration guides.",             tag: "Docs", href: "quickstart.html#documentation" },
+  { icon: "zap", title: "Quick Start Guide",      desc: "Issue your first certificate on Solana devnet in under 5 minutes.", tag: "Guide", href: "quickstart.html" },
+  { icon: "shield", title: "Security Audit",         desc: "Read the independent smart-contract audit report.",                 tag: "Security" },
+  { icon: "package", title: "TypeScript SDK",          desc: "npm install @nebulacert/sdk — type-safe certificate API.",          tag: "SDK" },
+  { icon: "link", title: "REST API Reference",     desc: "OpenAPI spec, endpoints, auth, and rate limits.",                   tag: "API" },
+  { icon: "cap", title: "Example Integrations",   desc: "Next.js, Express, and Django starter templates.",                   tag: "Examples" },
+  { icon: "vote", title: "Governance",             desc: "How protocol upgrades are proposed and voted on-chain.",            tag: "DAO" },
+  { icon: "message", title: "Community Discord",       desc: "Get help, share feedback, and connect with other builders.",       tag: "Community" },
 ];
 
 /* ═══════════════════════════════════════════════
@@ -933,8 +950,8 @@ function renderCertificateDetailFields(certificateType) {
         return;
       }
       preview.style.display = 'block';
-      const icon = file.type.startsWith('image/') ? '🖼️' : file.type.includes('pdf') ? '📄' : '📎';
-      preview.innerHTML = `<strong>${icon} Attached file:</strong> ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+      const icon = file.type.startsWith('image/') ? 'image' : file.type.includes('pdf') ? 'fileText' : 'paperclip';
+      preview.innerHTML = `<strong>${iconSvg(icon)} Attached file:</strong> ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
     });
   }
 }
@@ -3376,7 +3393,7 @@ function renderResources() {
   grid.innerHTML = RESOURCES_DATA.map((r, i) => `
     <div class="resource-card" style="animation-delay:${i * 0.06}s">
       <div class="resource-card-top">
-        <div class="resource-icon-wrap">${r.icon}</div>
+        <div class="resource-icon-wrap">${iconSvg(r.icon)}</div>
         <span class="resource-tag">${r.tag}</span>
       </div>
       <div class="resource-title">${r.href ? `<a href="${r.href}" style="color:inherit;text-decoration:none">${r.title}</a>` : r.title}</div>

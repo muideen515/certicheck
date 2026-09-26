@@ -1300,7 +1300,6 @@ body.dark .btn-toggle:hover {
   pointer-events: none;
 }
 .feature-icon {
-  font-size: 34px;
   width: 64px;
   height: 64px;
   background: linear-gradient(135deg, rgba(124, 58, 237, 0.18), rgba(59, 130, 246, 0.12));
@@ -1311,6 +1310,17 @@ body.dark .btn-toggle:hover {
   margin-bottom: 20px;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.4);
 }
+.ui-icon {
+  display: block;
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.feature-icon .ui-icon { width: 30px; height: 30px; }
 .feature-card h3 {
   font-family: var(--font-display);
   font-size: 18px;
@@ -1839,10 +1849,11 @@ body.dark .btn-toggle:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
   color: var(--purple);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35);
 }
+.resource-icon-wrap .ui-icon { width: 25px; height: 25px; }
+#issuerCertificatePreview .ui-icon { display: inline-block; width: 16px; height: 16px; vertical-align: -3px; margin-right: 4px; }
 .resource-tag {
   font-size: 11px;
   font-weight: 700;
