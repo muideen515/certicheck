@@ -666,7 +666,7 @@ function renderAdminDashboard() {
     return;
   }
 
-  list.innerHTML = toolbar + reviewItems.map(item => {
+  list.innerHTML = toolbar + `<div class="admin-review-list" role="region" aria-label="Activity entries" tabindex="0">` + reviewItems.map(item => {
     const applicantEmail = item.contact_email || '';
     const applicantName = item.organization_name || 'Applicant';
     return `
@@ -693,7 +693,7 @@ function renderAdminDashboard() {
         </div>
       </div>
     `;
-  }).join('');
+  }).join('') + `</div>`;
 
   bindAdminReviewControls();
 

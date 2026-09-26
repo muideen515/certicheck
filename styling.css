@@ -148,10 +148,29 @@ input, select, textarea { font-family: inherit; }
 
 .admin-main-grid { grid-template-columns: minmax(0, 1.8fr) minmax(250px, 0.7fr); gap: 24px; }
 .admin-main-grid .form-card { border-radius:18px; min-height: 640px; }
+.admin-main-grid #adminDashboard { min-height: 0; }
 .admin-secondary .form-card { position:relative; min-height: 220px; }
 .quick-actions .btn-outline { width:100%; text-align:left; padding:12px 14px; border-radius:12px; font-weight:700; }
 .profile-card .btn-primary, .profile-card .btn-ghost { width:100%; }
 .admin-list-card { background: var(--bg-card); border:1px solid var(--border); border-radius:16px; padding:18px; box-shadow: var(--shadow-sm); margin-bottom:14px; }
+.admin-review-list {
+  max-height: min(48vh, 440px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+.admin-review-list:focus-visible { outline: 2px solid var(--purple-mid); outline-offset: 2px; }
+.admin-review-list .admin-list-card {
+  margin: 0;
+  padding: 14px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--border-light);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.admin-review-list .admin-list-card:last-child { border-bottom: 0; }
 .admin-status-pill { padding:7px 10px; border-radius:999px; font-size:11px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; }
 .admin-status-pill.warning { background: var(--amber-pale); color: var(--amber); }
 .admin-status-pill.success { background: var(--green-pale); color: var(--green); }
