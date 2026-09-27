@@ -87,6 +87,7 @@ class OTP {
       console.warn('DB OTP verify fallback to memory store:', err.message);
       const key = `${normalizedEmail}:${otpType}`;
       const rec = this.memStore.get(key);
+      if (rec && rec.attempts >= rec.max_attempts) return null;
       if (rec && !rec.is_verified && rec.otp_code === cleanCode && new Date(rec.expires_at) > new Date()) {
         rec.is_verified = true;
         rec.verified_at = new Date();
@@ -114,13 +115,13 @@ class OTP {
     }
   }
 
-  // Check if OTP is verified for this email within 30 minutes
+  // A verified OTP is usable only until its original 10-minute expiry.
   static async isVerified(email, otpType = 'signup') {
     const normalizedEmail = this.normalizeEmail(email);
     try {
       const result = await pool.query(
         `SELECT * FROM otp_verification 
-         WHERE email = $1 AND otp_type = $2 AND is_verified = true AND verified_at IS NOT NULL
+         WHERE email = $1 AND otp_type = $2 AND is_verified = true AND verified_at IS NOT NULL AND expires_at > NOW()
          ORDER BY verified_at DESC LIMIT 1`,
         [normalizedEmail, otpType]
       );
@@ -129,12 +130,12 @@ class OTP {
 
       const otp = result.rows[0];
       const verifiedTime = new Date(otp.verified_at).getTime();
-      return (Date.now() - verifiedTime) < 30 * 60 * 1000;
+      return (Date.now() - verifiedTime) < 10 * 60 * 1000 && new Date(otp.expires_at) > new Date();
     } catch (err) {
       const key = `${normalizedEmail}:${otpType}`;
       const rec = this.memStore.get(key);
       if (rec && rec.is_verified && rec.verified_at) {
-        return (Date.now() - new Date(rec.verified_at).getTime()) < 30 * 60 * 1000;
+        return (Date.now() - new Date(rec.verified_at).getTime()) < 10 * 60 * 1000 && new Date(rec.expires_at) > new Date();
       }
       return false;
     }

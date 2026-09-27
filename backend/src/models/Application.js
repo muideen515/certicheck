@@ -150,6 +150,21 @@ class Application {
     return result.rows;
   }
 
+  static async findApplicationByEmail(email) {
+    if (process.env.DEMO_MODE === 'true') {
+      return demoAppStore.findApplicationByEmail(email);
+    }
+
+    const result = await pool.query(
+      `SELECT status FROM pending_applications
+       WHERE LOWER(contact_email) = LOWER($1) OR LOWER(generated_email) = LOWER($1)
+       ORDER BY submitted_at DESC NULLS LAST
+       LIMIT 1`,
+      [String(email || '').trim()]
+    );
+    return result.rows[0] || null;
+  }
+
   static async countByStatus(status) {
     if (process.env.DEMO_MODE === 'true') {
       return demoAppStore.countByStatus(status);

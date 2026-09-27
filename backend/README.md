@@ -45,6 +45,12 @@ DB_NAME=certicheck
 JWT_SECRET=your_secret_key_here
 JWT_EXPIRE=7d
 ADMIN_EMAIL=admin@certicheck.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=noreply@certicheck.com
+SMTP_PASS=your-smtp-app-password
+EMAIL_FROM=CertiCheck <noreply@certicheck.com>
 
 # IPFS / Pinata
 PINATA_JWT=
@@ -59,6 +65,8 @@ CERTIFICATE_PROGRAM_ID=
 ```
 
 On first authentication, the backend seeds three admin accounts: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. Their default password is `password`; change it before exposing a deployment publicly.
+
+For password-reset OTP delivery, use a real SMTP mailbox on `@certicheck.com`, replace the SMTP placeholders with credentials stored as deployment secrets, and configure the mail provider's SPF/DKIM records for the domain. In production the API returns an error when SMTP is not configured; development mode logs OTPs to the backend console instead of sending email.
 
 Without `PINATA_JWT`, metadata pinning uses the documented local/demo fallback and no real Pinata CID should be claimed. Without `SOLANA_ENABLE=true`, `SOLANA_KEYPAIR_PATH` or `SOLANA_PAYER_SECRET`, and a deployed `CERTIFICATE_PROGRAM_ID`, on-chain issuance is disabled and the Solana test is skipped.
 

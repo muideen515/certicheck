@@ -33,9 +33,17 @@ DB_PASSWORD=yourpassword
 DB_NAME=certicheck
 JWT_SECRET=your_secret_here
 ADMIN_EMAIL=admin@certicheck.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=noreply@certicheck.com
+SMTP_PASS=your-smtp-app-password
+EMAIL_FROM=CertiCheck <noreply@certicheck.com>
 ```
 
 The backend seeds three admin logins on first authentication: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. All use the default password `password`.
+
+For real password-reset emails, configure SMTP with credentials from a verified `@certicheck.com` mailbox. Keep `SMTP_PASS` in your local `.env` or deployment secret store, never in source control. Configure SPF/DKIM with your provider; without SMTP, development mode prints the OTP to the backend console.
 
 ## 4. Initialize the database schema
 

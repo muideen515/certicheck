@@ -28,7 +28,7 @@ class EmailService {
     const emailPassword = String(process.env.EMAIL_PASSWORD || '').replace(/\s+/g, '');
 
     // 1. Custom SMTP configuration
-    if (process.env.SMTP_HOST && process.env.SMTP_USER) {
+    if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
       console.log(`✓ EmailService: Using custom SMTP (${process.env.SMTP_HOST}:${process.env.SMTP_PORT || 587})`);
       this.transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
@@ -55,7 +55,11 @@ class EmailService {
       return;
     }
 
-    // 3. Development mode - log prominently to console
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Email delivery is not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASS.');
+    }
+
+    // Development mode - log prominently to console
     console.log('ℹ EmailService: No live SMTP credentials found; running in development console mode.');
     this.transporter = {
       sendMail: async (options) => {

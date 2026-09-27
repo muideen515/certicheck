@@ -2,6 +2,7 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const pool = require('../db/connection');
 const User = require('../models/User');
+const Application = require('../models/Application');
 const OTP = require('../models/OTP');
 const EmailService = require('../services/emailService');
 const { logAudit, verifyToken } = require('../middleware/auth');
@@ -61,6 +62,31 @@ function buildAuthIdentity(user) {
     last_name: lastName,
     user_type: userType
   };
+}
+
+function getLoginApplicationNotice(application) {
+  if (application?.status === 'pending') {
+    return {
+      status: 403,
+      code: 'APPLICATION_PENDING',
+      error: 'Your application has not been approved yet. Please check again later. If you believe it should already be approved, contact us through the website.'
+    };
+  }
+  if (application?.status === 'rejected') {
+    return {
+      status: 403,
+      code: 'APPLICATION_REJECTED',
+      error: 'Your application was rejected. Please contact us through the website to lodge a complaint.'
+    };
+  }
+  if (application?.status === 'approved') {
+    return {
+      status: 403,
+      code: 'APPLICATION_APPROVED',
+      error: 'Your application is approved. Sign in with the Certicheck account email provided for your application, or contact us through the website for help.'
+    };
+  }
+  return null;
 }
 
 function validateNewPassword(password) {
@@ -318,8 +344,8 @@ router.post('/forgot-password', async (req, res) => {
   try {
     const email = normalizeEmail(req.body.email);
 
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
+    if (!email || !EmailService.isValidEmail(email) || !isCertiCheckEmail(email)) {
+      return res.status(400).json({ error: 'A valid @certicheck.com email is required' });
     }
 
     // Only users who completed the initial password change may use this flow.
@@ -361,8 +387,8 @@ router.post('/verify-forgot-password', async (req, res) => {
     const email = normalizeEmail(req.body.email);
     const otp = req.body.otp;
 
-    if (!email || !otp) {
-      return res.status(400).json({ error: 'Email and OTP required' });
+    if (!email || !otp || !EmailService.isValidEmail(email) || !isCertiCheckEmail(email)) {
+      return res.status(400).json({ error: 'A valid @certicheck.com email and OTP are required' });
     }
 
     const verified = await OTP.verify(email, otp, 'forgot_password');
@@ -388,8 +414,8 @@ router.post('/reset-password', async (req, res) => {
     const email = normalizeEmail(req.body.email);
     const { newPassword, otp } = req.body;
 
-    if (!email || !newPassword) {
-      return res.status(400).json({ error: 'Email and new password required' });
+    if (!email || !newPassword || !EmailService.isValidEmail(email) || !isCertiCheckEmail(email)) {
+      return res.status(400).json({ error: 'A valid @certicheck.com email and new password are required' });
     }
 
     // Verify OTP
@@ -413,6 +439,7 @@ router.post('/reset-password', async (req, res) => {
 
     // Update password
     await User.updatePassword(email, newPassword);
+    await OTP.consume(email, 'forgot_password');
     
     await logAudit(user.id, 'PASSWORD_CHANGE', 'user', user.id, 'success');
 
@@ -461,11 +488,34 @@ router.post('/login', async (req, res) => {
     const user = await User.verifyPassword(email, password);
     
     if (!user) {
+      const registeredUser = await User.findByEmail(email);
+      if (!registeredUser) {
+        const application = await Application.findApplicationByEmail(email);
+        const applicationNotice = getLoginApplicationNotice(application);
+        if (applicationNotice) {
+          await logAudit(null, 'LOGIN', 'user', null, 'failed', applicationNotice.code);
+          return res.status(applicationNotice.status).json(applicationNotice);
+        }
+
+        await logAudit(null, 'LOGIN', 'user', null, 'failed', 'Email not registered');
+        return res.status(404).json({
+          code: 'EMAIL_NOT_REGISTERED',
+          error: 'We could not find an account or application for this email. Check the address or apply through the website first.'
+        });
+      }
+
       await logAudit(null, 'LOGIN', 'user', null, 'failed', 'Incorrect email or password');
       return res.status(401).json({ error: 'Incorrect email or password' });
     }
 
     if (!user.is_active) {
+      const application = await Application.findApplicationByEmail(email);
+      const applicationNotice = getLoginApplicationNotice(application);
+      if (applicationNotice) {
+        await logAudit(user.id, 'LOGIN', 'user', user.id, 'failed', applicationNotice.code);
+        return res.status(applicationNotice.status).json(applicationNotice);
+      }
+
       await logAudit(user.id, 'LOGIN', 'user', user.id, 'failed', 'Account inactive');
       return res.status(403).json({ error: 'Account is inactive' });
     }

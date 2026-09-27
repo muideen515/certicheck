@@ -1517,6 +1517,11 @@ function navigate(page) {
   document.querySelector(".page.active")?.classList.remove("active");
   document.querySelector(".nav-item.active")?.classList.remove("active");
 
+  const modal = document.getElementById('verificationModal');
+  if (modal && modal.classList.contains('show')) {
+    closeVerificationModal();
+  }
+
   // Activate new page
   const el = document.getElementById(`page-${page}`);
   if (el) { el.classList.add("active"); currentPage = page; }
@@ -1550,12 +1555,145 @@ function initAuthPageForms(page) {
   if (page === "change-password") initChangePasswordForm();
 }
 
+function getVerificationModalState(response, fallbackId = 'Certificate') {
+  const certificate = response?.certificate || {};
+  const rawStatus = String(certificate.verification_status || certificate.status || response?.status || 'not_found').toLowerCase();
+
+  if (rawStatus === 'valid') {
+    return {
+      state: 'valid',
+      label: 'VALID',
+      title: 'VALID',
+      message: 'This certificate is authentic and has not been revoked.',
+      accent: '#10b981',
+      softClass: 'verification-modal-valid',
+      detail: {
+        id: certificate.certificate_id || certificate.certificateId || fallbackId,
+        holder: certificate.holderName || certificate.holder || certificate.holder_name || certificate.holderEmail || '—',
+        issuer: certificate.issuerName || certificate.issuer || certificate.issuer_name || certificate.issuer_wallet || 'Unknown issuer',
+        issued: certificate.checked_at || certificate.verifiedAt || certificate.issued_at || new Date().toISOString(),
+        status: 'Valid',
+        revokedAt: certificate.revoked_at || null
+      }
+    };
+  }
+
+  if (rawStatus === 'revoked') {
+    return {
+      state: 'revoked',
+      label: 'REVOKED',
+      title: 'REVOKED',
+      message: 'This certificate was issued but has been revoked by the issuer.',
+      accent: '#f59e0b',
+      softClass: 'verification-modal-revoked',
+      detail: {
+        id: certificate.certificate_id || certificate.certificateId || fallbackId,
+        holder: certificate.holderName || certificate.holder || certificate.holder_name || certificate.holderEmail || '—',
+        issuer: certificate.issuerName || certificate.issuer || certificate.issuer_name || certificate.issuer_wallet || 'Unknown issuer',
+        issued: certificate.checked_at || certificate.verifiedAt || certificate.issued_at || new Date().toISOString(),
+        status: 'Revoked',
+        revokedAt: certificate.revoked_at || certificate.revokedAt || null
+      }
+    };
+  }
+
+  return {
+    state: 'not_found',
+    label: 'NOT FOUND',
+    title: 'NOT FOUND',
+    message: 'No certificate matches this ID. It may be invalid or never issued.',
+    accent: '#ef4444',
+    softClass: 'verification-modal-error',
+    detail: {
+      id: fallbackId,
+      holder: '—',
+      issuer: 'Unknown',
+      issued: '—',
+      status: 'Not found',
+      revokedAt: null
+    }
+  };
+}
+
+function closeVerificationModal() {
+  const modal = document.getElementById('verificationModal');
+  if (!modal) return;
+  modal.classList.remove('show');
+  modal.setAttribute('aria-hidden', 'true');
+  document.body.style.overflow = '';
+}
+
+function openVerificationModal(response, fallbackId = 'Certificate') {
+  const modal = document.getElementById('verificationModal');
+  if (!modal) return;
+
+  const state = getVerificationModalState(response, fallbackId);
+  const statusEl = document.getElementById('verificationModalStatus');
+  const textEl = document.getElementById('verificationModalMessage');
+  const metaEl = document.getElementById('verificationModalMeta');
+  const iconEl = document.getElementById('verificationModalIcon');
+  const primaryBtn = document.getElementById('verificationModalPrimary');
+  const secondaryBtn = document.getElementById('verificationModalSecondary');
+
+  if (!statusEl || !textEl || !metaEl || !iconEl || !primaryBtn || !secondaryBtn) return;
+
+  modal.dataset.state = state.state;
+  modal.classList.remove('verification-modal-valid', 'verification-modal-revoked', 'verification-modal-error');
+  modal.classList.add(state.softClass);
+  modal.setAttribute('aria-hidden', 'false');
+
+  statusEl.textContent = state.title;
+  textEl.textContent = state.message;
+
+  if (state.state === 'valid') {
+    iconEl.innerHTML = '<svg viewBox="0 0 64 64" aria-hidden="true"><circle class="verification-ring" cx="32" cy="32" r="24"></circle><path class="verification-check" d="M18 33l9 9 19-22"></path></svg>';
+    secondaryBtn.style.display = 'inline-flex';
+    secondaryBtn.textContent = 'View details';
+    secondaryBtn.onclick = () => {
+      const resultCard = document.getElementById('verifyResult');
+      if (resultCard) resultCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      closeVerificationModal();
+    };
+  } else if (state.state === 'revoked') {
+    iconEl.innerHTML = '<svg viewBox="0 0 64 64" aria-hidden="true"><circle class="verification-ring warning-ring" cx="32" cy="32" r="24"></circle><path class="verification-triangle" d="M32 16l18 32H14z"></path><path class="verification-warning-line" d="M32 25v12"></path><circle class="verification-warning-dot" cx="32" cy="42" r="2.5"></circle></svg>';
+    secondaryBtn.style.display = 'none';
+  } else {
+    iconEl.innerHTML = '<svg viewBox="0 0 64 64" aria-hidden="true"><circle class="verification-ring error-ring" cx="32" cy="32" r="24"></circle><path class="verification-x" d="M22 22l20 20M42 22L22 42"></path></svg>';
+    secondaryBtn.style.display = 'none';
+  }
+
+  const issuedValue = state.detail.issued && state.detail.issued !== '—' ? new Date(state.detail.issued).toLocaleString() : '—';
+  const revokedValue = state.detail.revokedAt ? new Date(state.detail.revokedAt).toLocaleString() : '—';
+
+  metaEl.innerHTML = `
+    <div class="verification-modal-grid">
+      <div><span>Certificate</span><strong>${state.detail.id}</strong></div>
+      <div><span>Holder</span><strong>${state.detail.holder}</strong></div>
+      <div><span>Issuer</span><strong>${state.detail.issuer}</strong></div>
+      <div><span>Issued</span><strong>${issuedValue}</strong></div>
+      ${state.state === 'revoked' ? `<div><span>Revoked</span><strong>${revokedValue}</strong></div>` : ''}
+      <div><span>Status</span><strong>${state.detail.status}</strong></div>
+    </div>
+  `;
+
+  primaryBtn.textContent = state.state === 'not_found' ? 'Verify another' : 'Close';
+  primaryBtn.onclick = closeVerificationModal;
+
+  modal.classList.add('show');
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => {
+    const closeBtn = document.getElementById('verificationModalClose');
+    if (closeBtn) closeBtn.focus();
+  }, 20);
+}
+
 async function renderVerifyResult(response) {
   const resultEl = document.getElementById("verifyResult");
   if (!resultEl) return;
 
   if (!response || !response.success) {
     resultEl.innerHTML = `<div class="alert alert-error"><strong>Not Found</strong><br/>${response?.error || 'No certificate matched that ID.'}</div>`;
+    openVerificationModal(response || { status: 'not_found' }, 'Certificate');
     return;
   }
 
@@ -1591,6 +1729,7 @@ async function renderVerifyResult(response) {
     </div>
   `;
 
+  openVerificationModal(response, certificate.certificate_id || certificate.certificateId || 'Certificate');
 }
 
 async function verifyCertificate() {
@@ -1931,7 +2070,7 @@ const PENDING_APPS_KEY = "certicheck_pending_apps";
 
 // Store signup data temporarily during OTP flow
 let pendingSignupData = null;
-let pendingForgotEmail = null;
+let pendingForgotEmail = sessionStorage.getItem('certicheck_pending_forgot_email');
 
 function initIssuerDashboard() {
   const formWrap = document.getElementById("issuerFormWrap");
@@ -2466,7 +2605,8 @@ function initSignupForm() {
   const resendBtn = document.getElementById("resendOtpBtn");
   const otpInput = document.getElementById("otpCode");
 
-  if (!btn) return;
+  if (!btn || btn.dataset.bound === "true") return;
+  btn.dataset.bound = "true";
 
   btn.addEventListener("click", async () => {
     errorEl.style.display = "none";
@@ -2731,13 +2871,27 @@ async function createUserWithFirebaseAuth(email, password) {
   return auth.createUserWithEmailAndPassword(email, password);
 }
 
+function showLoginNotice(title, message) {
+  const dialog = document.getElementById('loginNoticeDialog');
+  const titleEl = document.getElementById('loginNoticeTitle');
+  const messageEl = document.getElementById('loginNoticeMessage');
+  if (!dialog || typeof dialog.showModal !== 'function') return false;
+
+  titleEl.textContent = title;
+  messageEl.textContent = message;
+  if (dialog.open) dialog.close();
+  dialog.showModal();
+  return true;
+}
+
 function initLoginForm() {
   const btn = document.getElementById("loginBtn");
   const emailEl = document.getElementById("loginEmail");
   const passwordEl = document.getElementById("loginPassword");
   const rememberEl = document.getElementById("loginRemember");
-  const statusEl = document.getElementById("loginStatus");
   const errorEl = document.getElementById("loginError");
+  const noticeDialog = document.getElementById('loginNoticeDialog');
+  const noticeClose = document.getElementById('loginNoticeClose');
 
   if (!btn) return;
 
@@ -2748,15 +2902,7 @@ function initLoginForm() {
   if (rememberEl) {
     rememberEl.checked = Boolean(savedEmail);
   }
-  if (statusEl) {
-    if (savedEmail) {
-      statusEl.textContent = `Auto-suggested email: ${savedEmail}`;
-      statusEl.style.display = "block";
-    } else {
-      statusEl.textContent = "No remembered email yet. Check 'Remember my email' to save it.";
-      statusEl.style.display = "block";
-    }
-  }
+  if (noticeClose && noticeDialog) noticeClose.onclick = () => noticeDialog.close();
 
   btn.addEventListener("click", async () => {
     errorEl.style.display = "none";
@@ -2800,22 +2946,32 @@ function initLoginForm() {
         }
       }
 
-      // Non-OK response: show error message returned by API
+      // Use status-specific dialog messages only when the server provides a known code.
       let errMsg = 'Incorrect email or password';
+      let errCode = '';
       try {
         const errData = await response.json();
         if (errData && errData.error) errMsg = errData.error;
+        if (errData && errData.code) errCode = errData.code;
       } catch (e) {}
-      errorEl.textContent = errMsg;
-      errorEl.style.display = 'block';
+      const noticeTitles = {
+        EMAIL_NOT_REGISTERED: 'Email not registered',
+        APPLICATION_PENDING: 'Application pending',
+        APPLICATION_REJECTED: 'Application rejected',
+        APPLICATION_APPROVED: 'Application approved'
+      };
+      if (noticeTitles[errCode] && !showLoginNotice(noticeTitles[errCode], errMsg)) {
+        errorEl.textContent = errMsg;
+        errorEl.style.display = 'block';
+      } else if (!noticeTitles[errCode]) {
+        errorEl.textContent = errMsg;
+        errorEl.style.display = 'block';
+      }
       if (remember) setRememberedLoginEmail(email); else setRememberedLoginEmail("");
 
     } catch (err) {
-      // Network or unexpected error: fallback to demo local session
       console.warn('Login request failed (network):', err.message || err);
-      const role = desiredSignupType || 'issuer';
-      saveDemoAuthSessionWithRole(email, 'Demo', 'User', role);
-      navigate(role === 'holder' ? 'holder' : 'home');
+      showLoginNotice('Unable to sign in', 'The Certicheck login service could not be reached. Check your connection and try again.');
     } finally {
       btn.disabled = false;
       btn.textContent = "Sign In";
@@ -2847,6 +3003,11 @@ function initForgotPasswordForm() {
       errorEl.style.display = "block";
       return;
     }
+    if (!/^.+@certicheck\.com$/i.test(email)) {
+      errorEl.textContent = "Use your @certicheck.com email address";
+      errorEl.style.display = "block";
+      return;
+    }
 
     try {
       btn.disabled = true;
@@ -2860,6 +3021,7 @@ function initForgotPasswordForm() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Unable to send reset OTP');
       pendingForgotEmail = email;
+      sessionStorage.setItem('certicheck_pending_forgot_email', email);
       navigate('verify-reset-otp');
     } catch (err) {
       errorEl.textContent = err.message || "Unable to send reset OTP. Please try again.";
@@ -2949,8 +3111,8 @@ function initVerifyResetOTPForm() {
       return;
     }
 
-    if (newPassword.length < 6) {
-      errorEl.textContent = "Password must be at least 6 characters";
+    if (newPassword.length < 6 || newPassword === "password") {
+      errorEl.textContent = 'Password must be at least 6 characters and cannot be "password"';
       errorEl.style.display = "block";
       return;
     }
@@ -2980,10 +3142,11 @@ function initVerifyResetOTPForm() {
       if (!resetResponse.ok) throw new Error(resetData.error || 'Unable to reset password');
 
       pendingForgotEmail = null;
+      sessionStorage.removeItem('certicheck_pending_forgot_email');
       navigate('login');
       
     } catch (err) {
-      errorEl.textContent = "Demo password reset completed locally.";
+      errorEl.textContent = err.message || "Unable to reset password. Please try again.";
       errorEl.style.display = "block";
       btn.disabled = false;
       btn.textContent = "Reset Password";

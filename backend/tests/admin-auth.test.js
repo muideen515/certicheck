@@ -15,6 +15,7 @@ process.env.JWT_SECRET = 'dev_secret_key';
 
 const pool = require('../src/db/connection');
 const User = require('../src/models/User');
+const Application = require('../src/models/Application');
 const authRoutes = require('../src/routes/auth');
 const { verifyAdminToken } = require('../src/middleware/auth');
 
@@ -24,7 +25,8 @@ const originalUserMethods = {
   findById: User.findById,
   create: User.create,
   verifyPassword: User.verifyPassword,
-  updatePassword: User.updatePassword
+  updatePassword: User.updatePassword,
+  findApplicationByEmail: Application.findApplicationByEmail
 };
 
 let server;
@@ -33,6 +35,7 @@ test.after(async () => {
   if (server) await new Promise(resolve => server.close(resolve));
   pool.query = originalPoolQuery;
   Object.assign(User, originalUserMethods);
+  Application.findApplicationByEmail = originalUserMethods.findApplicationByEmail;
   for (const name of envNames) {
     if (originalEnv[name] === undefined) delete process.env[name];
     else process.env[name] = originalEnv[name];
@@ -43,6 +46,7 @@ test('supports multiple seeded admins without allowing admin registration or pas
   const usersByEmail = new Map();
   const usersById = new Map();
   const passwordUpdates = [];
+  const applicationStatuses = new Map();
   let nextId = 1;
 
   const safeUser = user => {
@@ -82,6 +86,10 @@ test('supports multiple seeded admins without allowing admin registration or pas
     }
     return safeUser(user);
   };
+  Application.findApplicationByEmail = async email => {
+    const status = applicationStatuses.get(User.normalizeEmail(email));
+    return status ? { status } : null;
+  };
   pool.query = async (sql, params = []) => {
     if (sql.includes('UPDATE users SET is_active = TRUE')) {
       const user = usersById.get(Number(params[0]));
@@ -100,6 +108,11 @@ test('supports multiple seeded admins without allowing admin registration or pas
   server = app.listen(0);
   await new Promise(resolve => server.once('listening', resolve));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const login = (email, password = 'not-a-password') => fetch(`${baseUrl}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  });
 
   const adminAccounts = [
     ['admin@certicheck.com', 'Admin'],
@@ -134,6 +147,44 @@ test('supports multiple seeded admins without allowing admin registration or pas
   assert.equal(new Set(seededAdmins.map(user => user.first_name)).size, 3);
   assert.deepEqual(seededAdmins.map(user => user.password), ['password', 'password', 'password']);
   assert.deepEqual(passwordUpdates, []);
+
+  const unregisteredLogin = await login('new@certicheck.com');
+  assert.equal(unregisteredLogin.status, 404);
+  assert.equal((await unregisteredLogin.json()).code, 'EMAIL_NOT_REGISTERED');
+
+  for (const [email, status, expectedCode, expectedCopy] of [
+    ['pending@certicheck.com', 'pending', 'APPLICATION_PENDING', 'check again later'],
+    ['rejected@certicheck.com', 'rejected', 'APPLICATION_REJECTED', 'lodge a complaint'],
+    ['approved@certicheck.com', 'approved', 'APPLICATION_APPROVED', 'account email']
+  ]) {
+    applicationStatuses.set(email, status);
+    const response = await login(email);
+    assert.equal(response.status, 403);
+    const payload = await response.json();
+    assert.equal(payload.code, expectedCode);
+    assert.match(payload.error, new RegExp(expectedCopy, 'i'));
+  }
+
+  const wrongPassword = await login('admin@certicheck.com');
+  assert.equal(wrongPassword.status, 401);
+  assert.equal((await wrongPassword.json()).error, 'Incorrect email or password');
+
+  const pendingUser = {
+    id: 80,
+    email: 'registered-pending@certicheck.com',
+    password: 'pending-password',
+    first_name: 'Pending',
+    last_name: 'Applicant',
+    user_type: 'issuer',
+    is_active: false,
+    must_change_password: false
+  };
+  usersByEmail.set(pendingUser.email, pendingUser);
+  usersById.set(pendingUser.id, pendingUser);
+  applicationStatuses.set(pendingUser.email, 'pending');
+  const inactivePendingLogin = await login(pendingUser.email, pendingUser.password);
+  assert.equal(inactivePendingLogin.status, 403);
+  assert.equal((await inactivePendingLogin.json()).code, 'APPLICATION_PENDING');
 
   const unauthorizedRegistration = await fetch(`${baseUrl}/auth/register`, {
     method: 'POST',

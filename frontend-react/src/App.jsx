@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import VerificationResultModal from './VerificationResultModal'
 
 async function connectWallet() {
   if (window.solana && window.solana.isPhantom) {
@@ -149,6 +150,8 @@ function IssueForm({ onResult }) {
 function LookupForm() {
   const [id, setId] = useState('')
   const [result, setResult] = useState(null)
+  const [verification, setVerification] = useState(null)
+  const [isLookingUp, setIsLookingUp] = useState(false)
   const [walletAddress, setWalletAddress] = useState('')
 
   const handleConnectWallet = async () => {
@@ -159,20 +162,45 @@ function LookupForm() {
   }
 
   async function onLookup() {
-    setResult({ loading: true })
+    const certificateId = id.trim()
+    if (!certificateId) {
+      setResult({ error: 'Enter a certificate ID to verify.' })
+      return
+    }
+
+    setResult(null)
+    setVerification(null)
+    setIsLookingUp(true)
     try {
-      const res = await fetch(`/api/certificates/lookup/${encodeURIComponent(id)}`)
+      const res = await fetch(`/api/certificates/lookup/${encodeURIComponent(certificateId)}`)
       const data = await res.json()
+      if (res.status === 404 || data?.status === 'not_found') {
+        setVerification({ status: 'not_found', certificate: null })
+        return
+      }
       if (!res.ok) {
         throw new Error(data?.error || 'Lookup failed')
       }
-      setResult(data)
+
+      const certificate = data?.certificate || data
+      const statusValue = String(
+        certificate?.verification_status || certificate?.status || data?.status || 'valid'
+      ).toLowerCase()
+      const status = statusValue.includes('revok')
+        ? 'revoked'
+        : ['valid', 'approved', 'verified'].includes(statusValue)
+          ? 'valid'
+          : 'not_found'
+      setVerification({ status, certificate })
     } catch (err) {
       setResult({ error: err.message })
+    } finally {
+      setIsLookingUp(false)
     }
   }
 
   async function onRevoke() {
+    setVerification(null)
     setResult({ loading: true })
     try {
       const res = await fetch(`/api/certificates/revoke/${encodeURIComponent(id)}`, {
@@ -196,27 +224,41 @@ function LookupForm() {
   }
 
   return (
-    <div style={{ padding: 20, width: '50%' }}>
-      <h3>Lookup / Revoke</h3>
-      <div style={{ marginBottom: 12 }}>
+    <div className="certificate-lookup">
+      <h3>Verify a Certificate</h3>
+      <p className="certificate-lookup-intro">Check authenticity and revocation status by certificate ID.</p>
+      <div className="certificate-lookup-wallet">
         <button type="button" onClick={handleConnectWallet}>Connect Wallet</button>
       </div>
       {walletAddress && (
-        <div style={{ marginBottom: 12, fontSize: 13 }}>
+        <div className="certificate-lookup-wallet-status">
           <strong>Wallet:</strong> {walletAddress}
         </div>
       )}
-      <div style={{ marginBottom: 8 }}>
+      <div className="certificate-lookup-controls">
         <input
+          aria-label="Certificate ID"
           placeholder="Certificate ID"
           value={id}
           onChange={(e) => setId(e.target.value)}
-          style={{ width: 320, marginRight: 8 }}
+          onKeyDown={(event) => { if (event.key === 'Enter') onLookup() }}
         />
-        <button onClick={onLookup}>Lookup</button>
-        <button onClick={onRevoke} style={{ marginLeft: 8 }}>Revoke (admin)</button>
+        <button type="button" onClick={onLookup} disabled={isLookingUp}>
+          {isLookingUp ? 'Checking…' : 'Verify certificate'}
+        </button>
+        <button type="button" onClick={onRevoke} disabled={isLookingUp}>Revoke (admin)</button>
       </div>
-      <pre style={{ whiteSpace: 'pre-wrap' }}>{result ? JSON.stringify(result, null, 2) : 'No result'}</pre>
+      {result && (
+        <div className={`certificate-lookup-feedback ${result.error ? 'is-error' : ''}`} role={result.error ? 'alert' : 'status'}>
+          {result.loading ? 'Updating certificate…' : result.error || 'Certificate updated.'}
+        </div>
+      )}
+      <VerificationResultModal
+        open={Boolean(verification)}
+        status={verification?.status || 'not_found'}
+        certificate={verification?.certificate}
+        onClose={() => setVerification(null)}
+      />
     </div>
   )
 }

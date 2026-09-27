@@ -85,6 +85,14 @@ function getAllApplications(limit = 50, offset = 0) {
   return records.slice(offset, offset + limit).map(item => normalizeApp(item));
 }
 
+function findApplicationByEmail(email) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  return readStore()
+    .filter(app => [app.contact_email, app.generated_email].some(value => String(value || '').trim().toLowerCase() === normalizedEmail))
+    .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime())
+    .map(app => ({ status: app.status }))[0] || null;
+}
+
 function countByStatus(status) {
   const records = readStore();
   return records.filter(app => app.status === status).length;
@@ -109,6 +117,7 @@ module.exports = {
   createApplication,
   getAllApplications,
   getApplicationsByStatus,
+  findApplicationByEmail,
   countByStatus,
   updateStatus
 };
