@@ -78,17 +78,30 @@ class Application {
     return result.rows;
   }
 
-  static async approve(appId, reviewerId) {
+  static async approve(appId, reviewerId, adminName = null, adminPicture = null) {
     if (process.env.DEMO_MODE === 'true') {
-      const app = demoAppStore.updateStatus(appId, 'approved', reviewerId);
-      return app ? { id: app.id, issuer_id: app.issuer_id, organization_name: app.organization_name, status: app.status, reviewed_at: app.reviewed_at } : null;
+      const app = demoAppStore.updateStatus(appId, 'approved', reviewerId, adminName, adminPicture);
+      return app ? {
+        id: app.id, issuer_id: app.issuer_id, organization_name: app.organization_name,
+        status: app.status, reviewed_at: app.reviewed_at,
+        processed_by_admin_id: app.processed_by_admin_id,
+        processed_by_admin_name: app.processed_by_admin_name,
+        processed_by_admin_profile_picture_url: app.processed_by_admin_profile_picture_url,
+        action_type: app.action_type, processed_at: app.processed_at
+      } : null;
     }
 
     const result = await pool.query(
-      `UPDATE pending_applications SET status = 'approved', reviewed_at = NOW(), reviewer_id = $1
+      `UPDATE pending_applications
+       SET status = 'approved', reviewed_at = NOW(), reviewer_id = $1,
+           processed_by_admin_id = $1, processed_by_admin_name = $3,
+           processed_by_admin_profile_picture_url = $4,
+           action_type = 'APPROVED', processed_at = NOW()
        WHERE id = $2
-       RETURNING id, issuer_id, organization_name, contact_name, contact_email, status, reviewed_at`,
-      [reviewerId, appId]
+       RETURNING id, issuer_id, organization_name, contact_name, contact_email, status, reviewed_at,
+                 processed_by_admin_id, processed_by_admin_name, processed_by_admin_profile_picture_url,
+                 action_type, processed_at`,
+      [reviewerId, appId, adminName, adminPicture]
     );
 
     if (result.rows[0]) {
@@ -115,17 +128,31 @@ class Application {
     return result.rows[0];
   }
 
-  static async reject(appId, reviewerId) {
+  static async reject(appId, reviewerId, adminName = null, adminPicture = null) {
     if (process.env.DEMO_MODE === 'true') {
-      const app = demoAppStore.updateStatus(appId, 'rejected', reviewerId);
-      return app ? { id: app.id, issuer_id: app.issuer_id, status: app.status, reviewed_at: app.reviewed_at } : null;
+      const app = demoAppStore.updateStatus(appId, 'rejected', reviewerId, adminName, adminPicture);
+      return app ? {
+        id: app.id, issuer_id: app.issuer_id, organization_name: app.organization_name,
+        contact_name: app.contact_name, contact_email: app.contact_email,
+        status: app.status, reviewed_at: app.reviewed_at,
+        processed_by_admin_id: app.processed_by_admin_id,
+        processed_by_admin_name: app.processed_by_admin_name,
+        processed_by_admin_profile_picture_url: app.processed_by_admin_profile_picture_url,
+        action_type: app.action_type, processed_at: app.processed_at
+      } : null;
     }
 
     const result = await pool.query(
-      `UPDATE pending_applications SET status = 'rejected', reviewed_at = NOW(), reviewer_id = $1
+      `UPDATE pending_applications
+       SET status = 'rejected', reviewed_at = NOW(), reviewer_id = $1,
+           processed_by_admin_id = $1, processed_by_admin_name = $3,
+           processed_by_admin_profile_picture_url = $4,
+           action_type = 'REJECTED', processed_at = NOW()
        WHERE id = $2
-       RETURNING id, issuer_id, organization_name, contact_name, contact_email, status, reviewed_at`,
-      [reviewerId, appId]
+       RETURNING id, issuer_id, organization_name, contact_name, contact_email, status, reviewed_at,
+                 processed_by_admin_id, processed_by_admin_name, processed_by_admin_profile_picture_url,
+                 action_type, processed_at`,
+      [reviewerId, appId, adminName, adminPicture]
     );
 
     if (result.rows[0]?.issuer_id) {

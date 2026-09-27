@@ -199,6 +199,14 @@ test('supports multiple seeded admins without allowing admin registration or pas
   assert.equal(adminRequest.status, 200);
   assert.equal((await adminRequest.json()).user.userType, 'admin');
 
+  const demoTokenRequest = await fetch(`${baseUrl}/admin-only`, {
+    headers: {
+      Authorization: 'Bearer demo-token',
+      'x-demo-user-type': 'admin'
+    }
+  });
+  assert.equal(demoTokenRequest.status, 401);
+
   const camelCaseToken = jwt.sign({
     id: 100,
     firstName: 'Casey',

@@ -64,7 +64,7 @@ SOLANA_PAYER_SECRET=
 CERTIFICATE_PROGRAM_ID=
 ```
 
-On first authentication, the backend seeds three admin accounts: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. Their default password is `password`; change it before exposing a deployment publicly.
+On first admin authentication, the backend seeds three individual admin accounts: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. Their default password is `password`; change each account's password before exposing a deployment publicly. Admin names, avatars, and password changes are personal to each account. The Admin Dashboard provides email OTP recovery for an individual admin.
 
 For password-reset OTP delivery, use a real SMTP mailbox on `@certicheck.com`, replace the SMTP placeholders with credentials stored as deployment secrets, and configure the mail provider's SPF/DKIM records for the domain. In production the API returns an error when SMTP is not configured; development mode logs OTPs to the backend console instead of sending email.
 
@@ -108,7 +108,7 @@ Run the backend unit and integration tests:
 npm test
 ```
 
-This executes the certificate store unit test and the certificate API flow integration test using demo authentication.
+This runs the backend unit and integration test suite, including multi-admin profile, password recovery, and application attribution coverage.
 
 ## API Endpoints
 
@@ -118,6 +118,10 @@ This executes the certificate store unit test and the certificate API flow integ
 - `POST /api/auth/login` - User login
 - `GET /api/auth/profile` - Get user profile (requires token)
 - `PUT /api/auth/profile` - Update user profile (requires token)
+- `POST /api/auth/admin/login` - Sign in as an individual admin
+- `GET /api/auth/admin/profile` and `PUT /api/auth/admin/profile` - Read/update the signed-in admin's display name and profile picture
+- `POST /api/auth/admin/change-password` - Change the signed-in admin's password
+- `POST /api/auth/forgot-password`, `/api/auth/verify-forgot-password`, and `/api/auth/reset-password` - Recover an individual account with its email OTP
 
 ### Applications
 
@@ -151,9 +155,10 @@ This executes the certificate store unit test and the certificate API flow integ
 
 1. **users** - User accounts with auth
 2. **issuer_profiles** - Issuer organization information
-3. **pending_applications** - Issuer approval requests
-4. **verify_history** - Certificate verification log
-5. **revoked_certificates** - Revoked certificates tracking
+3. **admins** - Admin profile and role linked to the corresponding `users` login
+4. **pending_applications** - Issuer approval requests, including decision admin identity, action type, and processing time
+5. **verify_history** - Certificate verification log
+6. **revoked_certificates** - Revoked certificates tracking
 
 ### Audit Tables
 

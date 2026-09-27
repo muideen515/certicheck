@@ -2325,6 +2325,36 @@ body.dark .powered-by-logo img {
     padding: 10px 8px;
     font-size: 12px;
   }
+  .admin-list-card {
+    padding: 12px !important;
+    margin-bottom: 8px;
+  }
+  .admin-list-card-meta {
+    margin-top: 6px !important;
+    font-size: 12px !important;
+    line-height: 1.4 !important;
+  }
+  .admin-list-card-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .admin-list-card-actions > button {
+    width: auto;
+    flex: 1 1 76px;
+    min-width: 0;
+    padding: 7px 6px;
+    font-size: 11px;
+  }
+  .admin-activity-scroll {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-color: var(--purple-soft) var(--bg-subtle);
+    scrollbar-width: thin;
+  }
+  .admin-activity-scroll:focus-visible {
+    outline: 2px solid var(--purple-mid);
+    outline-offset: -2px;
+  }
   #adminDetailDrawer {
     top: 72px !important;
     right: 12px !important;
@@ -2334,7 +2364,7 @@ body.dark .powered-by-logo img {
     padding: 16px !important;
   }
 }
-#adminDashboard { height:560px; }
-@media (max-width:900px) { #adminDashboard { height:460px; } }
-@media (max-width:540px) { #adminDashboard { height:410px; } }
+#adminDashboard { height:680px; }
+@media (max-width:900px) { #adminDashboard { height:660px; } }
+@media (max-width:540px) { #adminDashboard { height:800px; } }
 #navbar * { z-index: 201; }

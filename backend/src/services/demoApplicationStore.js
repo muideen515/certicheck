@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const STORAGE_FILE = path.join(__dirname, '..', 'data', 'demo-applications.json');
+const STORAGE_FILE = process.env.DEMO_APPLICATION_STORE_FILE || path.join(__dirname, '..', 'data', 'demo-applications.json');
 
 function ensureStore() {
   const dir = path.dirname(STORAGE_FILE);
@@ -39,6 +39,11 @@ function normalizeApp(app) {
     submitted_at: app.submitted_at || new Date().toISOString(),
     reviewed_at: app.reviewed_at || null,
     reviewer_id: app.reviewer_id || null,
+    processed_by_admin_id: app.processed_by_admin_id || null,
+    processed_by_admin_name: app.processed_by_admin_name || null,
+    processed_by_admin_profile_picture_url: app.processed_by_admin_profile_picture_url || null,
+    action_type: app.action_type || null,
+    processed_at: app.processed_at || null,
     issuer_id: app.issuer_id ?? 1
   };
 }
@@ -98,16 +103,22 @@ function countByStatus(status) {
   return records.filter(app => app.status === status).length;
 }
 
-function updateStatus(appId, status, reviewerId) {
+function updateStatus(appId, status, reviewerId, adminName = null, adminPicture = null) {
   const records = readStore();
   const index = records.findIndex(app => String(app.id) === String(appId));
   if (index < 0) return null;
 
+  const processedAt = new Date().toISOString();
   records[index] = normalizeApp({
     ...records[index],
     status,
-    reviewed_at: new Date().toISOString(),
-    reviewer_id: reviewerId || null
+    reviewed_at: processedAt,
+    reviewer_id: reviewerId || null,
+    processed_by_admin_id: reviewerId || null,
+    processed_by_admin_name: adminName || null,
+    processed_by_admin_profile_picture_url: adminPicture || null,
+    action_type: status === 'approved' ? 'APPROVED' : 'REJECTED',
+    processed_at: processedAt
   });
   writeStore(records);
   return records[index];

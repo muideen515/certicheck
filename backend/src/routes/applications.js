@@ -4,8 +4,27 @@ const User = require('../models/User');
 const pool = require('../db/connection');
 const { verifyToken, verifyAdmin, verifyAdminToken, logAudit } = require('../middleware/auth');
 const EmailService = require('../services/emailService');
+const Admin = require('../models/Admin');
+const demoAdminStore = require('../services/demoAdminStore');
+const { DEFAULT_ADMIN_ACCOUNTS } = require('../services/defaultAdminAccounts');
 
 const router = express.Router();
+
+async function getAdminActor(req) {
+  const id = req.user.adminId || req.user.id;
+  const profile = process.env.DEMO_MODE === 'true'
+    ? await demoAdminStore.findById(id, DEFAULT_ADMIN_ACCOUNTS)
+    : await Admin.findById(id);
+  return {
+    id,
+    name: profile?.name || req.user.name ||
+      [req.user.firstName, req.user.lastName].filter(Boolean).join(' ') ||
+      req.user.email || 'Admin',
+    profilePicture: profile?.profile_picture_url
+      ? `/api/auth/admin/${id}/profile-picture`
+      : req.user.profilePicture || null
+  };
+}
 
 function generateEmailSlug(name) {
   const slug = String(name || '')
@@ -145,7 +164,9 @@ router.put('/:appId/approve', verifyAdminToken, verifyAdmin, async (req, res) =>
   try {
     const { appId } = req.params;
 
-    const app = await Application.approve(appId, req.user.id);
+    const actor = await getAdminActor(req);
+    const app = await Application.approve(appId, actor.id, actor.name, actor.profilePicture);
+    if (!app) return res.status(404).json({ error: 'Application not found' });
 
     if (app?.contact_email) {
       await EmailService.sendApplicationDecision(
@@ -156,7 +177,10 @@ router.put('/:appId/approve', verifyAdminToken, verifyAdmin, async (req, res) =>
       );
     }
 
-    await logAudit(req.user.id, 'APPLICATION_APPROVE', 'application', appId, 'success');
+    await logAudit(actor.id, 'APPLICATION_APPROVE', 'application', appId, 'success', null, {
+      processedByAdminId: actor.id,
+      processedByAdminName: actor.name
+    });
 
     res.json({
       success: true,
@@ -191,6 +215,10 @@ router.post('/:appId/create-account', verifyAdminToken, verifyAdmin, async (req,
     if (app.user_id) {
       const userRes = await pool.query('SELECT id, email, first_name, last_name FROM users WHERE id = $1 LIMIT 1', [app.user_id]);
       const user = userRes.rows[0];
+      await logAudit(req.user.adminId || req.user.id, 'ADMIN_ACTION', 'application', appId, 'success', null, {
+        action: 'APPLICATION_ACCOUNT_LINK',
+        adminName: req.user.name || req.user.email
+      });
       return res.json({ success: true, user });
     }
 
@@ -207,6 +235,10 @@ router.post('/:appId/create-account', verifyAdminToken, verifyAdmin, async (req,
       if (app.issuer_profile_id) {
         await pool.query('UPDATE issuer_profiles SET user_id = $1, updated_at = NOW() WHERE id = $2', [existing.id, app.issuer_profile_id]);
       }
+      await logAudit(req.user.adminId || req.user.id, 'ADMIN_ACTION', 'application', appId, 'success', null, {
+        action: 'APPLICATION_ACCOUNT_LINK',
+        adminName: req.user.name || req.user.email
+      });
       return res.json({ success: true, user: { id: existing.id, email: existing.email, first_name: existing.first_name, last_name: existing.last_name } });
     }
     return res.status(409).json({ error: 'The contact must complete signup before an account can be linked' });
@@ -221,7 +253,9 @@ router.put('/:appId/reject', verifyAdminToken, verifyAdmin, async (req, res) => 
   try {
     const { appId } = req.params;
 
-    const app = await Application.reject(appId, req.user.id);
+    const actor = await getAdminActor(req);
+    const app = await Application.reject(appId, actor.id, actor.name, actor.profilePicture);
+    if (!app) return res.status(404).json({ error: 'Application not found' });
 
     if (app?.contact_email) {
       await EmailService.sendApplicationDecision(
@@ -233,7 +267,10 @@ router.put('/:appId/reject', verifyAdminToken, verifyAdmin, async (req, res) => 
       );
     }
 
-    await logAudit(req.user.id, 'APPLICATION_REJECT', 'application', appId, 'success');
+    await logAudit(actor.id, 'APPLICATION_REJECT', 'application', appId, 'success', null, {
+      processedByAdminId: actor.id,
+      processedByAdminName: actor.name
+    });
 
     res.json({
       success: true,

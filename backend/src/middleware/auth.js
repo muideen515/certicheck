@@ -5,7 +5,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
 const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || JWT_SECRET;
 
 function getDemoUser(req) {
-  if (process.env.DEMO_MODE === 'true' || req.headers.authorization?.split(' ')[1] === 'demo-token') {
+  if (process.env.DEMO_MODE === 'true' && req.headers.authorization?.split(' ')[1] === 'demo-token') {
     const userType = req.headers['x-demo-user-type'] || 'issuer';
     return {
       id: 1,
@@ -23,7 +23,7 @@ function verifyAdminToken(req, res, next) {
 
   // Demo token support for admin via header
   const demoUser = getDemoUser(req);
-  if (demoUser && (req.headers['x-demo-user-type'] === 'admin' || process.env.DEMO_MODE === 'true')) {
+  if (token === 'demo-token' && demoUser && req.headers['x-demo-user-type'] === 'admin') {
     req.user = { ...demoUser, user_type: 'admin', userType: 'admin' };
     return next();
   }
@@ -34,7 +34,13 @@ function verifyAdminToken(req, res, next) {
     if (userType !== 'admin') {
       return res.status(403).json({ error: 'Admin access required' });
     }
-    req.user = { ...decoded, user_type: userType, userType };
+    req.user = {
+      ...decoded,
+      id: decoded.id ?? decoded.adminId,
+      adminId: decoded.adminId ?? decoded.id,
+      user_type: userType,
+      userType
+    };
     return next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
@@ -221,9 +227,6 @@ module.exports = {
   logAudit,
   verifyAdminToken
 };
-
-
-
 
 
 

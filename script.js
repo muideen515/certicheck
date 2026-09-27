@@ -3486,4 +3486,3 @@ function renderResources() {
 }
 
 
-

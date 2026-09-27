@@ -19,6 +19,22 @@ CREATE TABLE IF NOT EXISTS users (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT TRUE;
 CREATE INDEX IF NOT EXISTS idx_email ON users(email);
 
+-- ── INDIVIDUAL ADMIN PROFILES ────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS admins (
+  id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  profile_picture_url TEXT,
+  role VARCHAR(50) NOT NULL DEFAULT 'admin',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO admins (id, name, email, password_hash, role)
+SELECT id, TRIM(CONCAT_WS(' ', first_name, last_name)), email, password_hash, 'admin'
+FROM users WHERE user_type = 'admin'
+ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, password_hash = EXCLUDED.password_hash, updated_at = NOW();
+
 -- ── ISSUER PROFILES TABLE ──────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS issuer_profiles (
   id SERIAL PRIMARY KEY,
@@ -57,7 +73,32 @@ CREATE TABLE IF NOT EXISTS pending_applications (
   reviewed_at TIMESTAMP,
   reviewer_id INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+UPDATE admins SET password_hash = users.password_hash
+FROM users
+WHERE admins.id = users.id AND admins.password_hash IS NULL;
+ALTER TABLE admins ALTER COLUMN password_hash SET NOT NULL;
+
 ALTER TABLE pending_applications ADD COLUMN IF NOT EXISTS generated_email VARCHAR(255);
+ALTER TABLE pending_applications ADD COLUMN IF NOT EXISTS processed_by_admin_id INTEGER REFERENCES admins(id) ON DELETE SET NULL;
+ALTER TABLE pending_applications ADD COLUMN IF NOT EXISTS processed_by_admin_name VARCHAR(255);
+ALTER TABLE pending_applications ADD COLUMN IF NOT EXISTS processed_by_admin_profile_picture_url TEXT;
+ALTER TABLE pending_applications ADD COLUMN IF NOT EXISTS action_type VARCHAR(50);
+ALTER TABLE pending_applications ADD COLUMN IF NOT EXISTS processed_at TIMESTAMP;
+UPDATE pending_applications pa
+SET processed_by_admin_id = pa.reviewer_id,
+    processed_by_admin_name = admins.name,
+processed_by_admin_profile_picture_url = CASE
+  WHEN admins.profile_picture_url IS NOT NULL
+  THEN '/api/auth/admin/' || admins.id || '/profile-picture'
+  ELSE NULL
+END,
+    action_type = UPPER(pa.status),
+    processed_at = pa.reviewed_at
+FROM admins
+WHERE pa.processed_by_admin_id IS NULL
+  AND pa.reviewer_id = admins.id
+  AND pa.status IN ('approved', 'rejected');
 
 -- ── CERTIFICATE VERIFICATION HISTORY TABLE ────────────────────────────────────
 CREATE TABLE IF NOT EXISTS verify_history (
@@ -182,6 +223,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active);
 CREATE INDEX IF NOT EXISTS idx_issuer_status ON issuer_profiles(status);
 CREATE INDEX IF NOT EXISTS idx_pending_apps_status ON pending_applications(status);
+CREATE INDEX IF NOT EXISTS idx_pending_apps_processed_admin ON pending_applications(processed_by_admin_id, processed_at);
 CREATE INDEX IF NOT EXISTS idx_verify_history_cert ON verify_history(certificate_id);
 CREATE INDEX IF NOT EXISTS idx_verify_history_user ON verify_history(user_id);
 CREATE INDEX IF NOT EXISTS idx_revoked_certs_issuer ON revoked_certificates(issuer_id);

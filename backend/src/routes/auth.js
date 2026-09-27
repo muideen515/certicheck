@@ -2,10 +2,13 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const pool = require('../db/connection');
 const User = require('../models/User');
+const Admin = require('../models/Admin');
 const Application = require('../models/Application');
 const OTP = require('../models/OTP');
 const EmailService = require('../services/emailService');
-const { logAudit, verifyToken } = require('../middleware/auth');
+const demoAdminStore = require('../services/demoAdminStore');
+const { DEFAULT_ADMIN_ACCOUNTS } = require('../services/defaultAdminAccounts');
+const { logAudit, verifyToken, verifyAdminToken } = require('../middleware/auth');
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
@@ -18,42 +21,23 @@ function isCertiCheckEmail(email) {
   return normalizeEmail(email).endsWith('@certicheck.com');
 }
 
-const DEFAULT_ADMIN_PASSWORD = 'password';
-const DEFAULT_ADMIN_ACCOUNTS = [
-  {
-    email: normalizeEmail(process.env.ADMIN_EMAIL || 'admin@certicheck.com'),
-    password: DEFAULT_ADMIN_PASSWORD,
-    firstName: 'Admin',
-    lastName: 'User',
-    userType: 'admin'
-  },
-  {
-    email: 'admin2@certicheck.com',
-    password: DEFAULT_ADMIN_PASSWORD,
-    firstName: 'Alex',
-    lastName: 'Admin',
-    userType: 'admin'
-  },
-  {
-    email: 'admin3@certicheck.com',
-    password: DEFAULT_ADMIN_PASSWORD,
-    firstName: 'Jordan',
-    lastName: 'Admin',
-    userType: 'admin'
-  }
-];
-
 function isReservedAdminEmail(email) {
   return DEFAULT_ADMIN_ACCOUNTS.some(account => account.email === normalizeEmail(email));
 }
 
-function buildAuthIdentity(user) {
+function buildAuthIdentity(user, adminProfile = null) {
   const firstName = user.first_name ?? user.firstName ?? '';
   const lastName = user.last_name ?? user.lastName ?? '';
   const userType = user.user_type ?? user.userType ?? 'user';
+  const name = adminProfile?.name || user.name || [firstName, lastName].filter(Boolean).join(' ');
 
   return {
     id: user.id,
+    adminId: userType === 'admin' ? (adminProfile?.id || user.id) : undefined,
+    name,
+    profilePicture: (adminProfile?.profile_picture_url || user.profile_picture_url)
+      ? `/api/auth/admin/${adminProfile?.id || user.id}/profile-picture`
+      : null,
     firstName,
     lastName,
     email: user.email,
@@ -62,6 +46,46 @@ function buildAuthIdentity(user) {
     last_name: lastName,
     user_type: userType
   };
+}
+
+function getStoredProfilePictureUrl(admin) {
+  return admin?.profile_picture_url ? `/api/auth/admin/${admin.id}/profile-picture` : null;
+}
+
+function isValidProfilePicture(value) {
+  if (value === null) return true;
+  if (typeof value !== 'string') return false;
+
+  const match = value.match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+=*)$/);
+  if (!match) return false;
+  const image = Buffer.from(match[2], 'base64');
+  return image.length > 0 &&
+    image.toString('base64') === match[2] &&
+    image.length <= 2 * 1024 * 1024;
+}
+
+function createAdminToken(identity) {
+  const tokenIdentity = {
+    ...identity,
+    profilePicture: typeof identity.profilePicture === 'string' && !identity.profilePicture.startsWith('data:image/')
+      ? identity.profilePicture
+      : null
+  };
+  return jwt.sign(
+    { ...tokenIdentity, isAdmin: true },
+    process.env.ADMIN_JWT_SECRET || JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRE || '7d' }
+  );
+}
+
+async function findPasswordResetAccount(email) {
+  return process.env.DEMO_MODE === 'true'
+    ? demoAdminStore.findByEmail(email, DEFAULT_ADMIN_ACCOUNTS)
+    : User.findByEmail(email);
+}
+
+function isAdminAccount(account) {
+  return account?.user_type === 'admin' || account?.role === 'admin';
 }
 
 function getLoginApplicationNotice(application) {
@@ -344,12 +368,15 @@ router.post('/forgot-password', async (req, res) => {
   try {
     const email = normalizeEmail(req.body.email);
 
-    if (!email || !EmailService.isValidEmail(email) || !isCertiCheckEmail(email)) {
-      return res.status(400).json({ error: 'A valid @certicheck.com email is required' });
+    if (!email || !EmailService.isValidEmail(email)) {
+      return res.status(400).json({ error: 'A valid email address is required' });
     }
 
     // Only users who completed the initial password change may use this flow.
-    const user = await User.findByEmail(email);
+    const user = await findPasswordResetAccount(email);
+    if (!isCertiCheckEmail(email) && !isAdminAccount(user)) {
+      return res.status(400).json({ error: 'Password recovery is available for registered admin email addresses' });
+    }
     if (!user) {
       // Don't reveal if email exists for security
       return res.json({
@@ -357,7 +384,7 @@ router.post('/forgot-password', async (req, res) => {
         message: 'If email exists, OTP will be sent'
       });
     }
-    if (user.must_change_password) {
+    if (user.must_change_password && !isAdminAccount(user)) {
       return res.json({
         success: true,
         message: 'If email exists, OTP will be sent'
@@ -387,8 +414,11 @@ router.post('/verify-forgot-password', async (req, res) => {
     const email = normalizeEmail(req.body.email);
     const otp = req.body.otp;
 
-    if (!email || !otp || !EmailService.isValidEmail(email) || !isCertiCheckEmail(email)) {
-      return res.status(400).json({ error: 'A valid @certicheck.com email and OTP are required' });
+    if (!email || !otp || !EmailService.isValidEmail(email)) {
+      return res.status(400).json({ error: 'A valid email and OTP are required' });
+    }
+    if (!isCertiCheckEmail(email) && !isAdminAccount(await findPasswordResetAccount(email))) {
+      return res.status(400).json({ error: 'Password recovery is available for registered admin email addresses' });
     }
 
     const verified = await OTP.verify(email, otp, 'forgot_password');
@@ -414,8 +444,12 @@ router.post('/reset-password', async (req, res) => {
     const email = normalizeEmail(req.body.email);
     const { newPassword, otp } = req.body;
 
-    if (!email || !newPassword || !EmailService.isValidEmail(email) || !isCertiCheckEmail(email)) {
-      return res.status(400).json({ error: 'A valid @certicheck.com email and new password are required' });
+    if (!email || !newPassword || !EmailService.isValidEmail(email)) {
+      return res.status(400).json({ error: 'A valid email and new password are required' });
+    }
+    const user = await findPasswordResetAccount(email);
+    if (!isCertiCheckEmail(email) && !isAdminAccount(user)) {
+      return res.status(400).json({ error: 'Password recovery is available for registered admin email addresses' });
     }
 
     // Verify OTP
@@ -425,11 +459,10 @@ router.post('/reset-password', async (req, res) => {
     }
 
     // Check if email exists
-    const user = await User.findByEmail(email);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    if (user.must_change_password) {
+    if (user.must_change_password && !isAdminAccount(user)) {
       return res.status(403).json({ error: 'Set your new password before using password recovery' });
     }
 
@@ -438,10 +471,18 @@ router.post('/reset-password', async (req, res) => {
     }
 
     // Update password
-    await User.updatePassword(email, newPassword);
+    if (process.env.DEMO_MODE === 'true') {
+      await demoAdminStore.updatePassword(user.id, newPassword, DEFAULT_ADMIN_ACCOUNTS);
+    } else {
+      await User.updatePassword(email, newPassword);
+      if (isAdminAccount(user)) await Admin.syncPasswordHash(user.id);
+    }
     await OTP.consume(email, 'forgot_password');
     
-    await logAudit(user.id, 'PASSWORD_CHANGE', 'user', user.id, 'success');
+    await logAudit(user.id, 'PASSWORD_CHANGE', isAdminAccount(user) ? 'admin' : 'user', user.id, 'success', null, {
+      adminId: isAdminAccount(user) ? user.id : null,
+      adminName: isAdminAccount(user) ? (user.name || [user.first_name, user.last_name].filter(Boolean).join(' ')) : null
+    });
 
     res.json({
       success: true,
@@ -465,6 +506,7 @@ router.post('/change-password', verifyToken, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     await User.updatePassword(user.email, newPassword, false);
+    if (user.user_type === 'admin') await Admin.syncPasswordHash(user.id);
     await logAudit(user.id, 'PASSWORD_CHANGE', 'user', user.id, 'success');
     res.json({ success: true, message: 'Password changed successfully' });
   } catch (err) {
@@ -561,12 +603,21 @@ router.post('/admin/login', async (req, res) => {
 
     // In demo mode, accept each of the seeded admin identities without a database.
     if (process.env.DEMO_MODE === 'true') {
-      const demoAdmin = DEFAULT_ADMIN_ACCOUNTS.find(account => account.email === email && account.password === password);
+      const demoAdmin = await demoAdminStore.verifyPassword(email, password, DEFAULT_ADMIN_ACCOUNTS);
       if (demoAdmin) {
-        const identity = buildAuthIdentity({ id: 1, ...demoAdmin });
-        const token = jwt.sign({ ...identity, isAdmin: true }, process.env.ADMIN_JWT_SECRET || JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '7d' });
-        setAuthCookie(res, token);
-        await logAudit(1, 'LOGIN', 'admin', 1, 'success');
+      const identity = buildAuthIdentity({
+        id: demoAdmin.id,
+        email: demoAdmin.email,
+        first_name: demoAdmin.name,
+        last_name: '',
+        user_type: 'admin'
+      }, demoAdmin);
+      const token = createAdminToken(identity);
+      setAuthCookie(res, token);
+      await logAudit(demoAdmin.id, 'LOGIN', 'admin', demoAdmin.id, 'success', null, {
+        adminId: demoAdmin.id,
+        adminName: demoAdmin.name
+      });
         return res.json({ success: true, token, user: identity });
       }
       await logAudit(null, 'LOGIN', 'admin', null, 'failed', 'Invalid admin credentials (demo)');
@@ -587,16 +638,198 @@ router.post('/admin/login', async (req, res) => {
       return res.status(403).json({ error: 'Account inactive' });
     }
 
-    const identity = buildAuthIdentity(user);
-    const token = jwt.sign({ ...identity, isAdmin: true }, process.env.ADMIN_JWT_SECRET || JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '7d' });
+    const adminProfile = await Admin.ensureFromUser(user);
+    const identity = buildAuthIdentity(user, adminProfile);
+    const token = createAdminToken(identity);
     setAuthCookie(res, token);
 
-    await logAudit(user.id, 'LOGIN', 'admin', user.id, 'success');
+    await logAudit(user.id, 'LOGIN', 'admin', user.id, 'success', null, {
+      adminId: user.id,
+      adminName: adminProfile?.name || identity.name
+    });
 
     res.json({ success: true, token, user: identity });
   } catch (err) {
     console.error('Admin login error:', err);
     res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+router.get('/admin/:adminId/profile-picture', async (req, res) => {
+  try {
+    const adminId = Number(req.params.adminId);
+    if (!Number.isSafeInteger(adminId) || adminId < 1) {
+      return res.status(400).json({ error: 'Invalid admin ID' });
+    }
+    const admin = process.env.DEMO_MODE === 'true'
+      ? await demoAdminStore.findById(adminId, DEFAULT_ADMIN_ACCOUNTS)
+      : await Admin.findById(adminId);
+    const match = admin?.profile_picture_url?.match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/]+=*)$/);
+    if (!match) return res.status(404).json({ error: 'Profile picture not found' });
+
+    res
+      .set('X-Content-Type-Options', 'nosniff')
+      .type(`image/${match[1]}`)
+      .send(Buffer.from(match[2], 'base64'));
+  } catch (err) {
+    console.error('Admin profile picture fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch admin profile picture' });
+  }
+});
+
+// ── ADMIN PROFILE ──────────────────────────────────────────────────────────
+router.get('/admin/profile', verifyAdminToken, async (req, res) => {
+  try {
+    if (process.env.DEMO_MODE === 'true') {
+      const admin = await demoAdminStore.findById(req.user.id, DEFAULT_ADMIN_ACCOUNTS);
+      if (!admin) return res.status(404).json({ error: 'Admin account not found' });
+      return res.json({ success: true, user: {
+        id: admin.id, adminId: admin.id, name: admin.name, email: admin.email,
+        profilePicture: getStoredProfilePictureUrl(admin),
+        profile_picture_url: getStoredProfilePictureUrl(admin),
+        role: admin.role, userType: 'admin'
+      } });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user || user.user_type !== 'admin') {
+      return res.status(404).json({ error: 'Admin account not found' });
+    }
+    const admin = await Admin.ensureFromUser(user);
+    if (!admin) return res.status(404).json({ error: 'Admin profile not found' });
+
+    res.json({
+      success: true,
+      user: {
+        id: admin.id,
+        adminId: admin.id,
+        name: admin.name,
+        email: admin.email,
+        profilePicture: getStoredProfilePictureUrl(admin),
+        profile_picture_url: getStoredProfilePictureUrl(admin),
+        role: admin.role,
+        userType: 'admin'
+      }
+    });
+  } catch (err) {
+    console.error('Admin profile fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch admin profile' });
+  }
+});
+
+router.put('/admin/profile', verifyAdminToken, async (req, res) => {
+  try {
+    const hasName = Object.prototype.hasOwnProperty.call(req.body, 'name');
+    const hasPicture = Object.prototype.hasOwnProperty.call(req.body, 'profilePicture');
+    const name = hasName ? String(req.body.name || '').trim() : null;
+    const profilePicture = hasPicture ? req.body.profilePicture : null;
+    if (hasName && (!name || name.length > 255)) {
+      return res.status(400).json({ error: 'Name must be between 1 and 255 characters' });
+    }
+    if (hasPicture && !isValidProfilePicture(profilePicture)) {
+      return res.status(400).json({ error: 'Profile picture must be a PNG, JPEG, or WebP image under 2 MB' });
+    }
+
+    if (process.env.DEMO_MODE === 'true') {
+      const admin = await demoAdminStore.updateProfile(req.user.id, {
+        name, profilePicture, updatePicture: hasPicture
+      }, DEFAULT_ADMIN_ACCOUNTS);
+      if (!admin) return res.status(404).json({ error: 'Admin account not found' });
+      const identity = buildAuthIdentity({
+        id: admin.id, email: admin.email, first_name: admin.name, last_name: '', user_type: 'admin'
+      }, admin);
+      const token = createAdminToken(identity);
+      setAuthCookie(res, token);
+      await logAudit(admin.id, 'PROFILE_UPDATE', 'admin', admin.id, 'success', null, {
+        adminId: admin.id,
+        adminName: admin.name,
+        nameUpdated: hasName,
+        profilePictureUpdated: hasPicture
+      });
+      return res.json({ success: true, token, user: {
+        ...identity,
+        profile_picture_url: getStoredProfilePictureUrl(admin),
+        role: admin.role
+      } });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user || user.user_type !== 'admin') {
+      return res.status(404).json({ error: 'Admin account not found' });
+    }
+
+    await Admin.ensureFromUser(user);
+    const admin = await Admin.updateProfile(req.user.id, {
+      name,
+      profilePicture,
+      updatePicture: hasPicture
+    });
+    if (!admin) return res.status(404).json({ error: 'Admin profile not found' });
+    const updatedUser = await User.findById(req.user.id);
+    const identity = buildAuthIdentity(updatedUser, admin);
+    const token = createAdminToken(identity);
+    setAuthCookie(res, token);
+
+    await logAudit(req.user.id, 'PROFILE_UPDATE', 'admin', req.user.id, 'success', null, {
+      adminId: admin.id,
+      adminName: admin.name,
+      nameUpdated: hasName,
+      profilePictureUpdated: hasPicture
+    });
+    res.json({
+      success: true,
+      token,
+      user: {
+        ...identity,
+        profile_picture_url: getStoredProfilePictureUrl(admin),
+        role: admin.role
+      }
+    });
+  } catch (err) {
+    console.error('Admin profile update error:', err);
+    res.status(500).json({ error: 'Failed to update admin profile' });
+  }
+});
+
+router.post('/admin/change-password', verifyAdminToken, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (typeof currentPassword !== 'string' || !currentPassword) {
+      return res.status(400).json({ error: 'Current password is required' });
+    }
+    if (!validateNewPassword(newPassword)) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters and cannot be "password"' });
+    }
+    if (process.env.DEMO_MODE === 'true') {
+      const admin = await demoAdminStore.verifyPassword(req.user.email, currentPassword, DEFAULT_ADMIN_ACCOUNTS);
+      if (!admin || Number(admin.id) !== Number(req.user.id)) {
+        return res.status(401).json({ error: 'Current password is incorrect' });
+      }
+      await demoAdminStore.updatePassword(admin.id, newPassword, DEFAULT_ADMIN_ACCOUNTS);
+      await logAudit(admin.id, 'PASSWORD_CHANGE', 'admin', admin.id, 'success', null, {
+        adminId: admin.id,
+        adminName: admin.name
+      });
+      return res.json({ success: true, message: 'Password changed successfully' });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user || user.user_type !== 'admin') {
+      return res.status(404).json({ error: 'Admin account not found' });
+    }
+    const verifiedUser = await User.verifyPassword(user.email, currentPassword);
+    if (!verifiedUser) return res.status(401).json({ error: 'Current password is incorrect' });
+
+    await User.updatePassword(user.email, newPassword, false);
+    await Admin.syncPasswordHash(user.id);
+    await logAudit(user.id, 'PASSWORD_CHANGE', 'admin', user.id, 'success', null, {
+      adminId: user.id,
+      adminName: [user.first_name, user.last_name].filter(Boolean).join(' ')
+    });
+    res.json({ success: true, message: 'Password changed successfully' });
+  } catch (err) {
+    console.error('Admin password change error:', err);
+    res.status(500).json({ error: 'Failed to change admin password' });
   }
 });
 

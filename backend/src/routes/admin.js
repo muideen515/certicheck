@@ -16,7 +16,13 @@ router.use((req, res, next) => {
     try {
       const adminId = req.user?.id || null;
       const status = res.statusCode >= 400 ? 'failed' : 'success';
-      const metadata = { method: req.method, path: req.path, statusCode: res.statusCode };
+      const metadata = {
+        method: req.method,
+        path: req.path,
+        statusCode: res.statusCode,
+        adminId: req.user?.adminId || adminId,
+        adminName: req.user?.name || [req.user?.firstName, req.user?.lastName].filter(Boolean).join(' ')
+      };
       if (process.env.DEMO_MODE === 'true') {
         return;
       }

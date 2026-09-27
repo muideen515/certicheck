@@ -77,7 +77,10 @@ router.put('/:entryId/revoke', verifyAdminToken, verifyAdmin, async (req, res) =
 
     const entry = await VerifyHistory.revoke(entryId, req.user.id);
 
-    await logAudit(req.user.id, 'CERTIFICATE_REVOKE', 'certificate', entryId, 'success');
+    await logAudit(req.user.adminId || req.user.id, 'CERTIFICATE_REVOKE', 'certificate', entryId, 'success', null, {
+      adminId: req.user.adminId || req.user.id,
+      adminName: req.user.name || [req.user.firstName, req.user.lastName].filter(Boolean).join(' ')
+    });
 
     res.json({
       success: true,

@@ -17,7 +17,6 @@ let adminReviewFilters = {
   status: 'all',
   sort: 'newest'
 };
-let adminActivityExpanded = false;
 let adminPollTimer = null;
 
 function startAdminDashboardPolling() {
@@ -173,6 +172,16 @@ async function requestJson(path, options = {}) {
   return data;
 }
 
+function updateAdminCredentials(data) {
+  if (data.token) {
+    adminState.token = data.token;
+    localStorage.setItem(ADMIN_TOKEN_KEY, data.token);
+  }
+  adminState.user = { ...adminState.user, ...data.user };
+  localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(adminState.user));
+  setAdminState(true, adminState.user);
+}
+
 function getApplicationList(data) {
   if (Array.isArray(data?.applications)) return data.applications;
   if (Array.isArray(data?.data)) return data.data;
@@ -180,9 +189,20 @@ function getApplicationList(data) {
 }
 
 function getAdminDisplayName(user) {
+  if (user?.name) return user.name;
   const firstName = user?.firstName || user?.first_name || '';
   const lastName = user?.lastName || user?.last_name || '';
   return [firstName, lastName].filter(Boolean).join(' ') || user?.email || 'Admin';
+}
+
+function escapeAdminHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[char]);
 }
 
 function getAdminHeaderLabel(user) {
@@ -194,27 +214,32 @@ function getAdminAvatarKey(user = adminState.user) {
   return `${ADMIN_AVATAR_KEY_PREFIX}${String(accountId).trim().toLowerCase()}`;
 }
 
+function getAdminAvatarSource(photo) {
+  return typeof photo === 'string' && photo.startsWith('/api/')
+    ? `${API_BASE_URL}${photo}`
+    : photo;
+}
+
 function updateAdminAvatar(user = adminState.user) {
   const avatar = document.getElementById('adminAvatarButton');
   if (!avatar) return;
 
-  let photo = null;
+  let photo = user?.profilePicture || user?.profile_picture_url || null;
   try {
-    photo = localStorage.getItem(getAdminAvatarKey(user));
+    photo = photo || localStorage.getItem(getAdminAvatarKey(user));
   } catch (err) {}
 
   if (photo) {
     const image = document.createElement('img');
-    image.src = photo;
+    image.src = getAdminAvatarSource(photo);
     image.alt = '';
     avatar.replaceChildren(image);
     avatar.classList.add('has-photo');
     return;
   }
 
-  const firstName = user?.firstName || user?.first_name || 'Admin';
-  const lastName = user?.lastName || user?.last_name || '';
-  avatar.textContent = `${firstName[0] || 'A'}${lastName[0] || ''}`.toUpperCase();
+  const nameParts = getAdminDisplayName(user).trim().split(/\s+/).filter(Boolean);
+  avatar.textContent = `${nameParts[0]?.[0] || 'A'}${nameParts.length > 1 ? nameParts[nameParts.length - 1][0] : ''}`.toUpperCase();
   avatar.classList.remove('has-photo');
 }
 
@@ -423,6 +448,11 @@ function openAdminDetail(item) {
   const status = app.status || item.status || '—';
   const submittedAt = app.submitted_at || app.created_at || item.timestamp || '—';
   const reviewedAt = app.reviewed_at || app.updated_at || null;
+  const processedByName = app.processed_by_admin_name || app.processedByAdminName || null;
+  const processedAt = app.processed_at || app.processedAt || reviewedAt;
+  const processedByPicture = app.processed_by_admin_profile_picture_url || app.processedByAdminProfilePictureUrl || null;
+  const actionLabel = String(app.action_type || status).toLowerCase();
+  const capitalizedActionLabel = actionLabel.charAt(0).toUpperCase() + actionLabel.slice(1);
   const issuerId = app.issuer_id || app.issuerId || '—';
   const applicantId = app.id || item.id || '—';
 
@@ -471,6 +501,16 @@ function openAdminDetail(item) {
     </div>
   `).join('');
 
+  const actionHistory = processedByName ? `
+    <div style="padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--bg-subtle);">
+      <div style="font-size:12px;font-weight:700;letter-spacing:0.08em;color:var(--text-secondary);text-transform:uppercase;margin-bottom:8px;">Action history</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        ${processedByPicture ? `<img src="${escapeAdminHtml(getAdminAvatarSource(processedByPicture))}" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover">` : ''}
+        <span>${escapeAdminHtml(capitalizedActionLabel)} by <strong>${escapeAdminHtml(processedByName)}</strong> on ${escapeAdminHtml(formatDateTime(processedAt))}</span>
+      </div>
+    </div>
+  ` : '';
+
   const metadataSummary = Object.keys(metadata || {}).length ? `
     <div style="padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--bg-subtle);">
       <div style="font-size:12px;font-weight:700;letter-spacing:0.08em;color:var(--text-secondary);text-transform:uppercase;margin-bottom:8px;">Certificate metadata</div>
@@ -504,6 +544,7 @@ function openAdminDetail(item) {
         ${metadataRows}
       </div>
 
+      ${actionHistory}
       ${metadataSummary}
 
       ${actionButtons}
@@ -532,19 +573,16 @@ function bindAdminReviewControls() {
 
   searchInput?.addEventListener('input', (event) => {
     adminReviewFilters.query = event.target.value;
-    adminActivityExpanded = false;
     renderAdminDashboard();
   });
 
   statusSelect?.addEventListener('change', (event) => {
     adminReviewFilters.status = event.target.value || 'all';
-    adminActivityExpanded = false;
     renderAdminDashboard();
   });
 
   sortSelect?.addEventListener('change', (event) => {
     adminReviewFilters.sort = event.target.value || 'newest';
-    adminActivityExpanded = false;
     renderAdminDashboard();
   });
 
@@ -665,7 +703,7 @@ function renderAdminDashboard() {
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <label style="display:flex;align-items:center;gap:8px;color:var(--text-secondary);font-size:13px;">
           <input id="adminSelectAll" type="checkbox" />
-          ${!adminActivityExpanded && reviewItems.length > 5 ? 'Select visible' : 'Select all'}
+          Select all
         </label>
         <button id="adminBulkApprove" class="btn-success" type="button">Approve selected</button>
         <button id="adminBulkReject" class="btn-danger" type="button">Reject selected</button>
@@ -674,13 +712,12 @@ function renderAdminDashboard() {
   `;
 
   if (!reviewItems.length) {
-    list.innerHTML = toolbar + `<div class="admin-activity-scroll">${renderEmpty("No matching applications found.")}</div>`;
+    list.innerHTML = toolbar + `<div class="admin-activity-scroll" role="region" aria-label="Admin activity list" tabindex="0">${renderEmpty("No matching applications found.")}</div>`;
     bindAdminReviewControls();
     return;
   }
 
-  const visibleReviewItems = adminActivityExpanded ? reviewItems : reviewItems.slice(0, 5);
-  const activityMarkup = visibleReviewItems.map(item => {
+  const activityMarkup = reviewItems.map(item => {
     const applicantEmail = item.contact_email || '';
     const applicantName = item.organization_name || 'Applicant';
     return `
@@ -696,7 +733,7 @@ function renderAdminDashboard() {
           <div class="admin-status-pill ${item.status === 'rejected' ? 'danger' : item.status === 'revoked' ? 'danger' : item.status === 'pending' ? 'warning' : item.status === 'approved' ? 'success' : item.status === 'checks' ? 'info' : 'info'}">${item.status}</div>
         </div>
 
-        <div style="margin-top:12px;color:var(--text-secondary);font-size:13px;line-height:1.7;">
+        <div class="admin-list-card-meta" style="margin-top:12px;color:var(--text-secondary);font-size:13px;line-height:1.7;">
           <div><strong>Organization:</strong> ${applicantName}</div>
           ${applicantEmail ? `<div><strong>Gmail / email:</strong> ${applicantEmail}</div>` : ''}
         </div>
@@ -708,18 +745,9 @@ function renderAdminDashboard() {
       </div>
     `;
   }).join('');
-  const activityToggle = reviewItems.length > 5
-    ? `<button class="btn-ghost" type="button" data-toggle-activity aria-expanded="${adminActivityExpanded}" aria-controls="adminActivityItems" style="margin-top:12px;">${adminActivityExpanded ? 'Show recent activity' : `View all activity (${reviewItems.length})`}</button>`
-    : '';
-
-  list.innerHTML = toolbar + `<div id="adminActivityItems" class="admin-activity-scroll">${activityMarkup}</div>${activityToggle}`;
+  list.innerHTML = toolbar + `<div id="adminActivityItems" class="admin-activity-scroll" role="region" aria-label="Admin activity list" tabindex="0">${activityMarkup}</div>`;
 
   bindAdminReviewControls();
-
-  list.querySelector('[data-toggle-activity]')?.addEventListener('click', () => {
-    adminActivityExpanded = !adminActivityExpanded;
-    renderAdminDashboard();
-  });
 
   list.querySelectorAll('[data-open-detail]').forEach(button => {
     button.addEventListener('click', (event) => {
@@ -909,13 +937,19 @@ document.addEventListener("DOMContentLoaded", () => {
   const navAdminEmail = document.getElementById('navAdminEmail');
   const menuName = document.getElementById('menuName');
   const menuEmail = document.getElementById('menuEmail');
+  const profileSettingsDialog = document.getElementById('adminProfileSettingsDialog');
+  const profileSettingsForm = document.getElementById('adminProfileSettingsForm');
+  const passwordChangeForm = document.getElementById('adminPasswordChangeForm');
+  const forgotPasswordDialog = document.getElementById('adminForgotPasswordDialog');
+  const forgotPasswordMessage = document.getElementById('adminForgotPasswordMessage');
 
   if (profileToggle && profileMenu) {
     profileToggle.addEventListener('click', (event) => {
       if (event.target.closest('#adminAvatarButton')) {
         event.preventDefault();
         profileMenu.style.display = 'none';
-        const photo = localStorage.getItem(getAdminAvatarKey());
+        const photo = adminState.user?.profilePicture || adminState.user?.profile_picture_url ||
+          localStorage.getItem(getAdminAvatarKey());
         if (!photo) {
           avatarInput?.click();
           return;
@@ -928,24 +962,28 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  avatarInput?.addEventListener('change', () => {
+  avatarInput?.addEventListener('change', async () => {
     const file = avatarInput.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/') || file.size > 2 * 1024 * 1024) {
-      showAdminToast('Choose an image smaller than 2 MB.', 'danger');
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) {
+      showAdminToast('Choose a PNG, JPEG, or WebP image smaller than 2 MB.', 'danger');
       avatarInput.value = '';
       return;
     }
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
-        localStorage.setItem(getAdminAvatarKey(), String(reader.result));
+        const data = await requestJson('/auth/admin/profile', {
+          method: 'PUT',
+          body: JSON.stringify({ profilePicture: String(reader.result) })
+        });
+        updateAdminCredentials(data);
         updateAdminAvatar();
         if (avatarMenu) avatarMenu.style.display = 'none';
         showAdminToast('Profile photo updated.', 'success');
       } catch (err) {
-        showAdminToast('Unable to save this photo on the current device.', 'danger');
+        showAdminToast(err.message || 'Unable to save this profile photo.', 'danger');
       }
       avatarInput.value = '';
     };
@@ -954,9 +992,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById('adminAvatarView')?.addEventListener('click', () => {
-    const photo = localStorage.getItem(getAdminAvatarKey());
+    const photo = adminState.user?.profilePicture || adminState.user?.profile_picture_url ||
+      localStorage.getItem(getAdminAvatarKey());
     if (!photo || !avatarDialog || !avatarPreview) return;
-    avatarPreview.src = photo;
+    avatarPreview.src = getAdminAvatarSource(photo);
     avatarMenu.style.display = 'none';
     avatarDialog.showModal();
   });
@@ -965,11 +1004,20 @@ document.addEventListener("DOMContentLoaded", () => {
     avatarDialog?.close();
     avatarInput?.click();
   });
-  document.getElementById('adminAvatarRemove')?.addEventListener('click', () => {
-    localStorage.removeItem(getAdminAvatarKey());
-    updateAdminAvatar();
-    avatarMenu.style.display = 'none';
-    showAdminToast('Profile photo removed.', 'success');
+  document.getElementById('adminAvatarRemove')?.addEventListener('click', async () => {
+    try {
+      const data = await requestJson('/auth/admin/profile', {
+        method: 'PUT',
+        body: JSON.stringify({ profilePicture: null })
+      });
+      updateAdminCredentials(data);
+      localStorage.removeItem(getAdminAvatarKey());
+      updateAdminAvatar();
+      avatarMenu.style.display = 'none';
+      showAdminToast('Profile photo removed.', 'success');
+    } catch (err) {
+      showAdminToast(err.message || 'Unable to remove the profile photo.', 'danger');
+    }
   });
   document.getElementById('adminAvatarDialogClose')?.addEventListener('click', () => avatarDialog?.close());
   avatarDialog?.addEventListener('click', event => {
@@ -979,6 +1027,89 @@ document.addEventListener("DOMContentLoaded", () => {
   if (menuSignOut) {
     menuSignOut.addEventListener('click', () => setAdminState(false));
   }
+
+  document.getElementById('menuProfileSettings')?.addEventListener('click', () => {
+    document.getElementById('adminProfileNameInput').value = getAdminDisplayName(adminState.user);
+    document.getElementById('adminProfileSettingsError').textContent = '';
+    profileMenu.style.display = 'none';
+    profileSettingsDialog?.showModal();
+  });
+  document.getElementById('adminProfileSettingsClose')?.addEventListener('click', () => profileSettingsDialog?.close());
+
+  profileSettingsForm?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const error = document.getElementById('adminProfileSettingsError');
+    error.textContent = '';
+    try {
+      const data = await requestJson('/auth/admin/profile', {
+        method: 'PUT',
+        body: JSON.stringify({ name: document.getElementById('adminProfileNameInput').value.trim() })
+      });
+      updateAdminCredentials(data);
+      profileSettingsDialog.close();
+      showAdminToast('Profile updated.', 'success');
+    } catch (err) {
+      error.textContent = err.message || 'Unable to update profile.';
+    }
+  });
+
+  passwordChangeForm?.addEventListener('submit', async event => {
+    event.preventDefault();
+    try {
+      await requestJson('/auth/admin/change-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          currentPassword: document.getElementById('adminCurrentPassword').value,
+          newPassword: document.getElementById('adminNewPassword').value
+        })
+      });
+      passwordChangeForm.reset();
+      showAdminToast('Password updated.', 'success');
+    } catch (err) {
+      showAdminToast(err.message || 'Unable to update password.', 'danger');
+    }
+  });
+
+  document.getElementById('adminForgotPassword')?.addEventListener('click', () => {
+    const email = document.getElementById('adminEmail').value.trim();
+    document.getElementById('adminResetEmail').value = email;
+    forgotPasswordMessage.textContent = '';
+    forgotPasswordDialog?.showModal();
+  });
+  document.getElementById('adminForgotPasswordClose')?.addEventListener('click', () => forgotPasswordDialog?.close());
+  document.getElementById('adminForgotPasswordForm')?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const email = document.getElementById('adminResetEmail').value.trim();
+    try {
+      const data = await requestJson('/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email })
+      });
+      forgotPasswordMessage.textContent = data.message || 'If the admin account exists, a reset code was sent.';
+    } catch (err) {
+      forgotPasswordMessage.textContent = err.message || 'Unable to send a reset code.';
+    }
+  });
+  document.getElementById('adminResetPasswordForm')?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const email = document.getElementById('adminResetEmail').value.trim();
+    const otp = document.getElementById('adminResetOtp').value.trim();
+    const newPassword = document.getElementById('adminResetNewPassword').value;
+    try {
+      await requestJson('/auth/verify-forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email, otp })
+      });
+      const data = await requestJson('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ email, otp, newPassword })
+      });
+      forgotPasswordMessage.textContent = data.message || 'Password reset successfully.';
+      showAdminToast('Password reset. Sign in with your new password.', 'success');
+    } catch (err) {
+      forgotPasswordMessage.textContent = err.message || 'Unable to reset password.';
+    }
+  });
 
   // update navbar profile when state present
   if (adminState.user) {
@@ -991,4 +1122,5 @@ document.addEventListener("DOMContentLoaded", () => {
       updateAdminAvatar(adminState.user);
     } catch (e) {}
   }
+
 });
