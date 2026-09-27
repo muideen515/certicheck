@@ -202,6 +202,8 @@ input, select, textarea { font-family: inherit; }
 .admin-avatar-dialog-header h2 { font-family:var(--font-display); font-size:18px; }
 .admin-avatar-dialog > img { display:block; width:min(100%,340px); max-height:55vh; object-fit:contain; margin:0 auto 16px; border-radius:12px; }
 .admin-avatar-dialog > .btn-outline { width:100%; justify-content:center; }
+.admin-name-form { display:grid; gap:10px; }
+.admin-name-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:6px; }
 .profile-card .btn-primary, .profile-card .btn-ghost { width:100%; }
 .admin-list-card { background: var(--bg-card); border:1px solid var(--border); border-radius:16px; padding:18px; box-shadow: var(--shadow-sm); margin-bottom:14px; }
 .admin-list-card-actions {
@@ -2341,7 +2343,7 @@ body.dark .powered-by-logo img {
   .admin-list-card > div:nth-child(2) { margin-top:8px !important; font-size:12px !important; line-height:1.35 !important; }
   .admin-list-card-actions { gap:6px; margin-top:8px; }
   .admin-list-card-actions > button { padding:8px 6px; font-size:12px; }
-  .quick-actions .btn-outline { min-height:38px; padding:8px 10px; font-size:12px; }
+  .admin-name-actions { flex-wrap:wrap; }
   .page-tag {
     font-size: 10px;
   }
