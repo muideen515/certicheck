@@ -669,7 +669,7 @@
           </div>
           <div class="field">
             <label class="field-label" for="issuerHolderEmail">Holder Email</label>
-            <input class="field-input" id="issuerHolderEmail" placeholder="jane@example.com" type="email" value="jane@example.com"/>
+            <input class="field-input" id="issuerHolderEmail" placeholder="jane@example.com" type="email" autocomplete="email" required />
           </div>
           <div class="field">
             <label class="field-label" for="issuerType">Certificate Type</label>
@@ -678,6 +678,11 @@
           <div class="field">
             <label class="field-label" for="issuerMetadata">Metadata (optional)</label>
             <textarea class="field-input" id="issuerMetadata" rows="3" placeholder='e.g. {"course":"Blockchain 101","grade":"Distinction"}'></textarea>
+          </div>
+          <div class="field">
+            <label class="field-label" for="issuerStaticAttachment">Supporting file (optional)</label>
+            <input class="field-input" id="issuerStaticAttachment" type="file" />
+            <small class="small-text">Any file type, including PDF. Maximum 4 MB.</small>
           </div>
           <div class="field">
             <label class="field-label" for="issuerExpiry">Expiry Date (optional)</label>
@@ -747,23 +752,6 @@
         <p class="page-desc">Everything you need to integrate the NebulaCert SDK and API.</p>
       </div>
       <div class="resources-grid" id="resourcesGrid"></div>
-    </div>
-  </div>
-
-  <div id="verificationModal" class="verification-modal" aria-hidden="true">
-    <div class="verification-modal-backdrop" data-close-modal="true"></div>
-    <div class="verification-modal-card" role="dialog" aria-modal="true" aria-labelledby="verificationModalStatus" aria-describedby="verificationModalMessage">
-      <button class="verification-modal-close" id="verificationModalClose" type="button" aria-label="Close verification result">×</button>
-      <div class="verification-modal-icon-wrap">
-        <div id="verificationModalIcon" class="verification-modal-icon" aria-hidden="true"></div>
-      </div>
-      <div id="verificationModalStatus" class="verification-modal-status">VALID</div>
-      <div id="verificationModalMessage" class="verification-modal-message">This certificate is authentic and has not been revoked.</div>
-      <div id="verificationModalMeta" class="verification-modal-meta"></div>
-      <div class="verification-modal-actions">
-        <button id="verificationModalSecondary" class="btn-ghost verification-modal-secondary" type="button">View details</button>
-        <button id="verificationModalPrimary" class="btn-primary verification-modal-primary" type="button">Close</button>
-      </div>
     </div>
   </div>
 

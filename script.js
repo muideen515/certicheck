@@ -889,6 +889,8 @@ function getCertificateOptions() {
   ];
 }
 
+const MAX_CERTIFICATE_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+
 function renderCertificateDetailFields(certificateType) {
   const container = document.getElementById('issuerDynamicCertificateFields');
   if (!container) return;
@@ -922,12 +924,13 @@ function renderCertificateDetailFields(certificateType) {
     `;
   }).join('');
 
-  const mediaHtml = `
+  const attachmentHtml = `
     <div class="field">
-      <label class="field-label" for="issuerCertificateMediaUpload">Attachment / media to save with certificate</label>
-      <input id="issuerCertificateMediaUpload" class="field-input" type="file" accept="image/*,.pdf,.doc,.docx,.png,.jpg,.jpeg,.webp" />
+      <label class="field-label" for="issuerCertificateAttachmentUpload">Supporting file (optional)</label>
+      <input id="issuerCertificateAttachmentUpload" class="field-input" type="file" />
+      <small class="small-text">Any file type, including PDF. Maximum 4 MB.</small>
     </div>
-    <div id="issuerCertificatePreview" style="display:none;border:1px solid var(--border-light);border-radius:12px;padding:12px;background:rgba(76,29,149,0.03);color:var(--text-secondary);font-size:13px;"></div>
+    <div id="issuerCertificateAttachmentPreview" style="display:none;border:1px solid var(--border-light);border-radius:12px;padding:12px;background:rgba(76,29,149,0.03);color:var(--text-secondary);font-size:13px;"></div>
   `;
 
   container.innerHTML = `
@@ -935,23 +938,24 @@ function renderCertificateDetailFields(certificateType) {
       ${html}
     </div>
     <div style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;">
-      ${mediaHtml}
+      ${attachmentHtml}
     </div>
   `;
 
-  const mediaInput = document.getElementById('issuerCertificateMediaUpload');
-  const preview = document.getElementById('issuerCertificatePreview');
-  if (mediaInput && preview) {
-    mediaInput.addEventListener('change', () => {
-      const file = mediaInput.files && mediaInput.files[0];
+  const attachmentInput = document.getElementById('issuerCertificateAttachmentUpload');
+  const preview = document.getElementById('issuerCertificateAttachmentPreview');
+  if (attachmentInput && preview) {
+    attachmentInput.addEventListener('change', () => {
+      const file = attachmentInput.files && attachmentInput.files[0];
       if (!file) {
         preview.style.display = 'none';
         preview.textContent = '';
         return;
       }
       preview.style.display = 'block';
-      const icon = file.type.startsWith('image/') ? 'image' : file.type.includes('pdf') ? 'fileText' : 'paperclip';
-      preview.innerHTML = `<strong>${iconSvg(icon)} Attached file:</strong> ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+      preview.textContent = file.size > MAX_CERTIFICATE_ATTACHMENT_BYTES
+        ? 'This file exceeds the 4 MB attachment limit.'
+        : `Attached file: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
     });
   }
 }
@@ -964,6 +968,12 @@ function readFileAsDataUrl(file) {
     reader.onerror = () => reject(new Error('Unable to read uploaded media'));
     reader.readAsDataURL(file);
   });
+}
+
+function getHolderNotificationMessage(notification) {
+  if (notification?.sent) return 'The holder notification was sent by email.';
+  if (notification?.mode === 'console') return 'Development mode: the holder email was logged to the backend console, not delivered.';
+  return 'Certificate issued, but the holder notification could not be sent. Check the backend email configuration.';
 }
 
 function collectCertificateFieldValues(certificateType) {
@@ -1172,6 +1182,10 @@ function renderRoleLandingHome() {
                   <input class="field-input" id="issuerHomeHolderName" type="text" placeholder="Jane Doe" required />
                 </div>
                 <div class="field">
+                  <label class="field-label" for="issuerHomeHolderEmail">Holder email</label>
+                  <input class="field-input" id="issuerHomeHolderEmail" type="email" placeholder="jane@example.com" autocomplete="email" required />
+                </div>
+                <div class="field">
                   <label class="field-label" for="issuerHomeHolderWallet">Holder wallet / ID</label>
                   <input class="field-input" id="issuerHomeHolderWallet" type="text" placeholder="7xKX...9mQ2 or student ID" />
                 </div>
@@ -1319,15 +1333,21 @@ function renderRoleLandingHome() {
         const notice = document.getElementById('issuerDashboardNotice');
         const result = document.getElementById('issuerDashboardResult');
         const holderName = document.getElementById('issuerHomeHolderName').value.trim();
+        const holderEmailInput = document.getElementById('issuerHomeHolderEmail');
+        const holderEmail = holderEmailInput.value.trim();
         const holderWallet = document.getElementById('issuerHomeHolderWallet').value.trim();
         const certificateType = document.getElementById('issuerHomeType').value.trim();
         const token = getAuthToken();
         const user = getStoredUser();
 
         const connectedWallet = getConnectedWalletAddress();
-        if (!holderName || !certificateType || !token || !user) {
-          notice.textContent = 'Please complete the form and ensure you are signed in as an issuer.';
+        if (!holderName || !holderEmail || !certificateType || !token || !user) {
+          notice.textContent = 'Enter the holder name, a valid holder email, and certificate type. Ensure you are signed in as an issuer.';
           notice.style.display = 'block';
+          return;
+        }
+        if (!holderEmailInput.checkValidity()) {
+          holderEmailInput.reportValidity();
           return;
         }
         const detailFields = collectCertificateFieldValues(certificateType);
@@ -1347,8 +1367,11 @@ function renderRoleLandingHome() {
         result.innerHTML = '';
 
         try {
-          const mediaFile = document.getElementById('issuerCertificateMediaUpload')?.files?.[0] || null;
-          const mediaData = await readFileAsDataUrl(mediaFile);
+          const attachmentFile = document.getElementById('issuerCertificateAttachmentUpload')?.files?.[0] || null;
+          if (attachmentFile && attachmentFile.size > MAX_CERTIFICATE_ATTACHMENT_BYTES) {
+            throw new Error('Supporting files must be 4 MB or smaller.');
+          }
+          const attachmentData = await readFileAsDataUrl(attachmentFile);
           const certificateId = `CERT-${institution.replace(/\s+/g, '').substring(0, 4).toUpperCase()}-${Date.now().toString().slice(-6)}`;
           const metadata = {
             type: 'Auto-generated certificate',
@@ -1360,16 +1383,15 @@ function renderRoleLandingHome() {
             issuerEmail: user.email || 'issuer@certicheck.com',
             issuerAccountType: user.user_type || 'issuer',
             ...detailFields,
-            media: mediaData ? {
-              name: mediaFile?.name || 'uploaded-media',
-              type: mediaFile?.type || 'application/octet-stream',
-              size: mediaFile?.size || 0,
-              dataUrl: mediaData,
-              uploadLocation: 'Embedded in certificate metadata and certificate record',
-              storage: 'local certificate metadata / IPFS metadata bundle'
+            attachment: attachmentData ? {
+              name: attachmentFile?.name || 'certificate-attachment',
+              type: attachmentFile?.type || 'application/octet-stream',
+              size: attachmentFile?.size || 0,
+              dataUrl: attachmentData,
+              storage: 'Embedded in certificate metadata and IPFS metadata bundle'
             } : {
-              uploadLocation: 'No media uploaded',
-              storage: 'local certificate metadata / IPFS metadata bundle'
+              name: null,
+              storage: 'No supporting file attached'
             }
           };
 
@@ -1377,6 +1399,7 @@ function renderRoleLandingHome() {
             certificate_id: certificateId,
             certificateId,
             holderName,
+            holderEmail,
             holderWallet,
             certificateType,
             issuerName: institution,
@@ -1392,7 +1415,7 @@ function renderRoleLandingHome() {
           const payload = {
             certificateId,
             holderName,
-            holderEmail: user.email || 'holder@example.com',
+            holderEmail,
             holderWallet,
             certificateType,
             issuerName: institution,
@@ -1453,6 +1476,7 @@ function renderRoleLandingHome() {
           result.innerHTML = `
             <div class="alert alert-success" style="margin-bottom:0;">
               <strong>Certificate issued successfully.</strong>
+              <div style="margin-top:8px;font-size:13px;">${getHolderNotificationMessage(data.holder_notification)}</div>
               <div style="margin-top:12px;display:grid;gap:8px;font-size:13px;">
                 <div><strong>Certificate ID:</strong> ${nextId}</div>
                 <div class="issuer-cid"><strong>IPFS CID:</strong> <span>${ipfsCid}</span></div>
@@ -1517,11 +1541,6 @@ function navigate(page) {
   document.querySelector(".page.active")?.classList.remove("active");
   document.querySelector(".nav-item.active")?.classList.remove("active");
 
-  const modal = document.getElementById('verificationModal');
-  if (modal && modal.classList.contains('show')) {
-    closeVerificationModal();
-  }
-
   // Activate new page
   const el = document.getElementById(`page-${page}`);
   if (el) { el.classList.add("active"); currentPage = page; }
@@ -1555,145 +1574,12 @@ function initAuthPageForms(page) {
   if (page === "change-password") initChangePasswordForm();
 }
 
-function getVerificationModalState(response, fallbackId = 'Certificate') {
-  const certificate = response?.certificate || {};
-  const rawStatus = String(certificate.verification_status || certificate.status || response?.status || 'not_found').toLowerCase();
-
-  if (rawStatus === 'valid') {
-    return {
-      state: 'valid',
-      label: 'VALID',
-      title: 'VALID',
-      message: 'This certificate is authentic and has not been revoked.',
-      accent: '#10b981',
-      softClass: 'verification-modal-valid',
-      detail: {
-        id: certificate.certificate_id || certificate.certificateId || fallbackId,
-        holder: certificate.holderName || certificate.holder || certificate.holder_name || certificate.holderEmail || '—',
-        issuer: certificate.issuerName || certificate.issuer || certificate.issuer_name || certificate.issuer_wallet || 'Unknown issuer',
-        issued: certificate.checked_at || certificate.verifiedAt || certificate.issued_at || new Date().toISOString(),
-        status: 'Valid',
-        revokedAt: certificate.revoked_at || null
-      }
-    };
-  }
-
-  if (rawStatus === 'revoked') {
-    return {
-      state: 'revoked',
-      label: 'REVOKED',
-      title: 'REVOKED',
-      message: 'This certificate was issued but has been revoked by the issuer.',
-      accent: '#f59e0b',
-      softClass: 'verification-modal-revoked',
-      detail: {
-        id: certificate.certificate_id || certificate.certificateId || fallbackId,
-        holder: certificate.holderName || certificate.holder || certificate.holder_name || certificate.holderEmail || '—',
-        issuer: certificate.issuerName || certificate.issuer || certificate.issuer_name || certificate.issuer_wallet || 'Unknown issuer',
-        issued: certificate.checked_at || certificate.verifiedAt || certificate.issued_at || new Date().toISOString(),
-        status: 'Revoked',
-        revokedAt: certificate.revoked_at || certificate.revokedAt || null
-      }
-    };
-  }
-
-  return {
-    state: 'not_found',
-    label: 'NOT FOUND',
-    title: 'NOT FOUND',
-    message: 'No certificate matches this ID. It may be invalid or never issued.',
-    accent: '#ef4444',
-    softClass: 'verification-modal-error',
-    detail: {
-      id: fallbackId,
-      holder: '—',
-      issuer: 'Unknown',
-      issued: '—',
-      status: 'Not found',
-      revokedAt: null
-    }
-  };
-}
-
-function closeVerificationModal() {
-  const modal = document.getElementById('verificationModal');
-  if (!modal) return;
-  modal.classList.remove('show');
-  modal.setAttribute('aria-hidden', 'true');
-  document.body.style.overflow = '';
-}
-
-function openVerificationModal(response, fallbackId = 'Certificate') {
-  const modal = document.getElementById('verificationModal');
-  if (!modal) return;
-
-  const state = getVerificationModalState(response, fallbackId);
-  const statusEl = document.getElementById('verificationModalStatus');
-  const textEl = document.getElementById('verificationModalMessage');
-  const metaEl = document.getElementById('verificationModalMeta');
-  const iconEl = document.getElementById('verificationModalIcon');
-  const primaryBtn = document.getElementById('verificationModalPrimary');
-  const secondaryBtn = document.getElementById('verificationModalSecondary');
-
-  if (!statusEl || !textEl || !metaEl || !iconEl || !primaryBtn || !secondaryBtn) return;
-
-  modal.dataset.state = state.state;
-  modal.classList.remove('verification-modal-valid', 'verification-modal-revoked', 'verification-modal-error');
-  modal.classList.add(state.softClass);
-  modal.setAttribute('aria-hidden', 'false');
-
-  statusEl.textContent = state.title;
-  textEl.textContent = state.message;
-
-  if (state.state === 'valid') {
-    iconEl.innerHTML = '<svg viewBox="0 0 64 64" aria-hidden="true"><circle class="verification-ring" cx="32" cy="32" r="24"></circle><path class="verification-check" d="M18 33l9 9 19-22"></path></svg>';
-    secondaryBtn.style.display = 'inline-flex';
-    secondaryBtn.textContent = 'View details';
-    secondaryBtn.onclick = () => {
-      const resultCard = document.getElementById('verifyResult');
-      if (resultCard) resultCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      closeVerificationModal();
-    };
-  } else if (state.state === 'revoked') {
-    iconEl.innerHTML = '<svg viewBox="0 0 64 64" aria-hidden="true"><circle class="verification-ring warning-ring" cx="32" cy="32" r="24"></circle><path class="verification-triangle" d="M32 16l18 32H14z"></path><path class="verification-warning-line" d="M32 25v12"></path><circle class="verification-warning-dot" cx="32" cy="42" r="2.5"></circle></svg>';
-    secondaryBtn.style.display = 'none';
-  } else {
-    iconEl.innerHTML = '<svg viewBox="0 0 64 64" aria-hidden="true"><circle class="verification-ring error-ring" cx="32" cy="32" r="24"></circle><path class="verification-x" d="M22 22l20 20M42 22L22 42"></path></svg>';
-    secondaryBtn.style.display = 'none';
-  }
-
-  const issuedValue = state.detail.issued && state.detail.issued !== '—' ? new Date(state.detail.issued).toLocaleString() : '—';
-  const revokedValue = state.detail.revokedAt ? new Date(state.detail.revokedAt).toLocaleString() : '—';
-
-  metaEl.innerHTML = `
-    <div class="verification-modal-grid">
-      <div><span>Certificate</span><strong>${state.detail.id}</strong></div>
-      <div><span>Holder</span><strong>${state.detail.holder}</strong></div>
-      <div><span>Issuer</span><strong>${state.detail.issuer}</strong></div>
-      <div><span>Issued</span><strong>${issuedValue}</strong></div>
-      ${state.state === 'revoked' ? `<div><span>Revoked</span><strong>${revokedValue}</strong></div>` : ''}
-      <div><span>Status</span><strong>${state.detail.status}</strong></div>
-    </div>
-  `;
-
-  primaryBtn.textContent = state.state === 'not_found' ? 'Verify another' : 'Close';
-  primaryBtn.onclick = closeVerificationModal;
-
-  modal.classList.add('show');
-  document.body.style.overflow = 'hidden';
-  setTimeout(() => {
-    const closeBtn = document.getElementById('verificationModalClose');
-    if (closeBtn) closeBtn.focus();
-  }, 20);
-}
-
 async function renderVerifyResult(response) {
   const resultEl = document.getElementById("verifyResult");
   if (!resultEl) return;
 
   if (!response || !response.success) {
     resultEl.innerHTML = `<div class="alert alert-error"><strong>Not Found</strong><br/>${response?.error || 'No certificate matched that ID.'}</div>`;
-    openVerificationModal(response || { status: 'not_found' }, 'Certificate');
     return;
   }
 
@@ -1729,7 +1615,6 @@ async function renderVerifyResult(response) {
     </div>
   `;
 
-  openVerificationModal(response, certificate.certificate_id || certificate.certificateId || 'Certificate');
 }
 
 async function verifyCertificate() {
@@ -2249,25 +2134,58 @@ function initIssuerDashboard() {
       certificateType: document.getElementById("issuerType")?.value?.trim() || "",
       issuerName: document.getElementById("issuerName")?.value?.trim() || "",
       issuerWallet: document.getElementById("issuerWallet")?.value?.trim() || "",
-      metadata: document.getElementById("issuerMetadata")?.value || null,
+      metadata: {},
       expiry: document.getElementById("issuerExpiry")?.value || null,
       walletAddress: document.getElementById("issuerWallet")?.value?.trim() || "",
       issueOnChain: document.getElementById("issuerOnChain")?.checked || false
     };
 
+    const rawMetadata = document.getElementById('issuerMetadata')?.value?.trim() || '';
+    if (rawMetadata) {
+      try {
+        const parsedMetadata = JSON.parse(rawMetadata);
+        if (!parsedMetadata || typeof parsedMetadata !== 'object' || Array.isArray(parsedMetadata)) throw new Error();
+        payload.metadata = parsedMetadata;
+      } catch (err) {
+        errorEl.textContent = 'Metadata must be a valid JSON object.';
+        errorEl.style.display = 'block';
+        return;
+      }
+    }
+
+    const attachmentFile = document.getElementById('issuerStaticAttachment')?.files?.[0] || null;
+    if (attachmentFile && attachmentFile.size > MAX_CERTIFICATE_ATTACHMENT_BYTES) {
+      errorEl.textContent = 'Supporting files must be 4 MB or smaller.';
+      errorEl.style.display = 'block';
+      return;
+    }
+
     button.disabled = true;
     button.textContent = "Issuing...";
 
     try {
+      const attachmentData = await readFileAsDataUrl(attachmentFile);
+      payload.metadata = {
+        ...payload.metadata,
+        expiry: payload.expiry,
+        attachment: attachmentData ? {
+          name: attachmentFile.name,
+          type: attachmentFile.type || 'application/octet-stream',
+          size: attachmentFile.size,
+          dataUrl: attachmentData,
+          storage: 'Embedded in certificate metadata and IPFS metadata bundle'
+        } : null
+      };
+
       // If issuer requested on-chain issuance and Phantom is connected, perform client-side pin + sign
       if (payload.issueOnChain && window.solana && window.solana.isPhantom) {
         const metadata = {
+          ...payload.metadata,
           certificateId: payload.certificateId,
           holderName: payload.holderName,
           holderEmail: payload.holderEmail,
           certificateType: payload.certificateType,
           issuerName: payload.issuerName,
-          extra: payload.metadata || null,
           expiry: payload.expiry || null
         };
 
@@ -2338,6 +2256,7 @@ function initIssuerDashboard() {
               <div><strong>Transaction:</strong> ${txid}</div>
               <div><strong>Explorer:</strong> <a href="https://explorer.solana.com/tx/${txid}?cluster=devnet" target="_blank">View on Solana Explorer</a></div>
               <div class="issuer-cid"><strong>IPFS CID:</strong> <span>${ipfsCid}</span></div>
+              <div>${getHolderNotificationMessage(recordJson.holder_notification)}</div>
             </div>
           </div>`;
 
@@ -2411,6 +2330,7 @@ function initIssuerDashboard() {
             <div><strong>Transaction status:</strong> ${certificate.blockchainTransactionId ? txStatus : 'Not submitted'}</div>
             ${explorerLink ? `<div>${explorerLink}</div>` : ''}
             <div class="issuer-cid"><strong>IPFS CID:</strong> <span>${certificate.ipfsCid || 'N/A'}</span></div>
+            <div>${getHolderNotificationMessage(data.holder_notification)}</div>
           </div>
         </div>`;
 

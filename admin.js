@@ -5,13 +5,13 @@ const apiFetch = (url, options = {}) => fetch(url, { ...options, credentials: "i
 const ADMIN_SESSION_KEY = "certicheck_admin_logged_in";
 const ADMIN_TOKEN_KEY = "certicheck_admin_token";
 const ADMIN_USER_KEY = "certicheck_admin_user";
+const ADMIN_AVATAR_KEY_PREFIX = 'certicheck_admin_avatar:';
 // Reduced admin sections: keep only 'audit' and surface other items in audit view
 const ADMIN_SECTIONS = [
   { id: "audit", label: "Audit log" },
 ];
 
 let adminCurrentSection = "audit";
-let adminAuditFilter = 'all';
 let adminReviewFilters = {
   query: '',
   status: 'all',
@@ -189,6 +189,35 @@ function getAdminHeaderLabel(user) {
   return `Signed in as ${getAdminDisplayName(user)} (Admin)`;
 }
 
+function getAdminAvatarKey(user = adminState.user) {
+  const accountId = user?.id || user?.email || 'current';
+  return `${ADMIN_AVATAR_KEY_PREFIX}${String(accountId).trim().toLowerCase()}`;
+}
+
+function updateAdminAvatar(user = adminState.user) {
+  const avatar = document.getElementById('adminAvatarButton');
+  if (!avatar) return;
+
+  let photo = null;
+  try {
+    photo = localStorage.getItem(getAdminAvatarKey(user));
+  } catch (err) {}
+
+  if (photo) {
+    const image = document.createElement('img');
+    image.src = photo;
+    image.alt = '';
+    avatar.replaceChildren(image);
+    avatar.classList.add('has-photo');
+    return;
+  }
+
+  const firstName = user?.firstName || user?.first_name || 'Admin';
+  const lastName = user?.lastName || user?.last_name || '';
+  avatar.textContent = `${firstName[0] || 'A'}${lastName[0] || ''}`.toUpperCase();
+  avatar.classList.remove('has-photo');
+}
+
 function setAdminState(enabled, user = null) {
   const loginCard = document.getElementById("adminLoginCard");
   const dashboard = document.getElementById("adminDashboard");
@@ -209,7 +238,7 @@ function setAdminState(enabled, user = null) {
     sessionStorage.setItem(ADMIN_SESSION_KEY, "1");
     startAdminDashboardPolling();
     if (loginCard) loginCard.style.display = "none";
-    if (dashboard) dashboard.style.display = "block";
+    if (dashboard) dashboard.style.display = "flex";
     if (statsSection) statsSection.style.display = 'block';
     if (mainGrid) mainGrid.style.display = 'grid';
     clearAdminError();
@@ -232,12 +261,8 @@ function setAdminState(enabled, user = null) {
     if (profileName) profileName.textContent = displayName;
     if (profileEmail) profileEmail.textContent = user?.email || '';
     if (profileRole) profileRole.innerHTML = `<span style="background:rgba(124,58,237,0.08);color:var(--purple-mid);padding:6px 10px;border-radius:999px;font-weight:700;font-size:12px;">${(user?.userType || user?.user_type || 'admin').toUpperCase()}</span>`;
-    const firstName = user?.firstName || user?.first_name;
-    const lastName = user?.lastName || user?.last_name;
-    if (avatar && firstName) {
-      const initials = (firstName[0] || 'A') + (lastName ? lastName[0] : 'D');
-      avatar.textContent = initials.toUpperCase();
-    }
+    if (avatar) avatar.textContent = getAdminDisplayName(user).slice(0, 1).toUpperCase();
+    updateAdminAvatar(user);
     loadAdminDashboard();
     return;
   }
@@ -253,31 +278,6 @@ function setAdminState(enabled, user = null) {
   if (statsSection) statsSection.style.display = 'none';
   if (mainGrid) mainGrid.style.display = 'none';
   clearAdminError();
-}
-
-// Quick action wiring: filter audit view
-function bindQuickActions() {
-  const container = document.querySelector('.quick-actions');
-  if (!container) return;
-  container.querySelectorAll('button[data-action-quick]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const action = btn.dataset.actionQuick;
-      adminActivityExpanded = false;
-      adminAuditFilter = action || 'all';
-      if (['pending', 'approved', 'rejected', 'revoked', 'checks'].includes(action)) {
-        adminReviewFilters.status = action;
-      } else {
-        adminReviewFilters.status = 'all';
-      }
-      adminCurrentSection = 'audit';
-      renderAdminDashboard();
-    });
-  });
-}
-
-function renderAdminTabs() {
-  // tabs intentionally removed — quick actions control the view
-  return;
 }
 
 function setAdminSection(section) {
@@ -422,7 +422,7 @@ function openAdminDetail(item) {
   const role = app.contact_role || app.contactRole || '—';
   const status = app.status || item.status || '—';
   const submittedAt = app.submitted_at || app.created_at || item.timestamp || '—';
-  const reviewedAt = app.reviewed_at || app.updated_at || '—';
+  const reviewedAt = app.reviewed_at || app.updated_at || null;
   const issuerId = app.issuer_id || app.issuerId || '—';
   const applicantId = app.id || item.id || '—';
 
@@ -584,9 +584,8 @@ async function handleBulkAction(action) {
 function renderAdminDashboard() {
   const list = document.getElementById("adminList");
   const summary = document.getElementById("adminSummary");
-  const intro = document.getElementById("adminSectionIntro");
   const statsGrid = document.getElementById("adminStatsGrid");
-  if (!list || !summary || !intro) return;
+  if (!list || !summary) return;
 
   if (statsGrid) {
     const pendingCount = adminState.pendingApps?.length ?? adminState.stats?.pendingApplications ?? 0;
@@ -644,11 +643,10 @@ function renderAdminDashboard() {
   });
 
   summary.textContent = `${auditLog.length} audit entries`;
-  intro.textContent = "Review privileged admin activity, pending and rejected issuer applications.";
 
   const reviewItems = getAdminReviewItems();
   const toolbar = `
-    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:18px;padding:14px;border:1px solid var(--border);border-radius:14px;background:var(--bg-subtle);">
+    <div class="admin-review-toolbar" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:18px;padding:14px;border:1px solid var(--border);border-radius:14px;background:var(--bg-subtle);">
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;flex:1;min-width:220px;">
         <input id="adminReviewSearch" value="${adminReviewFilters.query.replace(/"/g, '&quot;')}" placeholder="Search organisation or email" style="flex:1;min-width:180px;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);" />
         <select id="adminReviewStatus" style="padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);">
@@ -676,7 +674,7 @@ function renderAdminDashboard() {
   `;
 
   if (!reviewItems.length) {
-    list.innerHTML = toolbar + renderEmpty("No matching applications found.");
+    list.innerHTML = toolbar + `<div class="admin-activity-scroll">${renderEmpty("No matching applications found.")}</div>`;
     bindAdminReviewControls();
     return;
   }
@@ -703,7 +701,7 @@ function renderAdminDashboard() {
           ${applicantEmail ? `<div><strong>Gmail / email:</strong> ${applicantEmail}</div>` : ''}
         </div>
 
-        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+        <div class="admin-list-card-actions">
           <button class="btn-ghost" type="button" data-open-detail="${item.id}">View details</button>
           ${item.status === 'pending' ? `<button class="btn-success" type="button" data-action="approve" data-id="${item.id}">Approve</button><button class="btn-danger" type="button" data-action="reject" data-id="${item.id}">Reject</button>` : ''}
         </div>
@@ -714,7 +712,7 @@ function renderAdminDashboard() {
     ? `<button class="btn-ghost" type="button" data-toggle-activity aria-expanded="${adminActivityExpanded}" aria-controls="adminActivityItems" style="margin-top:12px;">${adminActivityExpanded ? 'Show recent activity' : `View all activity (${reviewItems.length})`}</button>`
     : '';
 
-  list.innerHTML = toolbar + `<div id="adminActivityItems">${activityMarkup}</div>${activityToggle}`;
+  list.innerHTML = toolbar + `<div id="adminActivityItems" class="admin-activity-scroll">${activityMarkup}</div>${activityToggle}`;
 
   bindAdminReviewControls();
 
@@ -726,9 +724,10 @@ function renderAdminDashboard() {
   list.querySelectorAll('[data-open-detail]').forEach(button => {
     button.addEventListener('click', (event) => {
       event.stopPropagation();
-      const itemId = Number(button.dataset.openDetail);
-      const item = reviewItems.find(entry => Number(entry.id) === itemId);
+      const itemId = button.dataset.openDetail;
+      const item = reviewItems.find(entry => String(entry.id) === itemId);
       if (item) openAdminDetail(item);
+      else showAdminToast('This activity is no longer available. Refresh the dashboard and try again.', 'danger');
     });
   });
 
@@ -897,11 +896,14 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   // show sign out in navbar if logged in
   if (logoutBtn && isAdminLoggedIn()) logoutBtn.style.display = 'inline-block';
-  // bind quick actions after DOM ready
-  try { bindQuickActions(); } catch (e) { /* ignore */ }
   // navbar profile menu
   const profileToggle = document.getElementById('adminProfileToggle');
   const profileMenu = document.getElementById('adminProfileMenu');
+  const avatarButton = document.getElementById('adminAvatarButton');
+  const avatarInput = document.getElementById('adminAvatarInput');
+  const avatarMenu = document.getElementById('adminAvatarMenu');
+  const avatarDialog = document.getElementById('adminAvatarDialog');
+  const avatarPreview = document.getElementById('adminAvatarPreview');
   const menuSignOut = document.getElementById('menuSignOut');
   const navAdminName = document.getElementById('navAdminName');
   const navAdminEmail = document.getElementById('navAdminEmail');
@@ -909,10 +911,70 @@ document.addEventListener("DOMContentLoaded", () => {
   const menuEmail = document.getElementById('menuEmail');
 
   if (profileToggle && profileMenu) {
-    profileToggle.addEventListener('click', () => {
+    profileToggle.addEventListener('click', (event) => {
+      if (event.target.closest('#adminAvatarButton')) {
+        event.preventDefault();
+        profileMenu.style.display = 'none';
+        const photo = localStorage.getItem(getAdminAvatarKey());
+        if (!photo) {
+          avatarInput?.click();
+          return;
+        }
+        if (avatarMenu) avatarMenu.style.display = avatarMenu.style.display === 'grid' ? 'none' : 'grid';
+        return;
+      }
+      if (avatarMenu) avatarMenu.style.display = 'none';
       profileMenu.style.display = profileMenu.style.display === 'block' ? 'none' : 'block';
     });
   }
+
+  avatarInput?.addEventListener('change', () => {
+    const file = avatarInput.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/') || file.size > 2 * 1024 * 1024) {
+      showAdminToast('Choose an image smaller than 2 MB.', 'danger');
+      avatarInput.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        localStorage.setItem(getAdminAvatarKey(), String(reader.result));
+        updateAdminAvatar();
+        if (avatarMenu) avatarMenu.style.display = 'none';
+        showAdminToast('Profile photo updated.', 'success');
+      } catch (err) {
+        showAdminToast('Unable to save this photo on the current device.', 'danger');
+      }
+      avatarInput.value = '';
+    };
+    reader.onerror = () => showAdminToast('Unable to read this image file.', 'danger');
+    reader.readAsDataURL(file);
+  });
+
+  document.getElementById('adminAvatarView')?.addEventListener('click', () => {
+    const photo = localStorage.getItem(getAdminAvatarKey());
+    if (!photo || !avatarDialog || !avatarPreview) return;
+    avatarPreview.src = photo;
+    avatarMenu.style.display = 'none';
+    avatarDialog.showModal();
+  });
+  document.getElementById('adminAvatarChange')?.addEventListener('click', () => avatarInput?.click());
+  document.getElementById('adminAvatarDialogChange')?.addEventListener('click', () => {
+    avatarDialog?.close();
+    avatarInput?.click();
+  });
+  document.getElementById('adminAvatarRemove')?.addEventListener('click', () => {
+    localStorage.removeItem(getAdminAvatarKey());
+    updateAdminAvatar();
+    avatarMenu.style.display = 'none';
+    showAdminToast('Profile photo removed.', 'success');
+  });
+  document.getElementById('adminAvatarDialogClose')?.addEventListener('click', () => avatarDialog?.close());
+  avatarDialog?.addEventListener('click', event => {
+    if (event.target === avatarDialog) avatarDialog.close();
+  });
 
   if (menuSignOut) {
     menuSignOut.addEventListener('click', () => setAdminState(false));
@@ -926,6 +988,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (menuName) menuName.textContent = name;
       if (navAdminEmail) navAdminEmail.textContent = adminState.user.email || '';
       if (menuEmail) menuEmail.textContent = adminState.user.email || '';
+      updateAdminAvatar(adminState.user);
     } catch (e) {}
   }
 });

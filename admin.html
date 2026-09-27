@@ -28,13 +28,19 @@
     <div class="nav-actions">
       <button class="btn-ghost" onclick="window.location.href='index.html'">Main site</button>
       <div id="adminSignedInUser" class="admin-nav-user" style="display:none;align-items:center;gap:10px;margin-left:12px;position:relative">
-        <button id="adminProfileToggle" class="btn-ghost" style="display:flex;align-items:center;gap:8px">
-          <div class="admin-avatar" aria-hidden="true" style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#4f46e5);display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px">AD</div>
+        <button id="adminProfileToggle" class="btn-ghost" aria-label="Open admin profile menu. Click the avatar to manage its photo." aria-haspopup="menu" style="display:flex;align-items:center;gap:8px">
+          <div class="admin-avatar" id="adminAvatarButton" aria-hidden="true" title="Click to add or manage your profile photo">AD</div>
           <div style="display:flex;flex-direction:column;text-align:left">
             <div style="font-size:13px;font-weight:700;color:var(--text-primary)" id="navAdminName">Admin</div>
             <div style="font-size:11px;color:var(--text-secondary)" id="navAdminEmail"></div>
           </div>
         </button>
+        <input id="adminAvatarInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+        <div id="adminAvatarMenu" class="admin-avatar-menu" role="menu" style="display:none">
+          <button id="adminAvatarView" class="btn-ghost" type="button" role="menuitem">View photo</button>
+          <button id="adminAvatarChange" class="btn-ghost" type="button" role="menuitem">Change photo</button>
+          <button id="adminAvatarRemove" class="btn-ghost" type="button" role="menuitem">Remove photo</button>
+        </div>
         <div id="adminProfileMenu" style="position:absolute;right:0;top:44px;display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:10px;min-width:220px;box-shadow:var(--shadow-sm);z-index:999">
           <div style="font-weight:700;margin-bottom:6px" id="menuName">Admin</div>
           <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px" id="menuEmail"></div>
@@ -45,6 +51,15 @@
       </div>
     </div>
   </nav>
+
+  <dialog id="adminAvatarDialog" class="admin-avatar-dialog" aria-labelledby="adminAvatarDialogTitle">
+    <div class="admin-avatar-dialog-header">
+      <h2 id="adminAvatarDialogTitle">Admin profile photo</h2>
+      <button id="adminAvatarDialogClose" class="btn-ghost" type="button" aria-label="Close profile photo">×</button>
+    </div>
+    <img id="adminAvatarPreview" alt="Admin profile photo preview" />
+    <button id="adminAvatarDialogChange" class="btn-outline" type="button">Change photo</button>
+  </dialog>
   
   <div class="page-wrap" style="max-width:1440px; margin:100px auto 80px; padding:0 18px;">
 
@@ -80,38 +95,18 @@
       <div id="adminStatsGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px"></div>
     </section>
 
-    <div class="admin-main-grid" style="display:none;grid-template-columns:1fr 320px;gap:20px;align-items:start">
+    <div class="admin-main-grid" style="display:none">
 
       <main class="admin-primary">
-        <div class="form-card" id="adminDashboard" style="display:none;margin-top:14px;padding:18px">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-            <div>
-              <div class="page-tag">Overview</div>
-              <p class="page-desc" style="margin:0;">Review pending approvals, rejected requests, certificate checks, revoked certificates, and admin activity.</p>
-            </div>
-            <div style="text-align:right;color:var(--text-secondary);" id="adminSummary"></div>
+        <div class="form-card admin-dashboard-card" id="adminDashboard" style="display:none;margin-top:14px;padding:18px">
+          <div class="admin-overview-heading">
+            <div class="page-tag">Overview</div>
           </div>
 
-          <!-- tabs removed; actions available in Quick Actions -->
-          <div id="adminSectionIntro" class="page-desc" style="margin:12px 0 0 0;color:var(--text-secondary);"></div>
           <div id="adminList" style="margin-top:18px;"></div>
         </div>
 
       </main>
-
-      <aside class="admin-secondary">
-        <div class="quick-actions form-card" style="padding:12px">
-          <h4 style="margin:0 0 8px 0">Quick Actions</h4>
-          <div style="display:grid;gap:8px;margin-top:8px">
-            <button class="btn-outline" data-action-quick="pending">Pending</button>
-            <button class="btn-outline" data-action-quick="approved">Approved</button>
-            <button class="btn-outline" data-action-quick="rejected">Rejected</button>
-            <button class="btn-outline" data-action-quick="revoked">Revoked</button>
-            <button class="btn-outline" data-action-quick="checks">Checks</button>
-            <button class="btn-outline" data-action-quick="audit">Audit Log</button>
-          </div>
-        </div>
-      </aside>
 
     </div>
 

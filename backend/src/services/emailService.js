@@ -244,6 +244,75 @@ class EmailService {
     }
   }
 
+  static async sendCertificateIssued({ holderEmail, holderName, certificateId, certificateType, issuerName, issuerWallet, issuedAt, ipfsCid, blockchainTransactionId, metadata = {} }) {
+    const to = String(holderEmail || '').trim().toLowerCase();
+    if (!this.isValidEmail(to)) return { success: false, sent: false, error: 'A valid holder email is required' };
+
+    const escapeHtml = value => String(value ?? '—').replace(/[&<>"']/g, char => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[char]);
+    const metadataRows = Object.entries(metadata && typeof metadata === 'object' ? metadata : {})
+      .filter(([key, value]) => !['attachment', 'media', 'dataUrl', 'imageData', 'generatedBy'].includes(key) && (value === null || ['string', 'number', 'boolean'].includes(typeof value)))
+      .slice(0, 16)
+      .map(([key, value]) => `<tr><th style="padding:7px 10px;text-align:left;color:#475569;border-bottom:1px solid #e2e8f0">${escapeHtml(key.replace(/([A-Z])/g, ' $1'))}</th><td style="padding:7px 10px;color:#0f172a;border-bottom:1px solid #e2e8f0">${escapeHtml(value)}</td></tr>`)
+      .join('');
+    const supportingFile = metadata?.attachment;
+    const attachmentMatch = typeof supportingFile?.dataUrl === 'string'
+      ? supportingFile.dataUrl.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/)
+      : null;
+    const attachments = attachmentMatch && supportingFile?.name
+      ? [{
+          filename: String(supportingFile.name).replace(/[^a-zA-Z0-9._ -]/g, '_'),
+          content: Buffer.from(attachmentMatch[2], 'base64'),
+          contentType: String(supportingFile.type || attachmentMatch[1]).replace(/[^a-zA-Z0-9!#$&^_.+-/]/g, '')
+        }]
+      : [];
+    const subject = `Certificate issued: ${String(certificateType || 'Certificate')}`;
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;color:#0f172a;line-height:1.55">
+        <div style="padding:24px;border:1px solid #dbe3ef;border-radius:14px;background:#fff">
+          <h2 style="margin:0 0 8px;color:#312e81">Your certificate has been issued</h2>
+          <p>Hello ${escapeHtml(holderName)},</p>
+          <p>${escapeHtml(issuerName)} has issued you a ${escapeHtml(certificateType)} certificate.</p>
+          <table style="width:100%;border-collapse:collapse;margin:18px 0">
+            <tr><th style="padding:7px 10px;text-align:left;color:#475569;border-bottom:1px solid #e2e8f0">Certificate ID</th><td style="padding:7px 10px;border-bottom:1px solid #e2e8f0">${escapeHtml(certificateId)}</td></tr>
+            <tr><th style="padding:7px 10px;text-align:left;color:#475569;border-bottom:1px solid #e2e8f0">Type</th><td style="padding:7px 10px;border-bottom:1px solid #e2e8f0">${escapeHtml(certificateType)}</td></tr>
+            <tr><th style="padding:7px 10px;text-align:left;color:#475569;border-bottom:1px solid #e2e8f0">Issuer</th><td style="padding:7px 10px;border-bottom:1px solid #e2e8f0">${escapeHtml(issuerName)}</td></tr>
+            <tr><th style="padding:7px 10px;text-align:left;color:#475569;border-bottom:1px solid #e2e8f0">Issued</th><td style="padding:7px 10px;border-bottom:1px solid #e2e8f0">${escapeHtml(issuedAt)}</td></tr>
+            ${issuerWallet ? `<tr><th style="padding:7px 10px;text-align:left;color:#475569;border-bottom:1px solid #e2e8f0">Issuer wallet</th><td style="padding:7px 10px;border-bottom:1px solid #e2e8f0">${escapeHtml(issuerWallet)}</td></tr>` : ''}
+            ${ipfsCid ? `<tr><th style="padding:7px 10px;text-align:left;color:#475569;border-bottom:1px solid #e2e8f0">IPFS record</th><td style="padding:7px 10px;border-bottom:1px solid #e2e8f0">${escapeHtml(ipfsCid)}</td></tr>` : ''}
+            ${blockchainTransactionId ? `<tr><th style="padding:7px 10px;text-align:left;color:#475569;border-bottom:1px solid #e2e8f0">Transaction</th><td style="padding:7px 10px;border-bottom:1px solid #e2e8f0">${escapeHtml(blockchainTransactionId)}</td></tr>` : ''}
+            ${metadataRows}
+          </table>
+          ${attachments.length ? `<p>The supporting file <strong>${escapeHtml(attachments[0].filename)}</strong> is attached to this email and included with the certificate record.</p>` : ''}
+          <div style="padding:14px;background:#f1f5f9;border-radius:10px">
+            <strong>Important information</strong>
+            <ul style="margin:8px 0 0;padding-left:20px">
+              <li>This email confirms issuance; check the certificate status on Certicheck before relying on it.</li>
+              <li>The issuer may revoke a certificate. A revoked certificate will no longer show as valid.</li>
+              <li>Keep the certificate ID with your records and do not alter the issued certificate or supporting file.</li>
+            </ul>
+          </div>
+          <p style="margin:18px 0 0;color:#64748b;font-size:12px">Certicheck certificate notification</p>
+        </div>
+      </div>
+    `;
+
+    try {
+      this.initTransporter();
+      await this.transporter.sendMail({ from: this.getFromAddress(), to, subject, html, attachments });
+      const mode = this.getConfigurationStatus().mode;
+      return { success: true, sent: mode === 'smtp', mode };
+    } catch (err) {
+      console.error('Error sending certificate notification:', err.message || err);
+      return { success: false, sent: false, mode: 'error', error: err.message || 'Email delivery failed' };
+    }
+  }
+
   static getLastSentOTP(email) {
     const normalized = String(email || '').trim().toLowerCase();
     return this.memoryStore.get(normalized) || null;
