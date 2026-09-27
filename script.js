@@ -1048,6 +1048,8 @@ function renderRoleLandingHome() {
   const isAdmin = user.user_type === 'admin';
   const isIssuer = user.user_type === 'issuer';
   const stats = getRoleLandingStats();
+  roleHome.classList.toggle('issuer-role-dashboard', isIssuer);
+  document.getElementById('roleHomeCard')?.classList.toggle('issuer-role-home-card', isIssuer);
 
   hero.style.display = 'none';
   roleHome.style.display = 'block';
@@ -1148,11 +1150,15 @@ function renderRoleLandingHome() {
       })();
 
     document.getElementById('roleHomeActions').innerHTML = `
-      <div class="issuer-dashboard-shell" style="grid-template-columns:320px minmax(0, 1fr); gap:22px; align-items:start;">
-        <aside class="issuer-profile-panel" style="padding:24px 20px;">
-          <div class="issuer-avatar">${avatarText}</div>
-          <div class="issuer-name">${institution}</div>
-          <div class="issuer-role-badge">ISSUER</div>
+      <div class="issuer-dashboard-shell">
+        <section class="issuer-profile-panel">
+          <div class="issuer-profile-heading">
+            <div class="issuer-avatar">${avatarText}</div>
+            <div class="issuer-profile-identity">
+              <div class="issuer-name">${institution}</div>
+              <div class="issuer-role-badge">ISSUER</div>
+            </div>
+          </div>
 
           <div class="issuer-meta-list">
             <div class="issuer-meta-row"><span>Email</span><strong>${activeProfile.email || 'issuer@certicheck.com'}</strong></div>
@@ -1164,9 +1170,9 @@ function renderRoleLandingHome() {
             ${walletStatusMarkup}
             <button id="issuerWalletConnectButton" data-wallet-connect class="btn-primary btn-block" type="button">${walletAddress ? formatWalletShort(walletAddress) : 'Connect Wallet'}</button>
           </div>
-        </aside>
+        </section>
 
-        <main class="issuer-workspace-panel" style="padding:22px;">
+        <main class="issuer-workspace-panel">
           <div class="issuer-topbar">
             <div>
               <div class="issuer-panel-label">Issuer Dashboard</div>
@@ -3484,5 +3490,3 @@ function renderResources() {
     </div>
   `).join("");
 }
-
-

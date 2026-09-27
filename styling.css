@@ -638,6 +638,13 @@ body.dark .btn-toggle::before {
   padding: 36px 0 52px;
 }
 
+.issuer-role-dashboard .role-home-container {
+  width: 100%;
+  max-width: 1440px;
+  padding-right: 18px;
+  padding-left: 18px;
+}
+
 .role-stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -668,29 +675,69 @@ body.dark .btn-toggle::before {
   color: var(--text-primary);
 }
 
+.issuer-role-dashboard .role-stats-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: minmax(120px, auto);
+  gap: 12px;
+}
+
+.issuer-role-dashboard .role-stat {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 20px;
+  border-radius: 16px;
+  text-align: center;
+}
+
+.issuer-role-dashboard .role-stat-label {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.issuer-role-dashboard .role-stat-value {
+  font-size: 28px;
+  margin-top: 6px;
+}
+
 .issuer-dashboard-shell {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  gap: 22px;
-  align-items: start;
-  margin-top: 16px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  min-width: 0;
 }
 
 .issuer-profile-panel,
 .issuer-workspace-panel {
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
-  border-radius: 24px;
-  box-shadow: var(--shadow-md);
+  border-radius: 18px;
+  box-shadow: var(--shadow-sm);
 }
 
 .issuer-profile-panel {
-  padding: 28px 22px 22px;
+  min-width: 0;
+  padding: 18px;
+}
+
+.issuer-profile-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  margin-bottom: 16px;
+}
+
+.issuer-profile-identity {
+  min-width: 0;
 }
 
 .issuer-avatar {
   width: 72px;
   height: 72px;
+  flex: 0 0 72px;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -698,14 +745,14 @@ body.dark .btn-toggle::before {
   color: white;
   font-weight: 800;
   font-size: 22px;
-  margin-bottom: 18px;
 }
 
 .issuer-name {
   font-family: var(--font-display);
-  font-size: 28px;
+  font-size: clamp(18px, 2vw, 24px);
   line-height: 1.1;
-  margin-bottom: 10px;
+  overflow-wrap: anywhere;
+  margin-bottom: 8px;
 }
 
 .issuer-role-badge {
@@ -724,25 +771,32 @@ body.dark .btn-toggle::before {
 
 .issuer-meta-list {
   display: grid;
-  gap: 12px;
-  margin-bottom: 22px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 18px;
+  margin-bottom: 16px;
 }
 
 .issuer-meta-row {
   display: grid;
+  min-width: 0;
   gap: 4px;
   font-size: 13px;
   color: var(--text-secondary);
 }
 
 .issuer-meta-row strong {
+  min-width: 0;
   color: var(--text-primary);
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .issuer-side-actions {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .wallet-chip {
@@ -772,7 +826,26 @@ body.dark .btn-toggle::before {
 }
 
 .issuer-workspace-panel {
-  padding: 22px 22px 18px;
+  min-width: 0;
+  padding: 18px;
+}
+
+#roleHomeCard.issuer-role-home-card {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+#roleHomeCard.issuer-role-home-card #roleHomeActions {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+#roleHomeCard.issuer-role-home-card #roleHomeSystem {
+  display: none;
 }
 
 .issuer-cid {
@@ -2215,6 +2288,14 @@ body.dark .powered-by-logo img {
 
   .issuer-dashboard-shell {
     grid-template-columns: 1fr !important;
+  }
+
+  .issuer-role-dashboard .issuer-meta-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .issuer-role-dashboard .issuer-meta-row:first-child {
+    grid-column: 1 / -1;
   }
 
   .issuer-profile-panel,
