@@ -45,7 +45,6 @@
           <div style="font-weight:700;margin-bottom:6px" id="menuName">Admin</div>
           <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px" id="menuEmail"></div>
           <div style="display:flex;gap:8px;justify-content:flex-end">
-            <button id="adminEditName" class="btn-ghost" type="button">Edit name</button>
             <button id="menuSignOut" class="btn-ghost">Sign out</button>
           </div>
         </div>
@@ -60,24 +59,6 @@
     </div>
     <img id="adminAvatarPreview" alt="Admin profile photo preview" />
     <button id="adminAvatarDialogChange" class="btn-outline" type="button">Change photo</button>
-  </dialog>
-
-  <dialog id="adminNameDialog" class="admin-avatar-dialog" aria-labelledby="adminNameDialogTitle">
-    <form id="adminNameForm" class="admin-name-form">
-      <div class="admin-avatar-dialog-header">
-        <h2 id="adminNameDialogTitle">Your name</h2>
-        <button id="adminNameDialogClose" class="btn-ghost" type="button" aria-label="Close name editor">×</button>
-      </div>
-      <label class="field-label" for="adminFirstName">First name</label>
-      <input class="field-input" id="adminFirstName" name="firstName" autocomplete="given-name" maxlength="128" required />
-      <label class="field-label" for="adminLastName">Last name</label>
-      <input class="field-input" id="adminLastName" name="lastName" autocomplete="family-name" maxlength="128" />
-      <div id="adminNameError" class="alert alert-error" style="display:none"></div>
-      <div class="admin-name-actions">
-        <button id="adminNameCancel" class="btn-ghost" type="button">Cancel</button>
-        <button id="adminNameSave" class="btn-primary" type="submit">Save name</button>
-      </div>
-    </form>
   </dialog>
   
   <div class="page-wrap" style="max-width:1440px; margin:100px auto 80px; padding:0 18px;">
