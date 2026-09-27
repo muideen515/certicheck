@@ -26,9 +26,11 @@ class EmailService {
     if (this.transporter) return;
 
     const emailPassword = String(process.env.EMAIL_PASSWORD || '').replace(/\s+/g, '');
+    const hasCustomSmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+    const hasEmailService = Boolean(process.env.EMAIL_USER && emailPassword);
 
     // 1. Custom SMTP configuration
-    if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+    if (hasCustomSmtp) {
       console.log(`✓ EmailService: Using custom SMTP (${process.env.SMTP_HOST}:${process.env.SMTP_PORT || 587})`);
       this.transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
@@ -43,7 +45,7 @@ class EmailService {
     }
 
     // 2. Pre-configured email service (e.g. Gmail)
-    if (process.env.EMAIL_USER && emailPassword) {
+    if (hasEmailService) {
       console.log(`✓ EmailService: Using ${process.env.EMAIL_SERVICE || 'gmail'} with user ${process.env.EMAIL_USER}`);
       this.transporter = nodemailer.createTransport({
         service: process.env.EMAIL_SERVICE || 'gmail',
@@ -82,12 +84,24 @@ class EmailService {
     return {
       mode: hasCustomSmtp || hasEmailService ? 'smtp' : 'console',
       provider: hasCustomSmtp ? 'custom-smtp' : hasEmailService ? (process.env.EMAIL_SERVICE || 'gmail') : 'console',
-      sender: process.env.EMAIL_FROM || process.env.EMAIL_USER || null
+      sender: this.getFromAddress()
     };
   }
 
   static getFromAddress() {
-    return process.env.EMAIL_FROM || process.env.EMAIL_USER || 'CertiCheck <noreply@certicheck.com>';
+    const smtpUser = process.env.SMTP_HOST && process.env.SMTP_USER
+      ? process.env.SMTP_USER
+      : process.env.EMAIL_USER || process.env.SMTP_USER;
+    const fromAddress = process.env.EMAIL_FROM || smtpUser || null;
+
+    if (fromAddress && smtpUser) {
+      const mailbox = fromAddress.match(/<([^<>]+)>/)?.[1] || fromAddress;
+      if (mailbox.trim().toLowerCase() !== smtpUser.trim().toLowerCase()) {
+        throw new Error('EMAIL_FROM must match the configured SMTP sender account.');
+      }
+    }
+
+    return fromAddress;
   }
 
   static async sendOTP(email, otp, otpType = 'signup') {

@@ -152,6 +152,27 @@ test('supports multiple seeded admins without allowing admin registration or pas
   assert.equal(unregisteredLogin.status, 404);
   assert.equal((await unregisteredLogin.json()).code, 'EMAIL_NOT_REGISTERED');
 
+  const externalUser = {
+    id: 79,
+    email: 'student@gmail.com',
+    password: 'student-password',
+    first_name: 'Student',
+    last_name: 'User',
+    user_type: 'user',
+    is_active: true,
+    must_change_password: false
+  };
+  usersByEmail.set(externalUser.email, externalUser);
+  usersById.set(externalUser.id, externalUser);
+  const externalLogin = await login(externalUser.email, externalUser.password);
+  assert.equal(externalLogin.status, 200);
+  const externalLoginPayload = await externalLogin.json();
+  assert.equal(externalLoginPayload.user.email, externalUser.email);
+  assert.equal(jwt.verify(externalLoginPayload.token, 'dev_secret_key').email, externalUser.email);
+
+  const malformedLogin = await login('not-an-email');
+  assert.equal(malformedLogin.status, 400);
+
   for (const [email, status, expectedCode, expectedCopy] of [
     ['pending@certicheck.com', 'pending', 'APPLICATION_PENDING', 'check again later'],
     ['rejected@certicheck.com', 'rejected', 'APPLICATION_REJECTED', 'lodge a complaint'],

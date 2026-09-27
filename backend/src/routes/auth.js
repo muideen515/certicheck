@@ -17,10 +17,6 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
-function isCertiCheckEmail(email) {
-  return normalizeEmail(email).endsWith('@certicheck.com');
-}
-
 function isReservedAdminEmail(email) {
   return DEFAULT_ADMIN_ACCOUNTS.some(account => account.email === normalizeEmail(email));
 }
@@ -197,8 +193,8 @@ router.post('/send-otp', async (req, res) => {
       return res.status(400).json({ error: 'Email is required' });
     }
 
-    if (!EmailService.isValidEmail(email) || !isCertiCheckEmail(email)) {
-      return res.status(400).json({ error: 'Please use a valid @certicheck.com email address' });
+    if (!EmailService.isValidEmail(email)) {
+      return res.status(400).json({ error: 'Please use a valid email address' });
     }
 
     if (isReservedAdminEmail(email)) {
@@ -233,8 +229,8 @@ router.post('/resend-otp', async (req, res) => {
   try {
     const email = normalizeEmail(req.body.email);
 
-    if (!email || !EmailService.isValidEmail(email) || !isCertiCheckEmail(email)) {
-      return res.status(400).json({ error: 'A valid @certicheck.com email is required' });
+    if (!email || !EmailService.isValidEmail(email)) {
+      return res.status(400).json({ error: 'A valid email address is required' });
     }
 
     if (isReservedAdminEmail(email)) {
@@ -308,8 +304,8 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Invalid user type' });
     }
 
-    if (!EmailService.isValidEmail(email) || !isCertiCheckEmail(email)) {
-      return res.status(400).json({ error: 'Please use a valid @certicheck.com email address' });
+    if (!EmailService.isValidEmail(email)) {
+      return res.status(400).json({ error: 'Please use a valid email address' });
     }
 
     if (isReservedAdminEmail(email)) {
@@ -334,7 +330,7 @@ router.post('/register', async (req, res) => {
       return res.status(409).json({ error: 'Email already registered' });
     }
 
-    const newUser = await User.create(email, 'password', firstName, lastName, userType);
+    const newUser = await User.create(email, password, firstName, lastName, userType);
     
     // Invalidate the verified OTP now that registration is complete
     await OTP.consume(email, 'signup');
@@ -372,11 +368,7 @@ router.post('/forgot-password', async (req, res) => {
       return res.status(400).json({ error: 'A valid email address is required' });
     }
 
-    // Only users who completed the initial password change may use this flow.
     const user = await findPasswordResetAccount(email);
-    if (!isCertiCheckEmail(email) && !isAdminAccount(user)) {
-      return res.status(400).json({ error: 'Password recovery is available for registered admin email addresses' });
-    }
     if (!user) {
       // Don't reveal if email exists for security
       return res.json({
@@ -384,13 +376,6 @@ router.post('/forgot-password', async (req, res) => {
         message: 'If email exists, OTP will be sent'
       });
     }
-    if (user.must_change_password && !isAdminAccount(user)) {
-      return res.json({
-        success: true,
-        message: 'If email exists, OTP will be sent'
-      });
-    }
-
     // Generate and store OTP
     const otp = await OTP.create(email, 'forgot_password');
     
@@ -417,10 +402,6 @@ router.post('/verify-forgot-password', async (req, res) => {
     if (!email || !otp || !EmailService.isValidEmail(email)) {
       return res.status(400).json({ error: 'A valid email and OTP are required' });
     }
-    if (!isCertiCheckEmail(email) && !isAdminAccount(await findPasswordResetAccount(email))) {
-      return res.status(400).json({ error: 'Password recovery is available for registered admin email addresses' });
-    }
-
     const verified = await OTP.verify(email, otp, 'forgot_password');
     
     if (!verified) {
@@ -448,9 +429,6 @@ router.post('/reset-password', async (req, res) => {
       return res.status(400).json({ error: 'A valid email and new password are required' });
     }
     const user = await findPasswordResetAccount(email);
-    if (!isCertiCheckEmail(email) && !isAdminAccount(user)) {
-      return res.status(400).json({ error: 'Password recovery is available for registered admin email addresses' });
-    }
 
     // Verify OTP
     const isOtpVerified = await OTP.isVerified(email, 'forgot_password');
@@ -462,10 +440,6 @@ router.post('/reset-password', async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    if (user.must_change_password && !isAdminAccount(user)) {
-      return res.status(403).json({ error: 'Set your new password before using password recovery' });
-    }
-
     if (!validateNewPassword(newPassword)) {
       return res.status(400).json({ error: 'Password must be at least 6 characters and cannot be "password"' });
     }
@@ -523,6 +497,9 @@ router.post('/login', async (req, res) => {
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
+    }
+    if (!EmailService.isValidEmail(email)) {
+      return res.status(400).json({ error: 'A valid email address is required' });
     }
 
     await ensureSeededAccounts();

@@ -31,7 +31,7 @@
       <span class="nav-brand">Certicheck</span>
     </button>
 
-    <div class="nav-links" aria-label="Explore Certicheck">
+    <div id="primaryNavLinks" class="nav-links" aria-label="Explore Certicheck">
       <button type="button" class="nav-item" data-page="faqs">FAQs</button>
       <button type="button" class="nav-item" data-page="tps">TP/S</button>
       <a class="nav-item external" href="https://github.com/" target="_blank" rel="noopener">
@@ -41,7 +41,7 @@
     </div>
 
     <div class="nav-actions">
-      <button id="navToggle" class="btn-ghost" aria-label="Toggle menu" title="Menu" style="display:none;">☰</button>
+      <button id="navToggle" class="btn-ghost" aria-label="Toggle menu" aria-controls="primaryNavLinks" aria-expanded="false" title="Menu" style="display:none;">☰</button>
       <button id="themeToggle" class="btn-toggle" aria-label="Toggle dark mode" title="Switch to dark mode"></button>
       <button class="btn-ghost" data-page="login">Login</button>
     </div>
@@ -451,7 +451,7 @@
     <div class="page-wrap" style="max-width:500px">
       <div class="page-header">
         <h1 class="page-title">Reset Password</h1>
-        <p class="page-desc">Enter your @certicheck.com email to receive a 6-digit reset code.</p>
+        <p class="page-desc">Enter your email to receive a 6-digit reset code.</p>
       </div>
 
       <div class="form-card">
@@ -629,7 +629,7 @@
         </div>
 
         <div class="form-actions" id="formActions">
-          <button type="button" class="btn-ghost" id="formBack" style="display:none">← Back</button>
+          <button type="button" class="btn-ghost" id="formBack" style="display:none">Official email</button>
           <button type="button" class="btn-primary" id="formNext">Continue →</button>
         </div>
       </div>

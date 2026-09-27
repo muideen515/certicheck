@@ -48,9 +48,9 @@ ADMIN_EMAIL=admin@certicheck.com
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_SECURE=false
-SMTP_USER=noreply@certicheck.com
-SMTP_PASS=your-smtp-app-password
-EMAIL_FROM=CertiCheck <noreply@certicheck.com>
+SMTP_USER=your-gmail@gmail.com
+EMAIL_FROM=CertiCheck <your-gmail@gmail.com>
+# Set SMTP_PASS only in Render environment variables; never commit it.
 
 # IPFS / Pinata
 PINATA_JWT=
@@ -66,7 +66,7 @@ CERTIFICATE_PROGRAM_ID=
 
 On first admin authentication, the backend seeds three individual admin accounts: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. Their default password is `password`; change each account's password before exposing a deployment publicly. Admin names, avatars, and password changes are personal to each account. The Admin Dashboard provides email OTP recovery for an individual admin.
 
-For password-reset OTP delivery, use a real SMTP mailbox on `@certicheck.com`, replace the SMTP placeholders with credentials stored as deployment secrets, and configure the mail provider's SPF/DKIM records for the domain. In production the API returns an error when SMTP is not configured; development mode logs OTPs to the backend console instead of sending email.
+Signup, login, and password reset accept valid email addresses from any domain. For OTP delivery, set `EMAIL_FROM` to the same mailbox configured in `SMTP_USER`; add `SMTP_PASS` only to Render environment variables and never commit it. Configure SPF/DKIM with your mail provider. In production the API returns an error when SMTP is not configured; development mode logs OTPs to the backend console instead of sending email.
 
 Without `PINATA_JWT`, metadata pinning uses the documented local/demo fallback and no real Pinata CID should be claimed. Without `SOLANA_ENABLE=true`, `SOLANA_KEYPAIR_PATH` or `SOLANA_PAYER_SECRET`, and a deployed `CERTIFICATE_PROGRAM_ID`, on-chain issuance is disabled and the Solana test is skipped.
 

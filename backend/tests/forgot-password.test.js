@@ -12,19 +12,21 @@ const authRoutes = require('../src/routes/auth');
 const originalPoolQuery = pool.query;
 const originalMethods = {
   findByEmail: User.findByEmail,
+  createUser: User.create,
   updatePassword: User.updatePassword,
   createOtp: OTP.create,
   verifyOtp: OTP.verify,
   isOtpVerified: OTP.isVerified,
   incrementOtpAttempts: OTP.incrementAttempts,
   consumeOtp: OTP.consume,
-  sendOtp: EmailService.sendOTP
+  sendOtp: EmailService.sendOTP,
+  sendWelcome: EmailService.sendWelcome
 };
 
 let server;
 
 test('OTP memory fallback enforces the maximum verification attempts', async () => {
-  const email = 'limited@certicheck.com';
+  const email = 'limited@gmail.com';
   const key = `${email}:forgot_password`;
   const originalQuery = pool.query;
   pool.query = async () => { throw new Error('database unavailable'); };
@@ -64,6 +66,7 @@ test.after(async () => {
   if (server) await new Promise(resolve => server.close(resolve));
   pool.query = originalPoolQuery;
   User.findByEmail = originalMethods.findByEmail;
+  User.create = originalMethods.createUser;
   User.updatePassword = originalMethods.updatePassword;
   OTP.create = originalMethods.createOtp;
   OTP.verify = originalMethods.verifyOtp;
@@ -71,41 +74,70 @@ test.after(async () => {
   OTP.incrementAttempts = originalMethods.incrementOtpAttempts;
   OTP.consume = originalMethods.consumeOtp;
   EmailService.sendOTP = originalMethods.sendOtp;
+  EmailService.sendWelcome = originalMethods.sendWelcome;
 });
 
-test('forgot password delivers a Certicheck OTP and consumes it after reset', async () => {
+test('signup and forgot-password OTP flows accept external email domains and consume reset codes', async () => {
   const user = {
     id: 42,
-    email: 'person@certicheck.com',
+    email: 'person@gmail.com',
     password_hash: 'existing-hash',
     must_change_password: false
   };
   const deliveries = [];
   const passwordUpdates = [];
+  const registeredUsers = new Map([[user.email, user]]);
+  const registrations = [];
   let verified = false;
-  let consumed = false;
+  let signupVerified = false;
+  let signupConsumed = false;
+  let forgotConsumed = false;
   let failedAttempts = 0;
 
-  User.findByEmail = async email => email.toLowerCase() === user.email ? user : null;
+  User.findByEmail = async email => registeredUsers.get(email.toLowerCase()) || null;
+  User.create = async (email, password, firstName, lastName, userType) => {
+    const newUser = {
+      id: 43,
+      email,
+      password_hash: 'new-user-hash',
+      first_name: firstName,
+      last_name: lastName,
+      user_type: userType,
+      is_active: true
+    };
+    registrations.push({ email, password, firstName, lastName, userType });
+    registeredUsers.set(email, newUser);
+    return newUser;
+  };
   User.updatePassword = async (email, password) => {
     passwordUpdates.push({ email, password });
     return user;
   };
   OTP.create = async (email, type) => ({ otp_code: '123456', expires_at: new Date(Date.now() + 10 * 60 * 1000), email, type });
   OTP.verify = async (email, code, type) => {
+    if (email === 'student@school.edu' && code === '123456' && type === 'signup') {
+      signupVerified = true;
+      return { id: 2 };
+    }
     if (email === user.email && code === '123456' && type === 'forgot_password') {
       verified = true;
       return { id: 1 };
     }
     return null;
   };
-  OTP.isVerified = async () => verified && !consumed;
+  OTP.isVerified = async (email, type) => type === 'signup'
+    ? signupVerified && !signupConsumed
+    : verified && !forgotConsumed;
   OTP.incrementAttempts = async () => { failedAttempts += 1; };
-  OTP.consume = async () => { consumed = true; };
+  OTP.consume = async (email, type) => {
+    if (type === 'signup') signupConsumed = true;
+    else forgotConsumed = true;
+  };
   EmailService.sendOTP = async (email, code, type) => {
     deliveries.push({ email, code, type });
     return { success: true };
   };
+  EmailService.sendWelcome = async () => {};
   pool.query = async () => ({ rows: [] });
 
   const app = express();
@@ -120,13 +152,37 @@ test('forgot password delivers a Certicheck OTP and consumes it after reset', as
     body: JSON.stringify(body)
   });
 
-  const outsideDomain = await post('forgot-password', { email: 'person@example.com' });
-  assert.equal(outsideDomain.status, 400);
-  assert.equal(deliveries.length, 0);
+  const invalidSignupEmail = await post('send-otp', { email: 'not-an-email' });
+  assert.equal(invalidSignupEmail.status, 400);
 
-  const forgotResponse = await post('forgot-password', { email: 'PERSON@CERTICHECK.COM' });
+  const signupOtpResponse = await post('send-otp', { email: 'Student@school.edu' });
+  assert.equal(signupOtpResponse.status, 200);
+  assert.deepEqual(deliveries[0], { email: 'student@school.edu', code: '123456', type: 'signup' });
+
+  const signupVerifyResponse = await post('verify-otp', { email: 'student@school.edu', otp: '123456' });
+  assert.equal(signupVerifyResponse.status, 200);
+  const registrationResponse = await post('register', {
+    email: 'Student@school.edu',
+    password: 'valid-password',
+    firstName: 'New',
+    lastName: 'Student'
+  });
+  assert.equal(registrationResponse.status, 201);
+  assert.deepEqual(registrations, [{
+    email: 'student@school.edu',
+    password: 'valid-password',
+    firstName: 'New',
+    lastName: 'Student',
+    userType: 'user'
+  }]);
+
+  const invalidForgotEmail = await post('forgot-password', { email: 'not-an-email' });
+  assert.equal(invalidForgotEmail.status, 400);
+  assert.equal(deliveries.length, 1);
+
+  const forgotResponse = await post('forgot-password', { email: 'PERSON@GMAIL.COM' });
   assert.equal(forgotResponse.status, 200);
-  assert.deepEqual(deliveries, [{ email: user.email, code: '123456', type: 'forgot_password' }]);
+  assert.deepEqual(deliveries[1], { email: user.email, code: '123456', type: 'forgot_password' });
 
   const wrongOtp = await post('verify-forgot-password', { email: user.email, otp: '000000' });
   assert.equal(wrongOtp.status, 401);
@@ -138,13 +194,13 @@ test('forgot password delivers a Certicheck OTP and consumes it after reset', as
   const resetResponse = await post('reset-password', { email: user.email, otp: '123456', newPassword: 'new-secure-password' });
   assert.equal(resetResponse.status, 200);
   assert.deepEqual(passwordUpdates, [{ email: user.email, password: 'new-secure-password' }]);
-  assert.equal(consumed, true);
+  assert.equal(forgotConsumed, true);
 
   const reusedOtp = await post('reset-password', { email: user.email, otp: '123456', newPassword: 'another-password' });
   assert.equal(reusedOtp.status, 401);
 
-  const outsideDomainVerify = await post('verify-forgot-password', { email: 'person@example.com', otp: '123456' });
-  const outsideDomainReset = await post('reset-password', { email: 'person@example.com', otp: '123456', newPassword: 'another-password' });
-  assert.equal(outsideDomainVerify.status, 400);
-  assert.equal(outsideDomainReset.status, 400);
+  const invalidVerifyEmail = await post('verify-forgot-password', { email: 'not-an-email', otp: '123456' });
+  const invalidResetEmail = await post('reset-password', { email: 'not-an-email', otp: '123456', newPassword: 'another-password' });
+  assert.equal(invalidVerifyEmail.status, 400);
+  assert.equal(invalidResetEmail.status, 400);
 });

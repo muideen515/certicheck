@@ -627,27 +627,20 @@ async function revokeCertificateWithPhantomWallet(certificateId, reason, issuerW
 
 function updateAuthUi() {
   const navActions = document.querySelector('.nav-actions');
-  const navLinks = document.querySelector('.nav-links');
   if (!navActions) return;
 
   navActions.querySelectorAll('.auth-item').forEach(el => el.remove());
 
-  if (navLinks) {
-    const user = currentUser || getStoredUser();
-    if (user && user.user_type === 'issuer') {
-      navLinks.innerHTML = ``;
-    }
-  }
-
   if (currentUser && currentUser.email) {
     const user = currentUser;
-    const displayName = user.display_name || user.name || [user.first_name, user.last_name].filter(Boolean).join(' ') || 'OAU Registry';
-    const roleLabel = user.user_type === 'issuer' ? 'issuer' : user.user_type === 'admin' ? 'admin' : 'user';
-    const userBadge = document.createElement('div');
-    userBadge.className = 'auth-item';
-    userBadge.style.marginRight = '8px';
-    userBadge.style.color = 'var(--text-secondary)';
-    userBadge.textContent = 'Signed in';
+    let userBadge = null;
+    if (user.user_type !== 'issuer') {
+      userBadge = document.createElement('div');
+      userBadge.className = 'auth-item';
+      userBadge.style.marginRight = '8px';
+      userBadge.style.color = 'var(--text-secondary)';
+      userBadge.textContent = 'Signed in';
+    }
 
     const signoutBtn = document.createElement('button');
     signoutBtn.className = 'btn-ghost auth-item';
@@ -656,11 +649,11 @@ function updateAuthUi() {
       clearAuthSession();
       navigate('home');
     });
-
     navActions.querySelectorAll('[data-page="signup"],[data-page="login"]').forEach(b => b.style.display = 'none');
-
+    navActions.querySelectorAll('[data-page="signup"],[data-page="login"]').forEach(b => b.style.display = 'none');
     navActions.prepend(signoutBtn);
-    navActions.prepend(userBadge);
+    navActions.prepend(signoutBtn);
+    navActions.prepend(signoutBtn);
   } else {
     navActions.querySelectorAll('[data-page="signup"],[data-page="login"]').forEach(b => b.style.display = 'inline-block');
     navActions.querySelectorAll('.auth-item').forEach(el => el.remove());
@@ -1770,19 +1763,31 @@ document.addEventListener("DOMContentLoaded", () => {
   navToggle && navToggle.addEventListener('click', () => {
     const links = document.querySelector('.nav-links');
     if (!links) return;
-    const isHidden = getComputedStyle(links).display === 'none';
-    links.style.display = isHidden ? 'flex' : 'none';
+    const isOpen = links.classList.toggle('is-open');
+    navToggle.setAttribute('aria-expanded', String(isOpen));
+    navToggle.textContent = isOpen ? '×' : '☰';
+  });
+  document.querySelector('.nav-links')?.addEventListener('click', event => {
+    if (!event.target.closest('[data-page], a')) return;
+    const links = document.querySelector('.nav-links');
+    if (!links) return;
+    links.classList.remove('is-open');
+    navToggle?.setAttribute('aria-expanded', 'false');
+    if (navToggle) navToggle.textContent = '☰';
   });
   // Show toggle on small screens
   function updateNavForWidth() {
     const links = document.querySelector('.nav-links');
     const toggle = document.getElementById('navToggle');
     if (window.innerWidth <= 900) {
-      if (links) links.style.display = 'none';
       if (toggle) toggle.style.display = 'inline-block';
     } else {
-      if (links) links.style.display = 'flex';
+      if (links) links.classList.remove('is-open');
       if (toggle) toggle.style.display = 'none';
+      if (toggle) {
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.textContent = '☰';
+      }
     }
   }
   updateNavForWidth();
@@ -1996,10 +2001,6 @@ function initIssuerDashboard() {
 
   notice.style.display = "none";
   formWrap.style.display = "block";
-  if (user.email) {
-    notice.innerHTML = `Signed in as <strong>${user.email}</strong>. You can issue a certificate now.`;
-    notice.style.display = "block";
-  }
 
   // Render issuer certificate list from the backend when possible
   async function loadIssuerCertificates() {
@@ -2547,8 +2548,8 @@ function initSignupForm() {
       return;
     }
 
-    if (!email.toLowerCase().endsWith("@certicheck.com")) {
-      errorEl.textContent = "Use a valid @certicheck.com email address";
+    if (!emailEl.checkValidity()) {
+      errorEl.textContent = "Enter a valid email address";
       errorEl.style.display = "block";
       return;
     }
@@ -2929,8 +2930,8 @@ function initForgotPasswordForm() {
       errorEl.style.display = "block";
       return;
     }
-    if (!/^.+@certicheck\.com$/i.test(email)) {
-      errorEl.textContent = "Use your @certicheck.com email address";
+    if (!emailEl.checkValidity()) {
+      errorEl.textContent = "Enter a valid email address";
       errorEl.style.display = "block";
       return;
     }
