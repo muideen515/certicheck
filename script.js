@@ -1148,7 +1148,7 @@ function renderRoleLandingHome() {
       })();
 
     document.getElementById('roleHomeActions').innerHTML = `
-      <div class="issuer-dashboard-shell" style="grid-template-columns:320px minmax(0, 1fr); gap:22px; align-items:start;">
+      <div class="issuer-dashboard-shell">
         <aside class="issuer-profile-panel" style="padding:24px 20px;">
           <div class="issuer-avatar">${avatarText}</div>
           <div class="issuer-name">${institution}</div>

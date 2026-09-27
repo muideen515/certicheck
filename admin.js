@@ -17,7 +17,6 @@ let adminReviewFilters = {
   status: 'all',
   sort: 'newest'
 };
-let adminActivityExpanded = false;
 let adminPollTimer = null;
 
 function startAdminDashboardPolling() {
@@ -186,7 +185,9 @@ function getAdminDisplayName(user) {
 }
 
 function getAdminHeaderLabel(user) {
-  return `Signed in as ${getAdminDisplayName(user)} (Admin)`;
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  return `${greeting}, ${getAdminDisplayName(user)} (Admin)`;
 }
 
 function getAdminAvatarKey(user = adminState.user) {
@@ -532,19 +533,16 @@ function bindAdminReviewControls() {
 
   searchInput?.addEventListener('input', (event) => {
     adminReviewFilters.query = event.target.value;
-    adminActivityExpanded = false;
     renderAdminDashboard();
   });
 
   statusSelect?.addEventListener('change', (event) => {
     adminReviewFilters.status = event.target.value || 'all';
-    adminActivityExpanded = false;
     renderAdminDashboard();
   });
 
   sortSelect?.addEventListener('change', (event) => {
     adminReviewFilters.sort = event.target.value || 'newest';
-    adminActivityExpanded = false;
     renderAdminDashboard();
   });
 
@@ -665,7 +663,7 @@ function renderAdminDashboard() {
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <label style="display:flex;align-items:center;gap:8px;color:var(--text-secondary);font-size:13px;">
           <input id="adminSelectAll" type="checkbox" />
-          ${!adminActivityExpanded && reviewItems.length > 5 ? 'Select visible' : 'Select all'}
+          Select all
         </label>
         <button id="adminBulkApprove" class="btn-success" type="button">Approve selected</button>
         <button id="adminBulkReject" class="btn-danger" type="button">Reject selected</button>
@@ -679,8 +677,7 @@ function renderAdminDashboard() {
     return;
   }
 
-  const visibleReviewItems = adminActivityExpanded ? reviewItems : reviewItems.slice(0, 5);
-  const activityMarkup = visibleReviewItems.map(item => {
+  const activityMarkup = reviewItems.map(item => {
     const applicantEmail = item.contact_email || '';
     const applicantName = item.organization_name || 'Applicant';
     return `
@@ -708,18 +705,9 @@ function renderAdminDashboard() {
       </div>
     `;
   }).join('');
-  const activityToggle = reviewItems.length > 5
-    ? `<button class="btn-ghost" type="button" data-toggle-activity aria-expanded="${adminActivityExpanded}" aria-controls="adminActivityItems" style="margin-top:12px;">${adminActivityExpanded ? 'Show recent activity' : `View all activity (${reviewItems.length})`}</button>`
-    : '';
-
-  list.innerHTML = toolbar + `<div id="adminActivityItems" class="admin-activity-scroll">${activityMarkup}</div>${activityToggle}`;
+  list.innerHTML = toolbar + `<div id="adminActivityItems" class="admin-activity-scroll">${activityMarkup}</div>`;
 
   bindAdminReviewControls();
-
-  list.querySelector('[data-toggle-activity]')?.addEventListener('click', () => {
-    adminActivityExpanded = !adminActivityExpanded;
-    renderAdminDashboard();
-  });
 
   list.querySelectorAll('[data-open-detail]').forEach(button => {
     button.addEventListener('click', (event) => {
@@ -909,6 +897,59 @@ document.addEventListener("DOMContentLoaded", () => {
   const navAdminEmail = document.getElementById('navAdminEmail');
   const menuName = document.getElementById('menuName');
   const menuEmail = document.getElementById('menuEmail');
+  const editNameButton = document.getElementById('adminEditName');
+  const nameDialog = document.getElementById('adminNameDialog');
+  const nameForm = document.getElementById('adminNameForm');
+  const firstNameInput = document.getElementById('adminFirstName');
+  const lastNameInput = document.getElementById('adminLastName');
+  const nameError = document.getElementById('adminNameError');
+  const nameSaveButton = document.getElementById('adminNameSave');
+
+  editNameButton?.addEventListener('click', () => {
+    const user = adminState.user || {};
+    firstNameInput.value = user.firstName || user.first_name || '';
+    lastNameInput.value = user.lastName || user.last_name || '';
+    nameError.style.display = 'none';
+    profileMenu.style.display = 'none';
+    nameDialog.showModal();
+    firstNameInput.focus();
+  });
+
+  document.getElementById('adminNameDialogClose')?.addEventListener('click', () => nameDialog.close());
+  document.getElementById('adminNameCancel')?.addEventListener('click', () => nameDialog.close());
+  nameDialog?.addEventListener('click', event => {
+    if (event.target === nameDialog) nameDialog.close();
+  });
+
+  nameForm?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const firstName = firstNameInput.value.trim();
+    const lastName = lastNameInput.value.trim();
+    if (!firstName) {
+      nameError.textContent = 'Enter your first name.';
+      nameError.style.display = 'block';
+      return;
+    }
+
+    nameSaveButton.disabled = true;
+    nameSaveButton.textContent = 'Saving...';
+    try {
+      const result = await requestJson('/admin/profile', {
+        method: 'PUT',
+        body: JSON.stringify({ firstName, lastName })
+      });
+      adminState.user = { ...adminState.user, ...result.user, user_type: 'admin', userType: 'admin' };
+      localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(adminState.user));
+      nameDialog.close();
+      setAdminState(true, adminState.user);
+    } catch (err) {
+      nameError.textContent = err.message || 'Unable to save your name.';
+      nameError.style.display = 'block';
+    } finally {
+      nameSaveButton.disabled = false;
+      nameSaveButton.textContent = 'Save name';
+    }
+  });
 
   if (profileToggle && profileMenu) {
     profileToggle.addEventListener('click', (event) => {

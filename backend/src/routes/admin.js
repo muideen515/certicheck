@@ -1,5 +1,6 @@
 const express = require('express');
 const pool = require('../db/connection');
+const User = require('../models/User');
 const demoAppStore = require('../services/demoApplicationStore');
 const { verifyToken, verifyAdmin, logAudit, verifyAdminToken } = require('../middleware/auth');
 
@@ -30,6 +31,26 @@ router.use((req, res, next) => {
     }
   });
   next();
+});
+
+router.put('/profile', verifyAdminToken, verifyAdmin, async (req, res) => {
+  try {
+    const firstName = String(req.body?.firstName || '').trim();
+    const lastName = String(req.body?.lastName || '').trim();
+    if (!firstName || firstName.length > 128 || lastName.length > 128) {
+      return res.status(400).json({ error: 'Enter a first name and keep each name under 129 characters.' });
+    }
+
+    const user = process.env.DEMO_MODE === 'true'
+      ? { id: req.user.id, email: req.user.email, user_type: 'admin', first_name: firstName, last_name: lastName }
+      : await User.updateProfile(req.user.id, firstName, lastName);
+    if (!user) return res.status(404).json({ error: 'Admin account not found' });
+
+    res.json({ success: true, user });
+  } catch (err) {
+    console.error('Update admin profile error:', err);
+    res.status(500).json({ error: 'Unable to update admin profile' });
+  }
 });
 
 // ── ADMIN DASHBOARD STATS ───────────────────────────────────────────────────
@@ -154,6 +175,26 @@ router.get('/audit-log', verifyAdminToken, verifyAdmin, async (req, res) => {
       });
     }
 
+    // New endpoint to update admin profile
+    router.put('/profile', verifyAdminToken, verifyAdmin, async (req, res) => {
+      try {
+        const firstName = String(req.body?.firstName || '').trim();
+        const lastName = String(req.body?.lastName || '').trim();
+        if (!firstName || firstName.length > 128 || lastName.length > 128) {
+          return res.status(400).json({ error: 'Enter a first name and keep each name under 129 characters.' });
+        }
+
+        const user = process.env.DEMO_MODE === 'true'
+          ? { id: req.user.id, email: req.user.email, user_type: 'admin', first_name: firstName, last_name: lastName }
+          : await User.updateProfile(req.user.id, firstName, lastName);
+        if (!user) return res.status(404).json({ error: 'Admin account not found' });
+
+        res.json({ success: true, user });
+      } catch (err) {
+        console.error('Update admin profile error:', err);
+        res.status(500).json({ error: 'Unable to update admin profile' });
+      }
+    });
     const limit = parseInt(req.query.limit) || 100;
     const offset = parseInt(req.query.offset) || 0;
     const actionType = req.query.actionType;
