@@ -83,6 +83,7 @@ class Application {
       const app = demoAppStore.updateStatus(appId, 'approved', reviewerId, adminName, adminPicture);
       return app ? {
         id: app.id, issuer_id: app.issuer_id, organization_name: app.organization_name,
+        contact_name: app.contact_name, contact_email: app.contact_email,
         status: app.status, reviewed_at: app.reviewed_at,
         processed_by_admin_id: app.processed_by_admin_id,
         processed_by_admin_name: app.processed_by_admin_name,

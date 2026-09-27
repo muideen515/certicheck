@@ -6,6 +6,7 @@ const Admin = require('../models/Admin');
 const Application = require('../models/Application');
 const OTP = require('../models/OTP');
 const EmailService = require('../services/emailService');
+const { sendOtpEmail } = require('../services/otpEmail');
 const demoAdminStore = require('../services/demoAdminStore');
 const { DEFAULT_ADMIN_ACCOUNTS } = require('../services/defaultAdminAccounts');
 const { logAudit, verifyToken, verifyAdminToken } = require('../middleware/auth');
@@ -380,7 +381,7 @@ router.post('/forgot-password', async (req, res) => {
     const otp = await OTP.create(email, 'forgot_password');
     
     // Send OTP email
-    await EmailService.sendOTP(email, otp.otp_code, 'forgot_password');
+    await sendOtpEmail(email, otp.otp_code, 'forgot_password');
 
     res.json({
       success: true,

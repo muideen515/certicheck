@@ -1,7 +1,29 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+const nodemailer = require('nodemailer');
 const EmailService = require('../src/services/emailService');
+
+test('sendOtpEmail uses an object-style CommonJS export and forwards to OTP delivery', async () => {
+  const originalSendOTP = EmailService.sendOTP;
+  let receivedArgs;
+  EmailService.sendOTP = async (...args) => {
+    receivedArgs = args;
+    return { success: true };
+  };
+
+  try {
+    const otpEmailModule = require('../src/services/otpEmail');
+    assert.deepEqual(Object.keys(otpEmailModule), ['sendOtpEmail']);
+    const { sendOtpEmail } = otpEmailModule;
+    const result = await sendOtpEmail('user@example.edu', '123456', 'forgot_password');
+
+    assert.deepEqual(receivedArgs, ['user@example.edu', '123456', 'forgot_password']);
+    assert.deepEqual(result, { success: true });
+  } finally {
+    EmailService.sendOTP = originalSendOTP;
+  }
+});
 
 test('all outgoing email types use EMAIL_FROM as the sender', async () => {
   const originalTransporter = EmailService.transporter;
@@ -74,6 +96,36 @@ test('configured EMAIL_FROM must match the SMTP authentication account', () => {
   try {
     assert.throws(() => EmailService.getFromAddress(), /EMAIL_FROM must match/);
   } finally {
+    for (const [name, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
+test('SMTP transport authenticates with SMTP_USER and SMTP_PASS', () => {
+  const originalTransporter = EmailService.transporter;
+  const originalCreateTransport = nodemailer.createTransport;
+  const originalEnv = Object.fromEntries(['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'EMAIL_FROM']
+    .map(name => [name, process.env[name]]));
+  let transportOptions;
+  process.env.SMTP_HOST = 'smtp.gmail.com';
+  process.env.SMTP_USER = 'sender@gmail.com';
+  process.env.SMTP_PASS = 'example-test-app-password';
+  process.env.EMAIL_FROM = 'CertiCheck <sender@gmail.com>';
+  EmailService.transporter = null;
+  nodemailer.createTransport = options => {
+    transportOptions = options;
+    return { sendMail: async () => ({}) };
+  };
+
+  try {
+    EmailService.initTransporter();
+    assert.equal(transportOptions.auth.user, process.env.SMTP_USER);
+    assert.equal(transportOptions.auth.pass, process.env.SMTP_PASS);
+  } finally {
+    EmailService.transporter = originalTransporter;
+    nodemailer.createTransport = originalCreateTransport;
     for (const [name, value] of Object.entries(originalEnv)) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;

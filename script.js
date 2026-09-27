@@ -1967,6 +1967,9 @@ const PENDING_APPS_KEY = "certicheck_pending_apps";
 // Store signup data temporarily during OTP flow
 let pendingSignupData = null;
 let pendingForgotEmail = sessionStorage.getItem('certicheck_pending_forgot_email');
+const FORGOT_OTP_RESEND_COOLDOWN_MS = 40_000;
+const FORGOT_OTP_RESEND_UNTIL_KEY = 'certicheck_forgot_otp_resend_until';
+let forgotOtpResendTimer = null;
 
 function initIssuerDashboard() {
   const formWrap = document.getElementById("issuerFormWrap");
@@ -2949,6 +2952,7 @@ function initForgotPasswordForm() {
       if (!response.ok) throw new Error(data.error || 'Unable to send reset OTP');
       pendingForgotEmail = email;
       sessionStorage.setItem('certicheck_pending_forgot_email', email);
+      beginForgotOtpResendCooldown();
       navigate('verify-reset-otp');
     } catch (err) {
       errorEl.textContent = err.message || "Unable to send reset OTP. Please try again.";
@@ -3007,12 +3011,41 @@ function initChangePasswordForm() {
 function initVerifyResetOTPForm() {
   const btn = document.getElementById("resetPasswordBtn");
   const otpInput = document.getElementById("resetOtpCode");
+  const resendBtn = document.getElementById("resendResetOtpBtn");
+  const resendStatus = document.getElementById("resendResetOtpStatus");
   const newPasswordEl = document.getElementById("newPassword");
   const confirmPasswordEl = document.getElementById("confirmNewPassword");
   const errorEl = document.getElementById("resetError");
 
   if (!btn || btn.dataset.bound === "true" || !pendingForgotEmail) return;
   btn.dataset.bound = "true";
+
+  if (resendBtn) {
+    resendBtn.hidden = false;
+    renderForgotOtpResendCooldown(resendBtn);
+    resendBtn.addEventListener("click", async () => {
+      if (resendBtn.disabled || !pendingForgotEmail) return;
+      resendBtn.disabled = true;
+      resendBtn.textContent = "Sending code...";
+      if (resendStatus) resendStatus.textContent = "";
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: pendingForgotEmail })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Unable to resend reset code');
+        beginForgotOtpResendCooldown();
+        if (resendStatus) resendStatus.textContent = "If your account exists, a new code has been sent.";
+      } catch (err) {
+        resendBtn.disabled = false;
+        resendBtn.textContent = "Resend code";
+        if (resendStatus) resendStatus.textContent = err.message || "Unable to resend code.";
+      }
+    });
+  }
 
   btn.addEventListener("click", async () => {
     errorEl.style.display = "none";
@@ -3070,6 +3103,11 @@ function initVerifyResetOTPForm() {
 
       pendingForgotEmail = null;
       sessionStorage.removeItem('certicheck_pending_forgot_email');
+      sessionStorage.removeItem(FORGOT_OTP_RESEND_UNTIL_KEY);
+      if (forgotOtpResendTimer) {
+        clearInterval(forgotOtpResendTimer);
+        forgotOtpResendTimer = null;
+      }
       navigate('login');
       
     } catch (err) {
@@ -3079,6 +3117,35 @@ function initVerifyResetOTPForm() {
       btn.textContent = "Reset Password";
     }
   });
+}
+
+function beginForgotOtpResendCooldown() {
+  sessionStorage.setItem(FORGOT_OTP_RESEND_UNTIL_KEY, String(Date.now() + FORGOT_OTP_RESEND_COOLDOWN_MS));
+  const resendBtn = document.getElementById("resendResetOtpBtn");
+  if (resendBtn) renderForgotOtpResendCooldown(resendBtn);
+}
+
+function renderForgotOtpResendCooldown(resendBtn) {
+  if (forgotOtpResendTimer) {
+    clearInterval(forgotOtpResendTimer);
+    forgotOtpResendTimer = null;
+  }
+
+  const update = () => {
+    const until = Number(sessionStorage.getItem(FORGOT_OTP_RESEND_UNTIL_KEY) || 0);
+    const remaining = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+    resendBtn.disabled = remaining > 0;
+    resendBtn.textContent = remaining > 0 ? `Resend code in ${remaining}s` : "Resend code";
+
+    if (remaining === 0 && forgotOtpResendTimer) {
+      clearInterval(forgotOtpResendTimer);
+      forgotOtpResendTimer = null;
+      sessionStorage.removeItem(FORGOT_OTP_RESEND_UNTIL_KEY);
+    }
+  };
+
+  update();
+  if (resendBtn.disabled) forgotOtpResendTimer = setInterval(update, 1000);
 }
 
 /* ═══════════════════════════════════════════════
@@ -3368,23 +3435,22 @@ function submitApplyForm() {
   .then(async res => {
     const data = await res.json().catch(() => ({}));
     if (res.ok && (data.success || data.id || data.application)) {
-      const generatedEmail = data.application?.generated_email || generateCertiCheckEmail(name);
       const hidden = document.getElementById('contactEmail');
       if (hidden) hidden.value = email;
-      showSuccessMessage(name, email, generatedEmail, volumeText);
+      showSuccessMessage(email);
       return;
     }
 
     console.error('Application submission failed:', data);
     saveApplicationLocally(applicationData);
     const hidden = document.getElementById('contactEmail'); if (hidden) hidden.value = email;
-    showSuccessMessage(name, email, generateCertiCheckEmail(name), volumeText);
+    showSuccessMessage(email);
   })
   .catch(err => {
     console.error('Error submitting application:', err);
     saveApplicationLocally(applicationData);
     const hidden = document.getElementById('contactEmail'); if (hidden) hidden.value = email;
-    showSuccessMessage(name, email, generateCertiCheckEmail(name), volumeText);
+    showSuccessMessage(email);
   });
 }
 
@@ -3417,26 +3483,13 @@ function clearPendingApplicationDraft() {
   try { localStorage.removeItem('certicheck_pending_application_draft'); } catch (e) {}
 }
 
-function generateCertiCheckEmail(name) {
-  const slug = String(name || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '.')
-    .replace(/^\.|\.$/g, '');
-  return `${slug || 'applicant'}@certicheck.com`;
-}
-
-function showSuccessMessage(name, officialEmail, generatedEmail, volumeText) {
+function showSuccessMessage(officialEmail) {
   navigate("apply");
   document.getElementById(`form-step-${applyStep}`)?.classList.remove("active");
   document.getElementById("form-step-success")?.classList.add("active");
   document.getElementById("formActions").style.display = "none";
 
   const msg = document.getElementById("successMsg");
-  const generatedEmailCard = document.getElementById("generatedEmailCard");
-  const generatedEmailValue = document.getElementById("generatedEmailValue");
-  if (generatedEmailValue) generatedEmailValue.textContent = generatedEmail || generateCertiCheckEmail(name);
-  if (generatedEmailCard) generatedEmailCard.hidden = false;
   if (msg) {
     // Replace previous success wording with a concise waiting state
     msg.innerHTML = `<div style="font-weight:800;font-size:18px;color:var(--purple-mid);">WAITING FOR REVIEW</div><div style="margin-top:16px;text-align:left;background:var(--bg-subtle);padding:14px;border-radius:8px;"><strong>Official contact:</strong> ${officialEmail}</div>`;
