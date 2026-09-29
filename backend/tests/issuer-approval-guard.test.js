@@ -4,9 +4,12 @@ const pool = require('../src/db/connection');
 const { verifyIssuer } = require('../src/middleware/auth');
 
 const originalQuery = pool.query;
+const originalDemoMode = process.env.DEMO_MODE;
 
 test.afterEach(() => {
   pool.query = originalQuery;
+  if (originalDemoMode === undefined) delete process.env.DEMO_MODE;
+  else process.env.DEMO_MODE = originalDemoMode;
 });
 
 test('verifyIssuer refreshes authorization from the database before approving a stale issuer token', async () => {
@@ -57,22 +60,13 @@ test('verifyIssuer refreshes authorization from the database before approving a 
   assert.equal(res.code, undefined);
 });
 
-test('verifyIssuer does not let a later pending application hide an approved application', async () => {
+test('verifyIssuer rejects an issuer whose current approval status is pending', async () => {
   pool.query = async (sql) => {
     if (sql.includes('FROM users u')) {
       return {
         rows: [{ id: 10, user_type: 'issuer', is_active: true, issuer_status: 'pending' }]
       };
     }
-
-    if (sql.includes('FROM issuer_profiles')) {
-      return { rows: [{ status: 'pending' }] };
-    }
-
-    if (sql.includes("pa.status = 'approved'")) {
-      return { rows: [{ '?column?': 1 }] };
-    }
-
     return { rows: [] };
   };
 
@@ -96,6 +90,38 @@ test('verifyIssuer does not let a later pending application hide an approved app
     nextCalled = true;
   });
 
-  assert.equal(nextCalled, true);
-  assert.equal(res.code, undefined);
+  assert.equal(nextCalled, false);
+  assert.equal(res.code, 403);
+  assert.equal(res.payload.error, 'Issuer approval required');
+});
+
+test('verifyIssuer ignores a client-supplied issuer role header', async () => {
+  process.env.DEMO_MODE = 'false';
+  pool.query = async () => ({
+    rows: [{ id: 10, user_type: 'user', is_active: true, issuer_status: 'pending' }]
+  });
+
+  const req = {
+    user: { id: 10, email: 'user@example.com', user_type: 'user' },
+    headers: { 'x-demo-user-type': 'issuer' }
+  };
+  const res = {
+    status(code) {
+      this.code = code;
+      return this;
+    },
+    json(payload) {
+      this.payload = payload;
+      return this;
+    }
+  };
+  let nextCalled = false;
+
+  await verifyIssuer(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.code, 403);
+  assert.equal(res.payload.error, 'Issuer approval required');
 });

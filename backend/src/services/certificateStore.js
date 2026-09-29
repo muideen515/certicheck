@@ -26,6 +26,9 @@ class CertificateStore {
 
   issue(payload) {
     const records = this.read();
+    if (records.some(record => record.certificate_id === payload.certificateId)) {
+      throw new Error('Certificate with this ID already exists');
+    }
     const entry = {
       id: records.length + 1,
       certificate_id: payload.certificateId,
@@ -36,8 +39,12 @@ class CertificateStore {
       blockchain_transaction_id: payload.blockchainTransactionId || null,
       holder_name: payload.holderName,
       holder_email: payload.holderEmail,
+      metadata: payload.metadata || {},
+      ipfs_cid: payload.ipfsCid || null,
+      ipfs_uri: payload.ipfsUri || null,
       issuer_name: payload.issuerName || 'Certicheck Issuer',
       issuer_wallet: payload.issuerWallet || null,
+      issued_at: payload.issuedAt || new Date().toISOString(),
       checked_at: new Date().toISOString(),
       revoked_at: null,
       revoked_by: null,
@@ -51,6 +58,10 @@ class CertificateStore {
   lookup(certificateId) {
     const records = this.read();
     return records.find((record) => record.certificate_id === certificateId) || null;
+  }
+
+  listByIssuer(userId) {
+    return this.read().filter(record => Number(record.created_by) === Number(userId));
   }
 
   revoke(certificateId, reason, revokedBy) {

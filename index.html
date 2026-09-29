@@ -349,7 +349,7 @@
     <div class="page-wrap" style="max-width:500px">
       <div class="page-header">
         <h1 class="page-title">Create Account</h1>
-        <p class="page-desc">Sign up to apply for issuer access or use the platform.</p>
+        <p class="page-desc">Sign up with any valid email address to apply for issuer access or use the platform.</p>
       </div>
 
       <div class="form-card">
@@ -365,7 +365,7 @@
           <label class="field-label" for="signupLastName">Last Name</label>
           <input class="field-input" id="signupLastName" name="family-name" type="text" autocomplete="family-name" placeholder="Doe"/>
         </div>
-        <p style="font-size:13px;color:var(--text-secondary);margin:8px 0 16px;">Your initial password is set to <strong>password</strong>. You will be required to choose a new password after approval.</p>
+        <p style="font-size:13px;color:var(--text-secondary);margin:8px 0 16px;">After an admin approves your account, sign in with the default password <strong>password</strong> and choose a new password.</p>
         <div id="signupError" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
         <button class="btn-primary" id="signupBtn" style="width:100%">Send OTP</button>
         <p style="text-align:center;color:var(--text-secondary);margin-top:16px;font-size:13px">
@@ -406,7 +406,7 @@
     <div class="page-wrap" style="max-width:500px">
       <div class="page-header">
         <h1 class="page-title">Login</h1>
-        <p class="page-desc">Sign in to your account.</p>
+        <p class="page-desc">Sign in with the email address you used to create your account.</p>
       </div>
 
       <div class="form-card">
@@ -451,7 +451,7 @@
     <div class="page-wrap" style="max-width:500px">
       <div class="page-header">
         <h1 class="page-title">Reset Password</h1>
-        <p class="page-desc">Enter your email to receive a 6-digit reset code.</p>
+        <p class="page-desc">Enter your account email address to receive a 6-digit reset code.</p>
       </div>
 
       <div class="form-card">
@@ -644,7 +644,7 @@
       <div class="page-header">
         <div class="page-tag">Issuer Dashboard</div>
         <h1 class="page-title">Issue a <span class="gradient-text">Certificate</span></h1>
-        <p class="page-desc">Create a certificate record, pin its metadata to IPFS, and submit it through the backend issuance flow.</p>
+        <p class="page-desc">Save a certificate in Certicheck, pin its metadata to IPFS when available, and optionally submit it on-chain.</p>
       </div>
 
       <div class="form-card">
@@ -704,7 +704,7 @@
             <p style="margin:6px 0 0 28px;color:var(--text-secondary);font-size:13px;">Enable this to submit the certificate to the deployed Anchor program.</p>
           </div>
           <div id="issuerError" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
-          <button class="btn-primary" id="issuerSubmitBtn" data-wallet-gated="issue" style="width:100%">Issue Certificate</button>
+          <button class="btn-primary" id="issuerSubmitBtn" style="width:100%">Issue Certificate</button>
           <div id="issuerResult" style="margin-top:16px"></div>
         </div>
       </div>
@@ -730,6 +730,19 @@
         </form>
 
         <div id="verifyResult" class="verify-result" aria-live="polite"></div>
+        <dialog id="verificationResultModal" class="verification-result-modal" aria-modal="true" aria-labelledby="verificationResultTitle" aria-describedby="verificationResultMessage">
+          <div class="verification-modal-header">
+            <span class="verification-modal-label">Certificate verification</span>
+            <button class="verification-modal-x" type="button" data-verification-close aria-label="Close verification result">&times;</button>
+          </div>
+          <div class="verification-status-icon" id="verificationStatusIcon" aria-hidden="true"></div>
+          <h2 id="verificationResultTitle" class="verification-result-title"></h2>
+          <p id="verificationResultMessage" class="verification-result-message"></p>
+          <dl id="verificationResultMetadata" class="verification-result-metadata"></dl>
+          <div class="verification-modal-actions">
+            <button class="btn-primary" id="verificationResultClose" type="button">Verify another</button>
+          </div>
+        </dialog>
 
         <p class="hint-text" style="margin-top:18px;">
           Demo: try

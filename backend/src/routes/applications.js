@@ -26,28 +26,6 @@ async function getAdminActor(req) {
   };
 }
 
-function generateEmailSlug(name) {
-  const slug = String(name || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '.')
-    .replace(/^\.|\.$/g, '');
-  return `${slug || 'applicant'}@certicheck.com`;
-}
-
-async function generateUniqueEmail(name) {
-  const base = generateEmailSlug(name).replace('@certicheck.com', '');
-  let candidate = `${base}@certicheck.com`;
-  let suffix = 2;
-
-  while (await User.findByEmail(candidate)) {
-    candidate = `${base}${suffix}@certicheck.com`;
-    suffix += 1;
-  }
-
-  return candidate;
-}
-
 // ── SUBMIT APPLICATION ──────────────────────────────────────────────────────
 router.post('/submit', async (req, res) => {
   try {
@@ -56,21 +34,28 @@ router.post('/submit', async (req, res) => {
     if (!orgName || !contactName || !contactEmail) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+    if (!EmailService.isValidEmail(contactEmail)) {
+      return res.status(400).json({ error: 'A valid contact email address is required' });
+    }
 
-    const generatedEmail = process.env.DEMO_MODE === 'true'
-      ? generateEmailSlug(contactName)
-      : await generateUniqueEmail(contactName);
+    const applicantEmail = String(contactEmail).trim().toLowerCase();
+    const generatedEmail = applicantEmail;
 
     let userId = req.user?.id || null;
     if (!userId) {
       if (process.env.DEMO_MODE === 'true') {
         userId = 1;
       } else {
-        const nameParts = String(contactName).trim().split(/\s+/).filter(Boolean);
-        const firstName = nameParts.shift() || 'Issuer';
-        const lastName = nameParts.join(' ') || 'User';
-        const generatedUser = await User.create(generatedEmail, 'password', firstName, lastName, 'issuer');
-        userId = generatedUser.id;
+        const existingUser = await User.findByEmail(applicantEmail);
+        if (existingUser) {
+          userId = existingUser.id;
+        } else {
+          const nameParts = String(contactName).trim().split(/\s+/).filter(Boolean);
+          const firstName = nameParts.shift() || 'Issuer';
+          const lastName = nameParts.join(' ') || 'User';
+          const applicant = await User.create(applicantEmail, 'password', firstName, lastName, 'issuer');
+          userId = applicant.id;
+        }
       }
     }
 
@@ -223,7 +208,7 @@ router.post('/:appId/create-account', verifyAdminToken, verifyAdmin, async (req,
     }
 
     // Create a new user account for the contact email
-    const contactEmail = String(app.generated_email || app.generatedEmail || app.contact_email || app.contactEmail || '').trim().toLowerCase();
+    const contactEmail = String(app.contact_email || app.contactEmail || app.generated_email || app.generatedEmail || '').trim().toLowerCase();
     if (!contactEmail) return res.status(400).json({ error: 'No contact email available to create account' });
 
     const User = require('../models/User');

@@ -4,6 +4,14 @@ const assert = require('node:assert/strict');
 const nodemailer = require('nodemailer');
 const EmailService = require('../src/services/emailService');
 
+test('email validation allows standard external domains and rejects malformed addresses', () => {
+  assert.equal(EmailService.isValidEmail('student.name+certs@university.edu'), true);
+  assert.equal(EmailService.isValidEmail('person@gmail.com'), true);
+  assert.equal(EmailService.isValidEmail('person..name@gmail.com'), false);
+  assert.equal(EmailService.isValidEmail('.person@gmail.com'), false);
+  assert.equal(EmailService.isValidEmail('person@localhost'), false);
+});
+
 test('sendOtpEmail uses an object-style CommonJS export and forwards to OTP delivery', async () => {
   const originalSendOTP = EmailService.sendOTP;
   let receivedArgs;
@@ -126,6 +134,79 @@ test('SMTP transport authenticates with SMTP_USER and SMTP_PASS', () => {
   } finally {
     EmailService.transporter = originalTransporter;
     nodemailer.createTransport = originalCreateTransport;
+    for (const [name, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
+test('SMTP transport accepts EMAIL_USER and EMAIL_PASSWORD as credential aliases', () => {
+  const originalTransporter = EmailService.transporter;
+  const originalCreateTransport = nodemailer.createTransport;
+  const originalEnv = Object.fromEntries([
+    'SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASS',
+    'EMAIL_USER', 'EMAIL_PASSWORD', 'EMAIL_FROM'
+  ].map(name => [name, process.env[name]]));
+  let transportOptions;
+  process.env.SMTP_HOST = 'smtp.example.org';
+  process.env.SMTP_PORT = '465';
+  delete process.env.SMTP_SECURE;
+  delete process.env.SMTP_USER;
+  delete process.env.SMTP_PASS;
+  process.env.EMAIL_USER = 'sender@example.org';
+  process.env.EMAIL_PASSWORD = 'example-test-password';
+  process.env.EMAIL_FROM = 'CertiCheck <sender@example.org>';
+  EmailService.transporter = null;
+  nodemailer.createTransport = options => {
+    transportOptions = options;
+    return { sendMail: async () => ({}) };
+  };
+
+  try {
+    EmailService.initTransporter();
+    assert.equal(transportOptions.host, process.env.SMTP_HOST);
+    assert.equal(transportOptions.port, 465);
+    assert.equal(transportOptions.secure, true);
+    assert.equal(transportOptions.auth.user, process.env.EMAIL_USER);
+    assert.equal(transportOptions.auth.pass, process.env.EMAIL_PASSWORD);
+  } finally {
+    EmailService.transporter = originalTransporter;
+    nodemailer.createTransport = originalCreateTransport;
+    for (const [name, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
+test('missing SMTP configuration fails clearly in production and falls back in development', async () => {
+  const originalTransporter = EmailService.transporter;
+  const originalEnv = Object.fromEntries([
+    'NODE_ENV', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER',
+    'SMTP_PASS', 'EMAIL_USER', 'EMAIL_PASSWORD', 'EMAIL_FROM'
+  ].map(name => [name, process.env[name]]));
+  const originalLog = console.log;
+  for (const name of ['SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASS', 'EMAIL_USER', 'EMAIL_PASSWORD', 'EMAIL_FROM']) {
+    delete process.env[name];
+  }
+  EmailService.transporter = null;
+
+  try {
+    process.env.NODE_ENV = 'production';
+    assert.throws(
+      () => EmailService.initTransporter(),
+      error => error.code === 'EMAIL_NOT_CONFIGURED' && /SMTP_HOST/.test(error.message)
+    );
+
+    process.env.NODE_ENV = 'development';
+    EmailService.transporter = null;
+    console.log = () => {};
+    await EmailService.sendOTP('user@example.org', '123456', 'forgot_password');
+    assert.equal(EmailService.transporter !== null, true);
+  } finally {
+    console.log = originalLog;
+    EmailService.transporter = originalTransporter;
     for (const [name, value] of Object.entries(originalEnv)) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;

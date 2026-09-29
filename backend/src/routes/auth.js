@@ -9,7 +9,7 @@ const EmailService = require('../services/emailService');
 const { sendOtpEmail } = require('../services/otpEmail');
 const demoAdminStore = require('../services/demoAdminStore');
 const { DEFAULT_ADMIN_ACCOUNTS } = require('../services/defaultAdminAccounts');
-const { logAudit, verifyToken, verifyAdminToken } = require('../middleware/auth');
+const { logAudit, verifyToken, verifyAdmin, verifyAdminToken } = require('../middleware/auth');
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
@@ -76,9 +76,11 @@ function createAdminToken(identity) {
 }
 
 async function findPasswordResetAccount(email) {
-  return process.env.DEMO_MODE === 'true'
-    ? demoAdminStore.findByEmail(email, DEFAULT_ADMIN_ACCOUNTS)
-    : User.findByEmail(email);
+  if (process.env.DEMO_MODE === 'true') {
+    const demoAdmin = await demoAdminStore.findByEmail(email, DEFAULT_ADMIN_ACCOUNTS);
+    return demoAdmin || User.findByEmail(email);
+  }
+  return User.findByEmail(email);
 }
 
 function isAdminAccount(account) {
@@ -112,6 +114,10 @@ function getLoginApplicationNotice(application) {
 
 function validateNewPassword(password) {
   return typeof password === 'string' && password.length >= 6 && password !== 'password';
+}
+
+function emailConfigurationError(err) {
+  return err?.code === 'EMAIL_NOT_CONFIGURED' || err?.code === 'EMAIL_FROM_MISMATCH';
 }
 
 function setAuthCookie(res, token) {
@@ -221,7 +227,11 @@ router.post('/send-otp', async (req, res) => {
     });
   } catch (err) {
     console.error('Send OTP error:', err);
-    res.status(500).json({ error: 'Failed to send OTP: ' + (err.message || 'Internal error') });
+    res.status(emailConfigurationError(err) ? 503 : 500).json({
+      error: emailConfigurationError(err)
+        ? err.message
+        : 'Failed to send OTP email. Please try again.'
+    });
   }
 });
 
@@ -253,7 +263,11 @@ router.post('/resend-otp', async (req, res) => {
     });
   } catch (err) {
     console.error('Resend OTP error:', err);
-    res.status(500).json({ error: 'Failed to resend OTP' });
+    res.status(emailConfigurationError(err) ? 503 : 500).json({
+      error: emailConfigurationError(err)
+        ? err.message
+        : 'Failed to resend OTP email. Please try again.'
+    });
   }
 });
 
@@ -292,10 +306,10 @@ router.post('/verify-otp', async (req, res) => {
 router.post('/register', async (req, res) => {
   try {
     const email = normalizeEmail(req.body.email);
-    const { password, firstName, lastName, userType = 'user', otp } = req.body;
+    const { firstName, lastName, userType = 'user', otp } = req.body;
 
-    if (!email || !password || !firstName || !lastName) {
-      return res.status(400).json({ error: 'Missing required fields: email, password, firstName, lastName' });
+    if (!email || !firstName || !lastName) {
+      return res.status(400).json({ error: 'Missing required fields: email, firstName, lastName' });
     }
 
     if (userType === 'admin') {
@@ -331,7 +345,7 @@ router.post('/register', async (req, res) => {
       return res.status(409).json({ error: 'Email already registered' });
     }
 
-    const newUser = await User.create(email, password, firstName, lastName, userType);
+    const newUser = await User.create(email, 'password', firstName, lastName, userType);
     
     // Invalidate the verified OTP now that registration is complete
     await OTP.consume(email, 'signup');
@@ -341,18 +355,22 @@ router.post('/register', async (req, res) => {
     // Send welcome email
     await EmailService.sendWelcome(email, firstName);
 
-    const identity = buildAuthIdentity(newUser);
-    const token = jwt.sign(
-      identity,
-      JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRE || '7d' }
-    );
-
     res.status(201).json({
       success: true,
-      message: 'Registration successful',
-      user: { ...newUser, ...identity },
-      token
+      code: 'ACCOUNT_PENDING_APPROVAL',
+      message: 'Registration successful. Your account is pending admin approval. Once approved, sign in with the default password and change it immediately.',
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        first_name: newUser.first_name,
+        last_name: newUser.last_name,
+        user_type: newUser.user_type,
+        is_active: false,
+        is_approved: false,
+        isApproved: false,
+        must_change_password: true,
+        mustChangePassword: true
+      }
     });
   } catch (err) {
     console.error('Registration error:', err);
@@ -369,6 +387,7 @@ router.post('/forgot-password', async (req, res) => {
       return res.status(400).json({ error: 'A valid email address is required' });
     }
 
+    EmailService.assertConfigured();
     const user = await findPasswordResetAccount(email);
     if (!user) {
       // Don't reveal if email exists for security
@@ -378,7 +397,13 @@ router.post('/forgot-password', async (req, res) => {
       });
     }
     // Generate and store OTP
-    const otp = await OTP.create(email, 'forgot_password');
+    const isDemoAdmin = process.env.DEMO_MODE === 'true' && isAdminAccount(user);
+    const otp = isDemoAdmin
+      ? await OTP.create(email, 'forgot_password')
+      : await User.createPasswordResetOtp(email);
+    if (!otp) {
+      return res.json({ success: true, message: 'If email exists, OTP will be sent' });
+    }
     
     // Send OTP email
     await sendOtpEmail(email, otp.otp_code, 'forgot_password');
@@ -390,7 +415,11 @@ router.post('/forgot-password', async (req, res) => {
     });
   } catch (err) {
     console.error('Forgot password error:', err);
-    res.status(500).json({ error: 'Failed to send reset OTP' });
+    res.status(emailConfigurationError(err) ? 503 : 500).json({
+      error: emailConfigurationError(err)
+        ? err.message
+        : 'Failed to send reset OTP email. Please try again.'
+    });
   }
 });
 
@@ -400,13 +429,20 @@ router.post('/verify-forgot-password', async (req, res) => {
     const email = normalizeEmail(req.body.email);
     const otp = req.body.otp;
 
-    if (!email || !otp || !EmailService.isValidEmail(email)) {
+    if (!email || !/^\d{6}$/.test(String(otp || '')) || !EmailService.isValidEmail(email)) {
       return res.status(400).json({ error: 'A valid email and OTP are required' });
     }
-    const verified = await OTP.verify(email, otp, 'forgot_password');
+    const user = await findPasswordResetAccount(email);
+    const verified = user && process.env.DEMO_MODE === 'true' && isAdminAccount(user)
+      ? await OTP.verify(email, otp, 'forgot_password')
+      : user
+        ? await User.verifyPasswordResetOtp(email, otp)
+        : false;
     
     if (!verified) {
-      await OTP.incrementAttempts(email, otp, 'forgot_password');
+      if (user && process.env.DEMO_MODE === 'true' && isAdminAccount(user)) {
+        await OTP.incrementAttempts(email, otp, 'forgot_password');
+      }
       return res.status(401).json({ error: 'Invalid or expired OTP' });
     }
 
@@ -426,33 +462,34 @@ router.post('/reset-password', async (req, res) => {
     const email = normalizeEmail(req.body.email);
     const { newPassword, otp } = req.body;
 
-    if (!email || !newPassword || !EmailService.isValidEmail(email)) {
+    if (!email || !newPassword || !/^\d{6}$/.test(String(otp || '')) || !EmailService.isValidEmail(email)) {
       return res.status(400).json({ error: 'A valid email and new password are required' });
     }
     const user = await findPasswordResetAccount(email);
 
-    // Verify OTP
-    const isOtpVerified = await OTP.isVerified(email, 'forgot_password');
-    if (!isOtpVerified) {
-      return res.status(401).json({ error: 'OTP verification required' });
-    }
-
-    // Check if email exists
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(401).json({ error: 'Invalid or expired OTP' });
     }
     if (!validateNewPassword(newPassword)) {
       return res.status(400).json({ error: 'Password must be at least 6 characters and cannot be "password"' });
     }
 
-    // Update password
-    if (process.env.DEMO_MODE === 'true') {
+    if (process.env.DEMO_MODE === 'true' && isAdminAccount(user)) {
+      const verified = await OTP.isVerifiedCode(email, otp, 'forgot_password') ||
+        await OTP.verify(email, otp, 'forgot_password');
+      if (!verified) {
+        await OTP.incrementAttempts(email, otp, 'forgot_password');
+        return res.status(401).json({ error: 'Invalid or expired OTP' });
+      }
       await demoAdminStore.updatePassword(user.id, newPassword, DEFAULT_ADMIN_ACCOUNTS);
+      await OTP.consume(email, 'forgot_password');
     } else {
-      await User.updatePassword(email, newPassword);
+      const verified = await User.verifyPasswordResetOtp(email, otp);
+      if (!verified) return res.status(401).json({ error: 'Invalid or expired OTP' });
+      const updatedUser = await User.resetPasswordWithOtp(email, otp, newPassword);
+      if (!updatedUser) return res.status(401).json({ error: 'Invalid or expired OTP' });
       if (isAdminAccount(user)) await Admin.syncPasswordHash(user.id);
     }
-    await OTP.consume(email, 'forgot_password');
     
     await logAudit(user.id, 'PASSWORD_CHANGE', isAdminAccount(user) ? 'admin' : 'user', user.id, 'success', null, {
       adminId: isAdminAccount(user) ? user.id : null,
@@ -479,11 +516,15 @@ router.post('/change-password', verifyToken, async (req, res) => {
 
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user.is_active) return res.status(403).json({ error: 'Account is pending admin approval' });
 
-    await User.updatePassword(user.email, newPassword, false);
+    const updatedUser = await User.updatePassword(user.email, newPassword, false);
     if (user.user_type === 'admin') await Admin.syncPasswordHash(user.id);
     await logAudit(user.id, 'PASSWORD_CHANGE', 'user', user.id, 'success');
-    res.json({ success: true, message: 'Password changed successfully' });
+    const identity = buildAuthIdentity({ ...user, ...updatedUser });
+    const token = jwt.sign(identity, JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '7d' });
+    setAuthCookie(res, token);
+    res.json({ success: true, message: 'Password changed successfully', token, user: identity });
   } catch (err) {
     console.error('Change password error:', err);
     res.status(500).json({ error: 'Failed to change password' });
@@ -536,8 +577,11 @@ router.post('/login', async (req, res) => {
         return res.status(applicationNotice.status).json(applicationNotice);
       }
 
-      await logAudit(user.id, 'LOGIN', 'user', user.id, 'failed', 'Account inactive');
-      return res.status(403).json({ error: 'Account is inactive' });
+      await logAudit(user.id, 'LOGIN', 'user', user.id, 'failed', 'Account pending approval');
+      return res.status(403).json({
+        code: 'USER_PENDING_APPROVAL',
+        error: 'Your account is pending admin approval. You will be able to sign in after it is approved.'
+      });
     }
 
     await logAudit(user.id, 'LOGIN', 'user', user.id, 'success');
@@ -550,7 +594,7 @@ router.post('/login', async (req, res) => {
 
     const identity = buildAuthIdentity(user);
     const token = jwt.sign(
-      identity,
+      { ...identity, must_change_password: user.must_change_password },
       JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRE || '7d' }
     );
@@ -560,7 +604,16 @@ router.post('/login', async (req, res) => {
     res.json({
       success: true,
       message: 'Login successful',
-      user: { ...identity, must_change_password: user.must_change_password, organization_name: profile.organization_name || '', issuer_status: profile.status || '', wallet: profile.wallet_address || '' },
+      user: {
+        ...identity,
+        is_approved: Boolean(user.is_active),
+        isApproved: Boolean(user.is_active),
+        must_change_password: user.must_change_password,
+        mustChangePassword: Boolean(user.must_change_password),
+        organization_name: profile.organization_name || '',
+        issuer_status: profile.status || '',
+        wallet: profile.wallet_address || ''
+      },
       token
     });
   } catch (err) {
@@ -577,6 +630,9 @@ router.post('/admin/login', async (req, res) => {
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
+    }
+    if (!EmailService.isValidEmail(email)) {
+      return res.status(400).json({ error: 'A valid email address is required' });
     }
 
     // In demo mode, accept each of the seeded admin identities without a database.
@@ -769,6 +825,57 @@ router.put('/admin/profile', verifyAdminToken, async (req, res) => {
   }
 });
 
+router.get('/admin/users/pending', verifyAdminToken, verifyAdmin, async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    const users = await User.getPendingAccounts(limit, offset);
+    res.json({
+      success: true,
+      users: users.map(user => ({
+        ...user,
+        is_approved: false,
+        isApproved: false,
+        mustChangePassword: Boolean(user.must_change_password)
+      })),
+      limit,
+      offset
+    });
+  } catch (err) {
+    console.error('Fetch pending user accounts error:', err);
+    res.status(500).json({ error: 'Failed to fetch pending user accounts' });
+  }
+});
+
+router.put('/admin/users/:userId/approve', verifyAdminToken, verifyAdmin, async (req, res) => {
+  try {
+    const userId = Number(req.params.userId);
+    if (!Number.isSafeInteger(userId) || userId < 1) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+    const user = await User.approveAccount(userId);
+    if (!user) return res.status(404).json({ error: 'Pending user account not found' });
+
+    await logAudit(req.user.id, 'ADMIN_ACTION', 'user', user.id, 'success', null, {
+      action: 'USER_ACCOUNT_APPROVE',
+      approvedUserEmail: user.email
+    });
+    res.json({
+      success: true,
+      message: 'User account approved. The user can sign in with the default password and will be required to change it.',
+      user: {
+        ...user,
+        is_approved: true,
+        isApproved: true,
+        mustChangePassword: true
+      }
+    });
+  } catch (err) {
+    console.error('Approve user account error:', err);
+    res.status(500).json({ error: 'Failed to approve user account' });
+  }
+});
+
 router.post('/admin/change-password', verifyAdminToken, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -814,11 +921,31 @@ router.post('/admin/change-password', verifyAdminToken, async (req, res) => {
 // ── GET PROFILE ─────────────────────────────────────────────────────────────
 router.get('/profile', verifyToken, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
+    const isDemoUser = req.user.isDemo === true && process.env.DEMO_MODE === 'true';
+    const user = isDemoUser
+      ? { id: req.user.id, email: req.user.email, user_type: req.user.user_type, is_active: true }
+      : await User.findById(req.user.id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    res.json({ success: true, user: { ...user, userType: user.user_type } });
+
+    const profileResult = isDemoUser
+      ? { rows: [{ organization_name: 'Certicheck Demo Issuer', status: 'approved', wallet_address: '' }] }
+      : await pool.query(
+        'SELECT organization_name, status, wallet_address FROM issuer_profiles WHERE user_id = $1 LIMIT 1',
+        [req.user.id]
+      );
+    const profile = profileResult.rows[0] || {};
+    res.json({
+      success: true,
+      user: {
+        ...user,
+        userType: user.user_type,
+        issuer_status: profile.status || '',
+        organization_name: profile.organization_name || '',
+        wallet: profile.wallet_address || ''
+      }
+    });
   } catch (err) {
     console.error('Profile fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch profile' });

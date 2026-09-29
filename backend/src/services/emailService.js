@@ -1,5 +1,11 @@
 const nodemailer = require('nodemailer');
 
+function configuredSmtpUser() {
+  if (process.env.SMTP_HOST && process.env.SMTP_USER) return process.env.SMTP_USER;
+  if (!process.env.SMTP_HOST && process.env.EMAIL_USER) return process.env.EMAIL_USER;
+  return process.env.SMTP_USER || process.env.EMAIL_USER;
+}
+
 // Email service for sending OTPs and notification emails
 class EmailService {
   static transporter = null;
@@ -13,10 +19,12 @@ class EmailService {
   static isValidEmail(email) {
     if (!email || typeof email !== 'string') return false;
     const clean = email.trim().toLowerCase();
+    if (clean.length > 254) return false;
     const re = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
     if (!re.test(clean)) return false;
     const parts = clean.split('@');
     if (parts.length !== 2) return false;
+    if (parts[0].length > 64 || parts[0].startsWith('.') || parts[0].endsWith('.') || parts[0].includes('..')) return false;
     const domain = parts[1];
     if (!domain.includes('.') || domain.startsWith('.') || domain.endsWith('.')) return false;
     return true;
@@ -25,20 +33,24 @@ class EmailService {
   static initTransporter() {
     if (this.transporter) return;
 
-    const emailPassword = String(process.env.EMAIL_PASSWORD || '').replace(/\s+/g, '');
-    const hasCustomSmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
-    const hasEmailService = Boolean(process.env.EMAIL_USER && emailPassword);
+    const smtpUser = configuredSmtpUser();
+    const smtpPassword = process.env.SMTP_PASS || String(process.env.EMAIL_PASSWORD || '').replace(/\s+/g, '');
+    const hasCustomSmtp = Boolean(process.env.SMTP_HOST && smtpUser && smtpPassword);
+    const hasEmailService = Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD);
 
     // 1. Custom SMTP configuration
     if (hasCustomSmtp) {
       console.log(`✓ EmailService: Using custom SMTP (${process.env.SMTP_HOST}:${process.env.SMTP_PORT || 587})`);
+      const port = Number(process.env.SMTP_PORT) || 587;
       this.transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
-        port: Number(process.env.SMTP_PORT) || 587,
-        secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
+        port,
+        secure: process.env.SMTP_SECURE === undefined
+          ? port === 465
+          : process.env.SMTP_SECURE.toLowerCase() === 'true',
         auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASS
+          user: smtpUser,
+          pass: smtpPassword
         }
       });
       return;
@@ -51,14 +63,16 @@ class EmailService {
         service: process.env.EMAIL_SERVICE || 'gmail',
         auth: {
           user: process.env.EMAIL_USER,
-          pass: emailPassword
+          pass: smtpPassword
         }
       });
       return;
     }
 
     if (process.env.NODE_ENV === 'production') {
-      throw new Error('Email delivery is not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASS.');
+      const error = new Error('Email delivery is not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASS (or EMAIL_USER and EMAIL_PASSWORD).');
+      error.code = 'EMAIL_NOT_CONFIGURED';
+      throw error;
     }
 
     // Development mode - log prominently to console
@@ -79,7 +93,9 @@ class EmailService {
   }
 
   static getConfigurationStatus() {
-    const hasCustomSmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+    const smtpUser = configuredSmtpUser();
+    const smtpPassword = process.env.SMTP_PASS || process.env.EMAIL_PASSWORD;
+    const hasCustomSmtp = Boolean(process.env.SMTP_HOST && smtpUser && smtpPassword);
     const hasEmailService = Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD);
     return {
       mode: hasCustomSmtp || hasEmailService ? 'smtp' : 'console',
@@ -88,16 +104,21 @@ class EmailService {
     };
   }
 
+  static assertConfigured() {
+    this.initTransporter();
+    if (process.env.NODE_ENV === 'production') this.getFromAddress();
+  }
+
   static getFromAddress() {
-    const smtpUser = process.env.SMTP_HOST && process.env.SMTP_USER
-      ? process.env.SMTP_USER
-      : process.env.EMAIL_USER || process.env.SMTP_USER;
+    const smtpUser = configuredSmtpUser();
     const fromAddress = process.env.EMAIL_FROM || smtpUser || null;
 
     if (fromAddress && smtpUser) {
       const mailbox = fromAddress.match(/<([^<>]+)>/)?.[1] || fromAddress;
       if (mailbox.trim().toLowerCase() !== smtpUser.trim().toLowerCase()) {
-        throw new Error('EMAIL_FROM must match the configured SMTP sender account.');
+        const error = new Error('EMAIL_FROM must match the configured SMTP sender account.');
+        error.code = 'EMAIL_FROM_MISMATCH';
+        throw error;
       }
     }
 
@@ -174,7 +195,7 @@ class EmailService {
             Welcome to CertiCheck, ${firstName || 'there'}!
           </h2>
           <p style="color: #4b5563; font-size: 15px; line-height: 1.6;">
-            Your account is now verified and active. You are ready to issue, manage, and verify tamper-proof credentials on the Solana blockchain.
+            Your account registration is complete and is pending admin approval. We will notify you when you can sign in.
           </p>
         </div>
       </div>

@@ -13,10 +13,16 @@ CREATE TABLE IF NOT EXISTS users (
   user_type VARCHAR(20) DEFAULT 'user' CHECK (user_type IN ('user', 'issuer', 'admin')),
   is_active BOOLEAN DEFAULT FALSE,
   must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
+  reset_otp_code VARCHAR(6),
+  reset_otp_expires_at TIMESTAMP,
+  reset_otp_attempts INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_otp_code VARCHAR(6);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_otp_expires_at TIMESTAMP;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_otp_attempts INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_email ON users(email);
 
 -- ── INDIVIDUAL ADMIN PROFILES ────────────────────────────────────────────────
@@ -119,6 +125,7 @@ CREATE TABLE IF NOT EXISTS verify_history (
 CREATE TABLE IF NOT EXISTS certificates (
   id SERIAL PRIMARY KEY,
   certificate_id VARCHAR(255) UNIQUE NOT NULL,
+  issuer_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   issuer_name VARCHAR(255),
   issuer_wallet VARCHAR(255),
   holder_name VARCHAR(255),
@@ -133,7 +140,9 @@ CREATE TABLE IF NOT EXISTS certificates (
   revocation_reason TEXT,  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE certificates ADD COLUMN IF NOT EXISTS issuer_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_certificates_certificate_id ON certificates(certificate_id);
+CREATE INDEX IF NOT EXISTS idx_certificates_issuer_user_id ON certificates(issuer_user_id);
 
 -- ── REVOKED CERTIFICATES TABLE ────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS revoked_certificates (

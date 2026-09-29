@@ -17,7 +17,7 @@ const pool = require('../src/db/connection');
 const User = require('../src/models/User');
 const Application = require('../src/models/Application');
 const authRoutes = require('../src/routes/auth');
-const { verifyAdminToken } = require('../src/middleware/auth');
+const { verifyAdminToken, verifyToken } = require('../src/middleware/auth');
 
 const originalPoolQuery = pool.query;
 const originalUserMethods = {
@@ -26,6 +26,8 @@ const originalUserMethods = {
   create: User.create,
   verifyPassword: User.verifyPassword,
   updatePassword: User.updatePassword,
+  getPendingAccounts: User.getPendingAccounts,
+  approveAccount: User.approveAccount,
   findApplicationByEmail: Application.findApplicationByEmail
 };
 
@@ -86,6 +88,17 @@ test('supports multiple seeded admins without allowing admin registration or pas
     }
     return safeUser(user);
   };
+  User.getPendingAccounts = async () => [...usersById.values()]
+    .filter(user => !user.is_active && user.user_type !== 'admin')
+    .map(safeUser);
+  User.approveAccount = async id => {
+    const user = usersById.get(Number(id));
+    if (!user || user.is_active || user.user_type === 'admin') return null;
+    user.password = 'password';
+    user.is_active = true;
+    user.must_change_password = true;
+    return safeUser(user);
+  };
   Application.findApplicationByEmail = async email => {
     const status = applicationStatuses.get(User.normalizeEmail(email));
     return status ? { status } : null;
@@ -105,6 +118,7 @@ test('supports multiple seeded admins without allowing admin registration or pas
   app.use(express.json());
   app.use('/auth', authRoutes);
   app.get('/admin-only', verifyAdminToken, (req, res) => res.json({ user: req.user }));
+  app.get('/user-only', verifyToken, (req, res) => res.json({ user: req.user }));
   server = app.listen(0);
   await new Promise(resolve => server.once('listening', resolve));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -202,7 +216,55 @@ test('supports multiple seeded admins without allowing admin registration or pas
   };
   usersByEmail.set(pendingUser.email, pendingUser);
   usersById.set(pendingUser.id, pendingUser);
+  const adminAuthHeaders = { Authorization: ['Bearer', adminToken].join(' ') };
+
+  const pendingAccountsResponse = await fetch(`${baseUrl}/auth/admin/users/pending`, {
+    headers: adminAuthHeaders
+  });
+  assert.equal(pendingAccountsResponse.status, 200);
+  const pendingAccounts = await pendingAccountsResponse.json();
+  assert.ok(pendingAccounts.users.some(user => user.id === pendingUser.id && user.isApproved === false));
+
+  const approveAccountResponse = await fetch(`${baseUrl}/auth/admin/users/${pendingUser.id}/approve`, {
+    method: 'PUT',
+    headers: adminAuthHeaders
+  });
+  assert.equal(approveAccountResponse.status, 200);
+  assert.equal(pendingUser.password, 'password');
+  assert.equal(pendingUser.is_active, true);
+  assert.equal(pendingUser.must_change_password, true);
+
+  const pendingLogin = await login(pendingUser.email, 'password');
+  assert.equal(pendingLogin.status, 200);
+  const pendingLoginData = await pendingLogin.json();
+  assert.equal(pendingLoginData.user.must_change_password, true);
+  assert.equal(jwt.verify(pendingLoginData.token, 'dev_secret_key').must_change_password, true);
+
+  const restrictedRequest = await fetch(`${baseUrl}/user-only`, {
+    headers: { Authorization: ['Bearer', pendingLoginData.token].join(' ') }
+  });
+  assert.equal(restrictedRequest.status, 403);
+  assert.equal((await restrictedRequest.json()).code, 'PASSWORD_CHANGE_REQUIRED');
+
+  const changedPasswordResponse = await fetch(`${baseUrl}/auth/change-password`, {
+    method: 'POST',
+    headers: {
+      Authorization: ['Bearer', pendingLoginData.token].join(' '),
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ newPassword: 'student-new-password' })
+  });
+  assert.equal(changedPasswordResponse.status, 200);
+  const changedPassword = await changedPasswordResponse.json();
+  assert.equal(jwt.verify(changedPassword.token, 'dev_secret_key').must_change_password, undefined);
+
+  const oldPendingLogin = await login(pendingUser.email, 'password');
+  assert.equal(oldPendingLogin.status, 401);
+  const approvedUserLogin = await login(pendingUser.email, 'student-new-password');
+  assert.equal(approvedUserLogin.status, 200);
+
   applicationStatuses.set(pendingUser.email, 'pending');
+  pendingUser.is_active = false;
   const inactivePendingLogin = await login(pendingUser.email, pendingUser.password);
   assert.equal(inactivePendingLogin.status, 403);
   assert.equal((await inactivePendingLogin.json()).code, 'APPLICATION_PENDING');

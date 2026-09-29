@@ -1,6 +1,6 @@
 const express = require('express');
 const pool = require('../db/connection');
-const { verifyToken, verifyAdmin, verifyAdminToken, verifyIssuer, logAudit } = require('../middleware/auth');
+const { verifyToken, verifyIssuer, logAudit } = require('../middleware/auth');
 const { pinJsonToIpfs } = require('../services/ipfsService');
 const { issueCertificateOnChain, revokeCertificateOnChain, lookupCertificateOnChain, getTransactionStatus } = require('../services/solanaService');
 const { getDemoCertificate } = require('../services/demoCertificateService');
@@ -23,6 +23,21 @@ function getCertificateAttachmentError(metadata) {
     return 'Supporting files must be 4 MB or smaller.';
   }
   return null;
+}
+
+function getPublicCertificateMetadata(metadata) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return {};
+  const publicMetadata = { ...metadata };
+  if (
+    publicMetadata.attachment &&
+    typeof publicMetadata.attachment === 'object' &&
+    'dataUrl' in publicMetadata.attachment
+  ) {
+    const attachment = { ...publicMetadata.attachment };
+    delete attachment.dataUrl;
+    publicMetadata.attachment = attachment;
+  }
+  return publicMetadata;
 }
 
 let certificateStore;
@@ -55,7 +70,6 @@ async function safeQuery(text, params = []) {
 
 router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
   try {
-    console.log('DEBUG issue body', JSON.stringify(req.body));
     const {
       certificateId,
       holderName,
@@ -100,18 +114,82 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
       metadata: requestedMetadata
     };
 
-    const existingCertificate = getCertificateStore().lookup(trimmedCertificateId);
+    const existingCertificate = process.env.DEMO_MODE === 'true'
+      ? getCertificateStore().lookup(trimmedCertificateId)
+      : null;
     if (existingCertificate) {
       return res.status(409).json({ error: 'Certificate with this ID already exists' });
     }
 
-    const ipfsResult = await pinJsonToIpfs(certificateMetadata);
-    const ipfsCid = ipfsResult.cid;
-    const ipfsUri = `https://gateway.pinata.cloud/ipfs/${ipfsCid}`;
+    try {
+      const existing = await safeQuery(
+        'SELECT certificate_id FROM certificates WHERE certificate_id = $1 LIMIT 1',
+        [trimmedCertificateId]
+      );
+      if (existing.rows[0]) {
+        return res.status(409).json({ error: 'Certificate with this ID already exists' });
+      }
+    } catch (dbErr) {
+      if (process.env.DEMO_MODE !== 'true') {
+        return res.status(503).json({ error: 'Certificate database is unavailable. Please try again.' });
+      }
+      console.warn('Certificate duplicate check unavailable in demo mode:', dbErr.message);
+    }
 
+    let dbCertificate = null;
+    try {
+      const certificateResult = await safeQuery(
+        `INSERT INTO certificates
+          (certificate_id, issuer_user_id, issuer_name, issuer_wallet, holder_name, holder_email, certificate_type, status, ipfs_cid, ipfs_uri, blockchain_transaction_id, metadata, issued_at, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
+         RETURNING *`,
+        [
+          trimmedCertificateId,
+          req.user.id,
+          trimmedIssuerName,
+          trimmedIssuerWallet,
+          trimmedHolderName,
+          trimmedHolderEmail,
+          trimmedCertificateType,
+          'valid',
+          null,
+          null,
+          null,
+          JSON.stringify(requestedMetadata),
+          issuedAt
+        ]
+      );
+      dbCertificate = certificateResult.rows[0];
+    } catch (dbErr) {
+      if (/duplicate|unique/i.test(dbErr.message)) {
+        return res.status(409).json({ error: 'Certificate with this ID already exists' });
+      }
+      if (process.env.DEMO_MODE !== 'true') {
+        console.error('Certificate database insert failed:', dbErr.message);
+        return res.status(503).json({ error: 'Certificate could not be saved to the database. Please try again.' });
+      }
+      console.warn('Certificate database insert unavailable in demo mode:', dbErr.message);
+    }
+
+    let ipfsCid = null;
+    let ipfsUri = null;
     let blockchainTransactionId = null;
-    let issuancePath = 'ipfs-only';
-    if (onChain === true || process.env.SOLANA_ENABLE === 'true') {
+    let issuancePath = 'database-only';
+    const warnings = [];
+    try {
+      const ipfsResult = await pinJsonToIpfs(certificateMetadata);
+      const isUnpinnedFallback = ipfsResult?.source === 'fallback' && process.env.DEMO_MODE !== 'true';
+      ipfsCid = isUnpinnedFallback ? null : (ipfsResult?.cid || null);
+      ipfsUri = ipfsCid ? `https://gateway.pinata.cloud/ipfs/${ipfsCid}` : null;
+      if (isUnpinnedFallback) warnings.push('Certificate saved, but IPFS is not configured; metadata was not pinned.');
+      else if (!ipfsCid) warnings.push('Certificate saved, but IPFS did not return a content ID.');
+      else issuancePath = 'ipfs-only';
+    } catch (ipfsErr) {
+      console.warn('Certificate saved, but IPFS pinning failed:', ipfsErr.message);
+      warnings.push('Certificate saved, but metadata could not be pinned to IPFS.');
+    }
+
+    if (ipfsCid && (onChain === true || process.env.SOLANA_ENABLE === 'true')) {
       try {
         blockchainTransactionId = await issueCertificateOnChain({
           certificateId: trimmedCertificateId,
@@ -126,40 +204,30 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
         });
         issuancePath = process.env.CERTIFICATE_PROGRAM_ID ? 'onchain' : 'memo';
       } catch (chainErr) {
-        console.warn('Certificate issuance transaction failed, recording local/IPFS only:', chainErr.message);
+        console.warn('Certificate issuance transaction failed, recording database/IPFS only:', chainErr.message);
+        warnings.push('Certificate saved, but on-chain issuance failed.');
+      }
+    } else if (onChain === true && !ipfsCid) {
+      warnings.push('On-chain issuance was skipped because IPFS metadata is unavailable.');
+    }
+
+    if (dbCertificate && (ipfsCid || blockchainTransactionId)) {
+      try {
+        const result = await safeQuery(
+          `UPDATE certificates
+           SET ipfs_cid = $1, ipfs_uri = $2, blockchain_transaction_id = $3, updated_at = NOW()
+           WHERE certificate_id = $4
+           RETURNING *`,
+          [ipfsCid, ipfsUri, blockchainTransactionId, trimmedCertificateId]
+        );
+        dbCertificate = result.rows[0] || dbCertificate;
+      } catch (dbErr) {
+        console.error('Certificate saved but IPFS/chain details could not be updated:', dbErr.message);
+        warnings.push('Certificate saved, but IPFS or blockchain details could not be updated in the database.');
       }
     }
 
-    let dbCertificate = null;
-    try {
-      const certificateResult = await safeQuery(
-        `INSERT INTO certificates
-          (certificate_id, issuer_name, issuer_wallet, holder_name, holder_email, certificate_type, status, ipfs_cid, ipfs_uri, blockchain_transaction_id, metadata, issued_at, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
-         RETURNING *`,
-        [
-          trimmedCertificateId,
-          trimmedIssuerName,
-          trimmedIssuerWallet,
-          trimmedHolderName,
-          trimmedHolderEmail,
-          trimmedCertificateType,
-          'valid',
-          ipfsCid,
-          ipfsUri,
-          blockchainTransactionId,
-          JSON.stringify(requestedMetadata),
-          issuedAt
-        ]
-      );
-      dbCertificate = certificateResult.rows[0];
-    } catch (dbErr) {
-      if (!dbErr.message.toLowerCase().includes('duplicate')) {
-        console.warn('Failed to save certificate record to database:', dbErr.message);
-      }
-    }
-
-    try {
+    if (dbCertificate) try {
       await safeQuery(
         `INSERT INTO verify_history
           (user_id, certificate_id, certificate_type, verification_status, verification_message, blockchain_hash, blockchain_transaction_id)
@@ -170,17 +238,23 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
       console.warn('Failed to save verify history record:', verifyErr.message);
     }
 
-    const localCertificate = getCertificateStore().issue({
-      certificateId: trimmedCertificateId,
-      holderName: trimmedHolderName,
-      holderEmail: trimmedHolderEmail,
-      certificateType: trimmedCertificateType,
-      issuerName: trimmedIssuerName,
-      issuerWallet: trimmedIssuerWallet,
-      ipfsCid,
-      blockchainTransactionId,
-      userId: req.user.id
-    });
+    let localCertificate = null;
+    if (process.env.DEMO_MODE === 'true') {
+      localCertificate = getCertificateStore().issue({
+        certificateId: trimmedCertificateId,
+        holderName: trimmedHolderName,
+        holderEmail: trimmedHolderEmail,
+        certificateType: trimmedCertificateType,
+        issuerName: trimmedIssuerName,
+        issuerWallet: trimmedIssuerWallet,
+        ipfsCid,
+        ipfsUri,
+        blockchainTransactionId,
+        metadata: requestedMetadata,
+        issuedAt,
+        userId: req.user.id
+      });
+    }
 
     await logAudit(req.user.id, 'CERTIFICATE_VERIFY', 'certificate', trimmedCertificateId, 'success', null, {
       certificateId: trimmedCertificateId,
@@ -192,7 +266,8 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
       holderEmail: trimmedHolderEmail,
       issuancePath,
       blockchainTransactionId,
-      dbStored: Boolean(dbCertificate)
+      dbStored: Boolean(dbCertificate),
+      localId: localCertificate?.id || null
     });
 
     const holderNotification = await EmailService.sendCertificateIssued({
@@ -216,14 +291,18 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
         ipfs_cid: ipfsCid,
         ipfs_uri: ipfsUri,
         blockchain_transaction_id: blockchainTransactionId,
+        certificate_type: trimmedCertificateType,
         status: 'valid',
-        issued_at: issuedAt,
+        issued_at: dbCertificate?.issued_at || issuedAt,
+        created_at: dbCertificate?.created_at || issuedAt,
         verification_status: 'valid',
         issuer_name: trimmedIssuerName,
         issuer_wallet: trimmedIssuerWallet,
         holder_name: trimmedHolderName,
-        holder_email: trimmedHolderEmail
-      }
+        holder_email: trimmedHolderEmail,
+        metadata: requestedMetadata
+      },
+      warnings
     });
   } catch (err) {
     console.error('Issue certificate error:', err);
@@ -232,7 +311,7 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
 });
 
 // Pin raw certificate metadata to IPFS and return the CID (used for client-side signing flows)
-router.post('/pin', async (req, res) => {
+router.post('/pin', verifyToken, verifyIssuer, async (req, res) => {
   try {
     const metadata = req.body?.metadata || {};
     const pinResult = await pinJsonToIpfs(metadata);
@@ -271,15 +350,16 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
 
     const issuedAt = new Date().toISOString();
 
-    // Save to DB / local store (similar to /issue but without performing on-chain transaction)
+    let dbCertificate = null;
     try {
-      await safeQuery(
+      const result = await safeQuery(
         `INSERT INTO certificates
-          (certificate_id, issuer_name, issuer_wallet, holder_name, holder_email, certificate_type, status, ipfs_cid, ipfs_uri, blockchain_transaction_id, metadata, issued_at, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
+          (certificate_id, issuer_user_id, issuer_name, issuer_wallet, holder_name, holder_email, certificate_type, status, ipfs_cid, ipfs_uri, blockchain_transaction_id, metadata, issued_at, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
          RETURNING *`,
         [
           trimmedCertificateId,
+          req.user.id,
           issuerName,
           issuerWallet || null,
           holderName,
@@ -293,8 +373,16 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
           issuedAt
         ]
       );
+      dbCertificate = result.rows[0];
     } catch (dbErr) {
-      console.warn('Failed to save client-signed certificate to database:', dbErr.message);
+      if (/duplicate|unique/i.test(dbErr.message)) {
+        return res.status(409).json({ error: 'Certificate with this ID already exists' });
+      }
+      if (process.env.DEMO_MODE !== 'true') {
+        console.error('Client-signed certificate database insert failed:', dbErr.message);
+        return res.status(503).json({ error: 'Certificate could not be saved to the database. Please try again.' });
+      }
+      console.warn('Client-signed certificate database insert unavailable in demo mode:', dbErr.message);
     }
 
     try {
@@ -308,8 +396,9 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
       console.warn('Failed to save verify history record for client-signed issuance:', verifyErr.message);
     }
 
-    try {
-      const localCertificate = getCertificateStore().issue({
+    if (process.env.DEMO_MODE === 'true') {
+      try {
+        getCertificateStore().issue({
         certificateId: trimmedCertificateId,
         holderName,
         holderEmail,
@@ -317,11 +406,19 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
         issuerName,
         issuerWallet: issuerWallet || null,
         ipfsCid,
+        ipfsUri: `https://gateway.pinata.cloud/ipfs/${ipfsCid}`,
         blockchainTransactionId,
+        metadata: normalizedMetadata,
+        issuedAt,
         userId: req.user.id
-      });
-    } catch (e) {
-      // ignore local store errors
+        });
+      } catch (storeErr) {
+        if (/already exists/i.test(storeErr.message)) {
+          return res.status(409).json({ error: 'Certificate with this ID already exists' });
+        }
+        console.error('Failed to store client-signed certificate locally:', storeErr.message);
+        return res.status(500).json({ error: 'Certificate could not be stored locally' });
+      }
     }
 
     await logAudit(req.user.id, 'CERTIFICATE_VERIFY', 'certificate', trimmedCertificateId, 'success', null, {
@@ -348,16 +445,265 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
       metadata: normalizedMetadata
     });
 
-    return res.status(201).json({ success: true, holder_notification: { sent: holderNotification.sent, mode: holderNotification.mode }, certificate: { certificate_id: trimmedCertificateId, ipfs_cid: ipfsCid, blockchain_transaction_id: blockchainTransactionId, issuer_name: issuerName, issuer_wallet: issuerWallet, holder_name: holderName, holder_email: holderEmail, issued_at: issuedAt } });
+    return res.status(201).json({ success: true, holder_notification: { sent: holderNotification.sent, mode: holderNotification.mode }, certificate: { certificate_id: trimmedCertificateId, ipfs_cid: ipfsCid, ipfs_uri: `https://gateway.pinata.cloud/ipfs/${ipfsCid}`, blockchain_transaction_id: blockchainTransactionId, status: 'valid', verification_status: 'valid', issuer_name: issuerName, issuer_wallet: issuerWallet, holder_name: holderName, holder_email: holderEmail, certificate_type: certificateType, metadata: normalizedMetadata, issued_at: dbCertificate?.issued_at || issuedAt, created_at: dbCertificate?.created_at || issuedAt } });
   } catch (err) {
     console.error('Issue client-signed error:', err);
     return res.status(500).json({ error: 'Failed to record client-signed issuance', details: err.message });
   }
 });
 
+router.get('/my-issued', verifyToken, verifyIssuer, async (req, res) => {
+  try {
+    let certificates;
+    try {
+      const result = await safeQuery(
+        `SELECT certificate_id, certificate_type, status, ipfs_cid, ipfs_uri,
+                blockchain_transaction_id, holder_name, holder_email, issuer_name,
+                issuer_wallet, metadata, issued_at, created_at, revoked_at
+         FROM certificates
+         WHERE issuer_user_id = $1
+         ORDER BY issued_at DESC`,
+        [req.user.id]
+      );
+      certificates = result.rows;
+      if (process.env.DEMO_MODE === 'true') {
+        const stored = getCertificateStore().listByIssuer(req.user.id).map((record) => ({
+          certificate_id: record.certificate_id,
+          certificate_type: record.certificate_type,
+          status: record.verification_status,
+          verification_status: record.verification_status,
+          ipfs_cid: record.ipfs_cid || record.blockchain_hash,
+          ipfs_uri: record.ipfs_uri,
+          blockchain_transaction_id: record.blockchain_transaction_id,
+          holder_name: record.holder_name,
+          holder_email: record.holder_email,
+          issuer_name: record.issuer_name,
+          issuer_wallet: record.issuer_wallet,
+          metadata: record.metadata || {},
+          issued_at: record.issued_at || record.checked_at,
+          created_at: record.issued_at || record.checked_at,
+          revoked_at: record.revoked_at
+        }));
+        const seen = new Set(certificates.map((record) => record.certificate_id));
+        certificates.push(...stored.filter((record) => !seen.has(record.certificate_id)));
+      }
+    } catch (dbErr) {
+      if (process.env.DEMO_MODE !== 'true') {
+        console.error('Issuer certificate list query failed:', dbErr.message);
+        return res.status(503).json({ error: 'Unable to load issued certificates right now' });
+      }
+      console.warn('Issuer certificate list unavailable in database; using demo store:', dbErr.message);
+      certificates = getCertificateStore().listByIssuer(req.user.id).map((record) => ({
+        certificate_id: record.certificate_id,
+        certificate_type: record.certificate_type,
+        status: record.verification_status,
+        verification_status: record.verification_status,
+        ipfs_cid: record.ipfs_cid || record.blockchain_hash,
+        ipfs_uri: record.ipfs_uri,
+        blockchain_transaction_id: record.blockchain_transaction_id,
+        holder_name: record.holder_name,
+        holder_email: record.holder_email,
+        issuer_name: record.issuer_name,
+        issuer_wallet: record.issuer_wallet,
+        metadata: record.metadata || {},
+        issued_at: record.issued_at || record.checked_at,
+        created_at: record.issued_at || record.checked_at,
+        revoked_at: record.revoked_at
+      }));
+    }
+    return res.json({ success: true, certificates });
+  } catch (err) {
+    console.error('Issuer certificate list error:', err);
+    return res.status(500).json({ error: 'Failed to load issued certificates' });
+  }
+});
+
+async function revokeIssuerCertificate(req, res) {
+  try {
+    const certificateId = String(req.params.certificateId || '').trim();
+    const reason = typeof req.body?.reason === 'string' && req.body.reason.trim()
+      ? req.body.reason.trim()
+      : 'Revoked by issuer';
+    const suppliedTransactionId = typeof req.body?.blockchainTransactionId === 'string'
+      ? req.body.blockchainTransactionId.trim()
+      : '';
+    let certificate = null;
+    let dbAvailable = true;
+    let ownershipMismatch = false;
+
+    try {
+      const result = await safeQuery(
+        `SELECT c.certificate_id, c.issuer_user_id, c.issuer_wallet,
+                ip.wallet_address AS authorized_issuer_wallet
+         FROM certificates c
+         LEFT JOIN issuer_profiles ip ON ip.user_id = $2 AND ip.status = 'approved'
+         WHERE c.certificate_id = $1 LIMIT 1`,
+        [certificateId, req.user.id]
+      );
+      if (result.rows[0]) {
+        const certificateWallet = String(result.rows[0].issuer_wallet || '').trim();
+        const authorizedWallet = String(result.rows[0].authorized_issuer_wallet || '').trim();
+        const isIssuingUser = Number(result.rows[0].issuer_user_id) === Number(req.user.id);
+        const isMatchingAuthority = Boolean(certificateWallet && authorizedWallet && certificateWallet === authorizedWallet);
+        ownershipMismatch = !isIssuingUser && !isMatchingAuthority;
+        if (!ownershipMismatch) certificate = result.rows[0];
+      }
+      if (!certificate && process.env.DEMO_MODE === 'true') {
+        const local = getCertificateStore().lookup(certificateId);
+        if (local) {
+          ownershipMismatch = Number(local.created_by) !== Number(req.user.id);
+          if (!ownershipMismatch) certificate = local;
+        }
+      }
+    } catch (dbErr) {
+      dbAvailable = false;
+      if (process.env.DEMO_MODE !== 'true') {
+        console.error('Issuer certificate ownership check failed:', dbErr.message);
+        return res.status(503).json({ error: 'Unable to verify certificate ownership right now' });
+      }
+      const local = getCertificateStore().lookup(certificateId);
+      if (local) {
+        ownershipMismatch = Number(local.created_by) !== Number(req.user.id);
+        if (!ownershipMismatch) certificate = local;
+      }
+    }
+
+    if (!certificate) {
+      if (ownershipMismatch) return res.status(403).json({ error: 'Not allowed to revoke this certificate' });
+      return res.status(404).json({ error: 'Certificate not found' });
+    }
+
+    let blockchainTransactionId = suppliedTransactionId || null;
+    if (!blockchainTransactionId && process.env.SOLANA_ENABLE === 'true' && process.env.CERTIFICATE_PROGRAM_ID) {
+      try {
+        blockchainTransactionId = await revokeCertificateOnChain({ certificateId, reason });
+      } catch (chainErr) {
+        console.warn('On-chain issuer revoke failed; continuing with database revocation:', chainErr.message);
+      }
+    }
+
+    let updated = null;
+    if (dbAvailable) {
+      try {
+        const result = await safeQuery(
+          `UPDATE certificates
+           SET status = 'revoked', revoked_at = NOW(), revocation_reason = $1,
+               blockchain_transaction_id = COALESCE($2, blockchain_transaction_id), updated_at = NOW()
+           WHERE certificate_id = $3
+             AND (
+               issuer_user_id = $4
+               OR (
+                 NULLIF(BTRIM(issuer_wallet), '') IS NOT NULL
+                 AND BTRIM(issuer_wallet) = (
+                 SELECT wallet_address FROM issuer_profiles
+                 WHERE user_id = $4 AND status = 'approved'
+                   AND NULLIF(BTRIM(wallet_address), '') IS NOT NULL
+                 LIMIT 1
+                 )
+               )
+             )
+           RETURNING certificate_id, certificate_type, status, ipfs_cid, ipfs_uri,
+                     blockchain_transaction_id, holder_name, holder_email, issuer_name,
+                     issuer_wallet, metadata, issued_at, created_at, revoked_at`,
+          [reason, blockchainTransactionId, certificateId, req.user.id]
+        );
+        updated = result.rows[0] || null;
+      } catch (dbErr) {
+        if (process.env.DEMO_MODE !== 'true') {
+          console.error('Issuer certificate revoke update failed:', dbErr.message);
+          return res.status(503).json({ error: 'Certificate revocation could not be saved. Please try again.' });
+        }
+      }
+    }
+
+    if (process.env.DEMO_MODE === 'true') {
+      try {
+        const local = getCertificateStore().lookup(certificateId);
+        if (local && Number(local.created_by) === Number(req.user.id)) {
+          const revoked = getCertificateStore().revoke(certificateId, reason, req.user.id);
+          updated ||= {
+            certificate_id: revoked.certificate_id,
+            certificate_type: revoked.certificate_type,
+            status: revoked.verification_status,
+            verification_status: revoked.verification_status,
+            ipfs_cid: revoked.ipfs_cid || revoked.blockchain_hash,
+            ipfs_uri: revoked.ipfs_uri,
+            blockchain_transaction_id: revoked.blockchain_transaction_id,
+            holder_name: revoked.holder_name,
+            holder_email: revoked.holder_email,
+            issuer_name: revoked.issuer_name,
+            issuer_wallet: revoked.issuer_wallet,
+            metadata: revoked.metadata || {},
+            issued_at: revoked.issued_at,
+            created_at: revoked.issued_at,
+            revoked_at: revoked.revoked_at
+          };
+        }
+      } catch (storeErr) {
+        console.error('Issuer certificate local revoke failed:', storeErr.message);
+        if (!updated) return res.status(500).json({ error: 'Certificate revocation could not be saved' });
+      }
+    }
+
+    if (!updated) return res.status(503).json({ error: 'Certificate revocation could not be saved. Please try again.' });
+
+    try {
+      await safeQuery(
+        `UPDATE verify_history
+         SET verification_status = 'revoked', verification_message = $1, revoked_at = NOW(),
+             revoked_by = $2, blockchain_transaction_id = COALESCE($3, blockchain_transaction_id)
+         WHERE certificate_id = $4`,
+        [reason, req.user.id, blockchainTransactionId, certificateId]
+      );
+    } catch (historyErr) {
+      console.warn('Issuer certificate verification history update failed:', historyErr.message);
+    }
+
+    await logAudit(req.user.id, 'CERTIFICATE_REVOKE', 'certificate', certificateId, 'success', null, {
+      certificateId,
+      reason,
+      blockchainTransactionId
+    });
+    return res.json({ success: true, certificate: updated });
+  } catch (err) {
+    console.error('Issuer certificate revoke error:', err);
+    return res.status(500).json({ error: 'Failed to revoke certificate' });
+  }
+}
+
+router.put('/my-issued/:certificateId/revoke', verifyToken, verifyIssuer, revokeIssuerCertificate);
+router.put('/revoke/:certificateId', verifyToken, verifyIssuer, revokeIssuerCertificate);
+
 router.get('/lookup/:certificateId', async (req, res) => {
   try {
     const { certificateId } = req.params;
+
+    try {
+      const result = await safeQuery(
+        `SELECT certificate_id, certificate_type, status, ipfs_cid, ipfs_uri,
+                blockchain_transaction_id, holder_name, holder_email, issuer_name,
+                issuer_wallet, metadata, issued_at, created_at, revoked_at
+         FROM certificates WHERE certificate_id = $1 LIMIT 1`,
+        [certificateId]
+      );
+      if (result.rows[0]) {
+        const certificate = result.rows[0];
+        return res.json({
+          success: true,
+          certificate: {
+            ...certificate,
+            metadata: getPublicCertificateMetadata(certificate.metadata),
+            verification_status: certificate.status
+          },
+          status: certificate.status,
+          onChain: Boolean(certificate.blockchain_transaction_id),
+          blockchainTransactionStatus: await safeTransactionStatus(certificate.blockchain_transaction_id),
+          verifiedAt: certificate.issued_at
+        });
+      }
+    } catch (dbErr) {
+      console.warn('Certificate lookup in certificates table failed:', dbErr.message);
+    }
 
     try {
       const onChainCertificate = await lookupCertificateOnChain(certificateId);
@@ -394,7 +740,10 @@ router.get('/lookup/:certificateId', async (req, res) => {
 
       return res.json({
         success: true,
-        certificate: localCertificate,
+        certificate: {
+          ...localCertificate,
+          metadata: getPublicCertificateMetadata(localCertificate.metadata)
+        },
         status: localCertificate.verification_status,
         onChain: Boolean(localCertificate.blockchain_transaction_id),
         blockchainTransactionStatus: transactionStatus,
@@ -402,38 +751,21 @@ router.get('/lookup/:certificateId', async (req, res) => {
       });
     }
 
+    let result;
     try {
-      const certificateRecord = await safeQuery(
-        `SELECT certificate_id, certificate_type, status, ipfs_cid, ipfs_uri, blockchain_transaction_id, holder_name, holder_email, issuer_name, issuer_wallet, issued_at
-         FROM certificates WHERE certificate_id = $1 LIMIT 1`,
+      result = await safeQuery(
+        `SELECT id, certificate_id, certificate_type, verification_status, verification_message, blockchain_hash, blockchain_transaction_id, checked_at, revoked_at, revoked_by
+         FROM verify_history WHERE certificate_id = $1 LIMIT 1`,
         [certificateId]
       );
-
-      if (certificateRecord.rows[0]) {
-        const certificate = certificateRecord.rows[0];
-        const transactionStatus = await safeTransactionStatus(certificate.blockchain_transaction_id);
-
-        return res.json({
-          success: true,
-          certificate,
-          status: certificate.status,
-          onChain: Boolean(certificate.blockchain_transaction_id),
-          blockchainTransactionStatus: transactionStatus,
-          verifiedAt: certificate.issued_at
-        });
-      }
-    } catch (certErr) {
-      console.warn('Certificate lookup in certificates table failed:', certErr.message);
+    } catch (historyErr) {
+      if (process.env.DEMO_MODE !== 'true') throw historyErr;
+      console.warn('Certificate lookup history unavailable in demo mode:', historyErr.message);
+      return res.status(404).json({ success: false, status: 'not_found', error: 'Certificate not found' });
     }
 
-    const result = await safeQuery(
-      `SELECT id, certificate_id, certificate_type, verification_status, verification_message, blockchain_hash, blockchain_transaction_id, checked_at, revoked_at, revoked_by
-       FROM verify_history WHERE certificate_id = $1 LIMIT 1`,
-      [certificateId]
-    );
-
     if (!result.rows[0]) {
-      return res.status(404).json({ success: false, error: 'Certificate not found' });
+      return res.status(404).json({ success: false, status: 'not_found', error: 'Certificate not found' });
     }
 
     const transactionStatus = await safeTransactionStatus(result.rows[0].blockchain_transaction_id);
@@ -448,7 +780,7 @@ router.get('/lookup/:certificateId', async (req, res) => {
     });
   } catch (err) {
     console.error('Lookup certificate error:', err);
-    res.status(500).json({ error: 'Failed to look up certificate', details: err.message });
+    res.status(503).json({ success: false, error: 'Certificate verification is temporarily unavailable' });
   }
 });
 
@@ -498,89 +830,6 @@ router.get('/lookup-by-holder', async (req, res) => {
   } catch (err) {
     console.error('Lookup by holder error:', err);
     return res.status(500).json({ error: 'Failed to lookup by holder' });
-  }
-});
-
-router.put('/revoke/:certificateId', verifyAdminToken, verifyAdmin, async (req, res) => {
-  try {
-    const { certificateId } = req.params;
-    const { reason = 'Revoked by admin' } = req.body;
-
-    const hasDeployedProgram = process.env.SOLANA_ENABLE === 'true' && Boolean(process.env.CERTIFICATE_PROGRAM_ID);
-    let blockchainTransactionId = null;
-    if (hasDeployedProgram) {
-      try {
-        blockchainTransactionId = await revokeCertificateOnChain({ certificateId, reason });
-      } catch (chainErr) {
-        console.warn('On-chain revoke failed, continuing with local revocation only:', chainErr.message);
-      }
-    }
-
-    let localCertificate = null;
-    try {
-      localCertificate = getCertificateStore().revoke(certificateId, reason, req.user.id);
-    } catch (storeErr) {
-      localCertificate = null;
-    }
-
-    let certificateRow = null;
-    try {
-      const certificatesResult = await safeQuery(
-        `UPDATE certificates
-         SET status = 'revoked', revoked_at = NOW(), revocation_reason = $1, blockchain_transaction_id = $2, updated_at = NOW()
-         WHERE certificate_id = $3
-         RETURNING *`,
-        [reason, blockchainTransactionId, certificateId]
-      );
-      certificateRow = certificatesResult.rows[0];
-    } catch (certErr) {
-      console.warn('Certificates table update unavailable:', certErr.message);
-    }
-
-    let verifyHistoryRow = null;
-    try {
-      const verifyResult = await safeQuery(
-        `UPDATE verify_history
-         SET verification_status = 'revoked', verification_message = $1, revoked_at = NOW(), revoked_by = $2, blockchain_transaction_id = $3
-         WHERE certificate_id = $4
-         RETURNING id, certificate_id, verification_status, verification_message, revoked_at, blockchain_transaction_id`,
-        [reason, req.user.id, blockchainTransactionId, certificateId]
-      );
-      verifyHistoryRow = verifyResult.rows[0];
-    } catch (dbErr) {
-      console.warn('Database revoke update unavailable, using local store only:', dbErr.message);
-    }
-
-    try {
-      await safeQuery(
-        `INSERT INTO revoked_certificates (certificate_id, issuer_id, revocation_reason, revoked_by, blockchain_transaction_id)
-         VALUES ($1, NULL, $2, $3, $4)
-         ON CONFLICT (certificate_id) DO UPDATE SET revocation_reason = EXCLUDED.revocation_reason, revoked_at = NOW(), revoked_by = EXCLUDED.revoked_by, blockchain_transaction_id = EXCLUDED.blockchain_transaction_id`,
-        [certificateId, reason, req.user.id, blockchainTransactionId]
-      );
-    } catch (dbErr) {
-      console.warn('Database revocation log unavailable:', dbErr.message);
-    }
-
-    if (!localCertificate && !certificateRow && !verifyHistoryRow) {
-      return res.status(404).json({ error: 'Certificate not found' });
-    }
-
-    const auditId = certificateRow?.id || verifyHistoryRow?.id || localCertificate?.id || certificateId;
-    await logAudit(req.user.id, 'CERTIFICATE_REVOKE', 'certificate', auditId, 'success', null, { certificateId, reason, blockchainTransactionId });
-
-    let responseCertificate = certificateRow || verifyHistoryRow || localCertificate;
-    if (responseCertificate && !responseCertificate.verification_status) {
-      responseCertificate = Object.assign({}, responseCertificate, { verification_status: responseCertificate.status || responseCertificate.verification_status });
-    }
-
-    res.json({
-      success: true,
-      certificate: responseCertificate
-    });
-  } catch (err) {
-    console.error('Revoke certificate error:', err);
-    res.status(500).json({ error: 'Failed to revoke certificate', details: err.message });
   }
 });
 

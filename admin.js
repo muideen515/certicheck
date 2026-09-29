@@ -40,6 +40,7 @@ let adminState = {
   user: null,
   stats: null,
   pendingApps: [],
+  pendingUsers: [],
   rejectedApps: [],
   checks: [],
   revoked: [],
@@ -768,6 +769,55 @@ function renderAdminDashboard() {
       if (action === 'approve' || action === 'reject') handleApplicationAction(action, id);
     });
   });
+  renderPendingUserAccounts();
+}
+
+function renderPendingUserAccounts() {
+  const container = document.getElementById('pendingUserAccountsList');
+  const count = document.getElementById('pendingUserAccountsCount');
+  if (!container) return;
+  const users = adminState.pendingUsers || [];
+  if (count) count.textContent = `${users.length} pending`;
+  container.replaceChildren();
+  if (!users.length) {
+    const empty = document.createElement('div');
+    empty.className = 'admin-activity-empty';
+    empty.textContent = 'No pending user accounts.';
+    container.appendChild(empty);
+    return;
+  }
+
+  users.forEach(user => {
+    const card = document.createElement('div');
+    card.className = 'admin-list-card';
+    card.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;';
+    const identity = document.createElement('div');
+    identity.style.minWidth = '0';
+    const name = document.createElement('div');
+    name.style.cssText = 'font-weight:800;color:var(--text-primary);';
+    name.textContent = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email;
+    const details = document.createElement('div');
+    details.style.cssText = 'font-size:13px;color:var(--text-secondary);overflow-wrap:anywhere;';
+    details.textContent = `${user.email} · ${user.user_type} · ${formatDateTime(user.created_at)}`;
+    identity.append(name, details);
+    const approve = document.createElement('button');
+    approve.type = 'button';
+    approve.className = 'btn-success';
+    approve.textContent = 'Approve account';
+    approve.addEventListener('click', async () => {
+      approve.disabled = true;
+      try {
+        await requestJson(`/auth/admin/users/${encodeURIComponent(user.id)}/approve`, { method: 'PUT' });
+        showAdminToast(`Approved ${user.email}. Initial password: password.`, 'success');
+        await loadAdminDashboard();
+      } catch (err) {
+        approve.disabled = false;
+        showAdminToast(err.message || 'Unable to approve account.', 'danger');
+      }
+    });
+    card.append(identity, approve);
+    container.appendChild(card);
+  });
 }
 
 async function handleCreateAccountForApplication(id) {
@@ -813,7 +863,8 @@ async function loadAdminDashboard() {
       requestJson("/applications/approved?limit=50&offset=0"),
       requestJson("/verify/history?limit=50&offset=0"),
       requestJson("/verify/revoked?limit=50&offset=0"),
-      requestJson("/admin/audit-log?limit=50&offset=0")
+      requestJson("/admin/audit-log?limit=50&offset=0"),
+      requestJson("/auth/admin/users/pending?limit=100&offset=0")
     ]);
 
     const valueAt = index => results[index].status === 'fulfilled' ? results[index].value : {};
@@ -824,6 +875,7 @@ async function loadAdminDashboard() {
     const historyData = valueAt(4);
     const revokedData = valueAt(5);
     const auditData = valueAt(6);
+    const pendingUsersData = valueAt(7);
 
     adminState.stats = dashboardData.stats || adminState.stats || null;
     if (results[1].status === 'fulfilled') adminState.pendingApps = getApplicationList(pendingData);
@@ -832,6 +884,8 @@ async function loadAdminDashboard() {
     if (results[4].status === 'fulfilled') adminState.checks = Array.isArray(historyData.history) ? historyData.history : [];
     if (results[5].status === 'fulfilled') adminState.revoked = Array.isArray(revokedData.revoked) ? revokedData.revoked : [];
     if (results[6].status === 'fulfilled') adminState.auditLog = Array.isArray(auditData.auditLog) ? auditData.auditLog : [];
+    if (results[7].status === 'fulfilled') adminState.pendingUsers = Array.isArray(pendingUsersData.users) ? pendingUsersData.users : [];
+    renderPendingUserAccounts();
 
     requestJson("/admin/access-log", {
       method: "POST",
@@ -1096,10 +1150,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const otp = document.getElementById('adminResetOtp').value.trim();
     const newPassword = document.getElementById('adminResetNewPassword').value;
     try {
-      await requestJson('/auth/verify-forgot-password', {
-        method: 'POST',
-        body: JSON.stringify({ email, otp })
-      });
       const data = await requestJson('/auth/reset-password', {
         method: 'POST',
         body: JSON.stringify({ email, otp, newPassword })

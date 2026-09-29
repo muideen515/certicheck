@@ -20,11 +20,15 @@ test('certificate store issue, lookup, revoke', async () => {
     issuerWallet: 'issuer-wallet',
     ipfsCid: 'ipfs-test-cid',
     blockchainTransactionId: 'tx-test-001',
+    metadata: { degree: 'Computer Science' },
     userId: 42
   });
 
   assert.equal(issued.certificate_id, 'CERT-STORE-001');
   assert.equal(issued.verification_status, 'valid');
+  assert.equal(issued.metadata.degree, 'Computer Science');
+  assert.equal(store.listByIssuer(42).length, 1);
+  assert.equal(store.listByIssuer(7).length, 0);
 
   const found = store.lookup('CERT-STORE-001');
   assert.ok(found);

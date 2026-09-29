@@ -6,12 +6,14 @@ const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || JWT_SECRET;
 
 function getDemoUser(req) {
   if (process.env.DEMO_MODE === 'true' && req.headers.authorization?.split(' ')[1] === 'demo-token') {
-    const userType = req.headers['x-demo-user-type'] || 'issuer';
     return {
       id: 1,
       email: 'demo@certicheck.io',
-      user_type: userType,
-      userType
+      user_type: 'issuer',
+      userType: 'issuer',
+      issuer_status: 'approved',
+      is_active: true,
+      isDemo: true
     };
   }
   return null;
@@ -21,10 +23,15 @@ function verifyAdminToken(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Authentication required' });
 
-  // Demo token support for admin via header
-  const demoUser = getDemoUser(req);
-  if (token === 'demo-token' && demoUser && req.headers['x-demo-user-type'] === 'admin') {
-    req.user = { ...demoUser, user_type: 'admin', userType: 'admin' };
+  if (process.env.DEMO_MODE === 'true' && token === 'demo-token') {
+    req.user = {
+      id: 1,
+      email: 'demo-admin@certicheck.io',
+      user_type: 'admin',
+      userType: 'admin',
+      is_active: true,
+      isDemo: true
+    };
     return next();
   }
 
@@ -39,7 +46,8 @@ function verifyAdminToken(req, res, next) {
       id: decoded.id ?? decoded.adminId,
       adminId: decoded.adminId ?? decoded.id,
       user_type: userType,
-      userType
+      userType,
+      isDemo: process.env.DEMO_MODE === 'true' && decoded.isAdmin === true
     };
     return next();
   } catch (err) {
@@ -47,7 +55,7 @@ function verifyAdminToken(req, res, next) {
   }
 }
 
-function verifyToken(req, res, next) {
+async function verifyToken(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
 
   if (!token) {
@@ -60,21 +68,43 @@ function verifyToken(req, res, next) {
     return next();
   }
 
+  let decoded;
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = {
-      ...decoded,
-      first_name: decoded.first_name ?? decoded.firstName,
-      last_name: decoded.last_name ?? decoded.lastName,
-      user_type: decoded.user_type ?? decoded.userType
-    };
-    req.user.firstName = req.user.first_name;
-    req.user.lastName = req.user.last_name;
-    req.user.userType = req.user.user_type;
-    next();
+    decoded = jwt.verify(token, JWT_SECRET);
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
+
+  let mustChangePassword = decoded.must_change_password;
+  if (mustChangePassword === undefined) {
+    try {
+      const result = await pool.query(
+        'SELECT must_change_password FROM users WHERE id = $1 LIMIT 1',
+        [decoded.id]
+      );
+      mustChangePassword = result.rows[0]?.must_change_password;
+    } catch (err) {
+      console.error('Password-change requirement lookup failed:', err.message);
+      return res.status(500).json({ error: 'Unable to verify account password status' });
+    }
+  }
+  if (mustChangePassword && req.path !== '/change-password') {
+    return res.status(403).json({
+      code: 'PASSWORD_CHANGE_REQUIRED',
+      error: 'Change your initial password before using the platform'
+    });
+  }
+
+  req.user = {
+    ...decoded,
+    first_name: decoded.first_name ?? decoded.firstName,
+    last_name: decoded.last_name ?? decoded.lastName,
+    user_type: decoded.user_type ?? decoded.userType
+  };
+  req.user.firstName = req.user.first_name;
+  req.user.lastName = req.user.last_name;
+  req.user.userType = req.user.user_type;
+  next();
 }
 
 async function resolveUserAccess(req) {
@@ -82,17 +112,13 @@ async function resolveUserAccess(req) {
     return null;
   }
 
-  if (process.env.DEMO_MODE === 'true' || req.headers['x-demo-user-type']) {
-    return {
-      id: req.user.id,
-      user_type: req.user.user_type || (req.headers['x-demo-user-type'] === 'admin' ? 'admin' : 'issuer'),
-      is_active: true,
-      issuer_status: 'approved'
-    };
+  if (req.user.isDemo === true && process.env.DEMO_MODE === 'true') {
+    return req.user;
   }
 
   const result = await pool.query(
-    `SELECT u.id, u.user_type, u.is_active, ip.status AS issuer_status
+    `SELECT u.id, u.user_type, u.is_active, ip.status AS issuer_status,
+            ip.wallet_address AS issuer_wallet
      FROM users u
      LEFT JOIN issuer_profiles ip ON ip.user_id = u.id
      WHERE u.id = $1 LIMIT 1`,
@@ -112,20 +138,13 @@ async function verifyAdmin(req, res, next) {
   }
 
   try {
-    const isDemoRequest = process.env.DEMO_MODE === 'true' || Boolean(req.headers['x-demo-user-type']);
-    if (isDemoRequest && (req.user.user_type === 'admin' || req.headers['x-demo-user-type'] === 'admin')) {
-      req.user.user_type = 'admin';
-      req.user.is_active = true;
-      return next();
-    }
-
     const user = await resolveUserAccess(req);
     const tokenUserType = req.user.userType || req.user.user_type;
     const effectiveUserType = tokenUserType === 'admin'
       ? 'admin'
       : user?.user_type || tokenUserType;
 
-    if (effectiveUserType !== 'admin') {
+    if (effectiveUserType !== 'admin' || user?.is_active === false) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -145,66 +164,20 @@ async function verifyIssuer(req, res, next) {
   }
 
   try {
-    const isDemoRequest = process.env.DEMO_MODE === 'true' || Boolean(req.headers['x-demo-user-type']);
-    if (isDemoRequest && ['issuer', 'admin'].includes(req.user.user_type || req.headers['x-demo-user-type'])) {
-      req.user.user_type = req.user.user_type || req.headers['x-demo-user-type'];
-      req.user.is_active = true;
-      return next();
-    }
-
     const user = await resolveUserAccess(req);
-    const effectiveUserType = user?.user_type || req.user.user_type;
-
-    if (!['issuer', 'admin'].includes(effectiveUserType)) {
-      return res.status(403).json({ error: 'Issuer access required' });
+    if (
+      !user ||
+      user.user_type !== 'issuer' ||
+      !user.is_active ||
+      user.issuer_status !== 'approved'
+    ) {
+      return res.status(403).json({ error: 'Issuer approval required' });
     }
 
-    req.user.user_type = effectiveUserType;
-    req.user.is_active = user?.is_active ?? req.user.is_active;
-
-    if (effectiveUserType === 'issuer' && !isDemoRequest) {
-      // Use the refreshed DB data first. A stale JWT may still list the user as a plain user
-      // even though the database has already approved their issuer status.
-      let approved = user?.issuer_status === 'approved';
-
-      // Default seeded issuer accounts are auto-approved so they can issue immediately without a formal pending approval.
-      const defaultIssuerEmail = (process.env.ISSUER_EMAIL || 'issuer@certicheck.com').toLowerCase();
-      if (!approved && req.user.email && req.user.email.toLowerCase() === defaultIssuerEmail) {
-        approved = true;
-      }
-
-      // Allow approval check by either the linked issuer profile OR the pending application email.
-      const profileResult = await pool.query(
-        'SELECT status, user_id, id AS profile_id FROM issuer_profiles WHERE user_id = $1 LIMIT 1',
-        [req.user.id]
-      );
-
-      if (!approved && profileResult.rows[0] && profileResult.rows[0].status === 'approved') {
-        approved = true;
-      }
-
-      if (!approved && req.user.email) {
-        try {
-          const emailCheck = await pool.query(
-            `SELECT 1 FROM pending_applications pa
-             WHERE LOWER(pa.contact_email) = LOWER($1)
-               AND pa.status = 'approved'
-             LIMIT 1`,
-            [req.user.email]
-          );
-          if (emailCheck.rows[0]) {
-            approved = true;
-          }
-        } catch (e) {
-          console.warn('Email-based approval check failed:', e.message);
-        }
-      }
-
-      if (!approved) {
-        return res.status(403).json({ error: 'Approved issuer access required' });
-      }
-    }
-
+    req.user.user_type = user.user_type;
+    req.user.userType = user.user_type;
+    req.user.is_active = user.is_active;
+    req.user.issuer_status = user.issuer_status;
     next();
   } catch (err) {
     console.error('Issuer verification failed:', err.message);
@@ -227,6 +200,3 @@ module.exports = {
   logAudit,
   verifyAdminToken
 };
-
-
-

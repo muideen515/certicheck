@@ -119,6 +119,7 @@ class Application {
       );
 
       if (profile.rows[0]?.user_id) {
+        await User.approveAccount(profile.rows[0].user_id);
         await pool.query(
           `UPDATE users SET user_type = 'issuer', is_active = TRUE, updated_at = NOW() WHERE id = $1`,
           [profile.rows[0].user_id]

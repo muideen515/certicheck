@@ -66,7 +66,7 @@ CERTIFICATE_PROGRAM_ID=
 
 On first admin authentication, the backend seeds three individual admin accounts: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. Their default password is `password`; change each account's password before exposing a deployment publicly. Admin names, avatars, and password changes are personal to each account. The Admin Dashboard provides email OTP recovery for an individual admin.
 
-Signup, login, and password reset accept valid email addresses from any domain. Configure `SMTP_USER` and `SMTP_PASS` as Render environment variables for SMTP authentication, and set `EMAIL_FROM` to the same mailbox as `SMTP_USER`. Never store `SMTP_PASS` in a tracked file or commit it. Configure SPF/DKIM with your mail provider. In production the API returns an error when SMTP is not configured; development mode logs OTPs to the backend console instead of sending email.
+Signup, login, and password reset accept valid email addresses from any domain. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, and `SMTP_PASS` in your deployment environment, or use `EMAIL_USER` and `EMAIL_PASSWORD` for the Gmail service transport. Set `EMAIL_FROM` to the same mailbox used to authenticate with SMTP. Never store SMTP passwords in a tracked file or commit them. Configure SPF/DKIM with your mail provider. In production the API returns a clear configuration error when SMTP is missing; development mode logs OTPs to the backend console instead of sending email. Password-reset OTPs expire after 10 minutes, allow at most five attempts, and are consumed after a successful reset.
 
 Without `PINATA_JWT`, metadata pinning uses the documented local/demo fallback and no real Pinata CID should be claimed. Without `SOLANA_ENABLE=true`, `SOLANA_KEYPAIR_PATH` or `SOLANA_PAYER_SECRET`, and a deployed `CERTIFICATE_PROGRAM_ID`, on-chain issuance is disabled and the Solana test is skipped.
 
@@ -122,6 +122,10 @@ This runs the backend unit and integration test suite, including multi-admin pro
 - `GET /api/auth/admin/profile` and `PUT /api/auth/admin/profile` - Read/update the signed-in admin's display name and profile picture
 - `POST /api/auth/admin/change-password` - Change the signed-in admin's password
 - `POST /api/auth/forgot-password`, `/api/auth/verify-forgot-password`, and `/api/auth/reset-password` - Recover an individual account with its email OTP
+- `GET /api/auth/admin/users/pending` - List user accounts awaiting approval
+- `PUT /api/auth/admin/users/:userId/approve` - Approve a pending account; the account is activated with a hashed `password` initial password and must change it before accessing protected routes
+
+Signup accepts valid email addresses from any domain and creates accounts in a pending state. Password reset codes are stored on the user record, expire after 10 minutes, allow at most five attempts, and are cleared when the reset succeeds.
 
 ### Applications
 
@@ -132,6 +136,14 @@ This runs the backend unit and integration test suite, including multi-admin pro
 - `GET /api/applications` - Get all applications (admin only)
 - `PUT /api/applications/:appId/approve` - Approve application (admin only)
 - `PUT /api/applications/:appId/reject` - Reject application (admin only)
+
+### Certificate Issuance and Revocation
+
+- `POST /api/certificates/issue`, `/issue-client-signed`, and `/pin` require an authenticated, active issuer whose linked issuer profile has `approved` status.
+- `GET /api/certificates/my-issued` and `PUT /api/certificates/my-issued/:certificateId/revoke` require the same approved issuer status. The legacy `PUT /api/certificates/revoke/:certificateId` path enforces the same rules. Issuer revocation is limited to the issuer that created the certificate or an approved issuer profile with the matching authority wallet.
+- Standard issuance saves a valid certificate record before attempting IPFS pinning; a Pinata failure leaves the DB certificate available and is returned in `warnings`. A local digest fallback is used only in demo mode, not reported as an IPFS CID in production. Public `GET /api/certificates/lookup/:certificateId` returns certificate metadata and status, or `404` with `status: "not_found"`.
+- Unapproved callers receive `403 Issuer approval required`; callers without revocation authority receive `403 Not allowed to revoke this certificate`.
+- Issuer status is read from server-side account/profile records. Client-supplied role headers do not grant issuer access; administrators continue to manage issuer approval through the application workflow.
 
 ### Certificate Verification
 

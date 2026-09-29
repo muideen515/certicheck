@@ -142,6 +142,7 @@ function bindPreviewLinks() {
 ═══════════════════════════════════════════════ */
 let currentPage = "home";
 let currentUser = null;
+let verifiedIssuerUserId = null;
 let desiredSignupType = null; // 'holder' or 'issuer' set by home CTAs
 
 function getAuthToken() {
@@ -259,19 +260,80 @@ function saveAuthSession(token, user) {
   localStorage.setItem("certicheck_auth_token", token);
   localStorage.setItem("certicheck_user", JSON.stringify(user));
   currentUser = user;
+  verifiedIssuerUserId = null;
   persistSessionProfile(user);
   updateAuthUi();
+  refreshIssuerAuthorization().catch((error) => {
+    console.warn('Unable to verify issuer approval:', error.message || error);
+  });
 }
 
 function clearAuthSession() {
   localStorage.removeItem("certicheck_auth_token");
   localStorage.removeItem("certicheck_user");
   localStorage.removeItem("certicheck_active_profile");
+  verifiedIssuerUserId = null;
   if (window.signOutFirebaseUser) {
     window.signOutFirebaseUser().catch((error) => console.warn('Firebase sign-out failed:', error.message || error));
   }
   currentUser = null;
   updateAuthUi();
+}
+
+function isVerifiedIssuer(user = currentUser || getStoredUser()) {
+  return Boolean(
+    user &&
+    user.user_type === 'issuer' &&
+    verifiedIssuerUserId !== null &&
+    String(verifiedIssuerUserId) === String(user.id)
+  );
+}
+
+async function refreshIssuerAuthorization() {
+  const token = getAuthToken();
+  if (!token) {
+    verifiedIssuerUserId = null;
+    return { approved: false, error: 'Sign in to access issuer tools.' };
+  }
+  if ((currentUser || getStoredUser())?.user_type === 'admin') {
+    verifiedIssuerUserId = null;
+    return { approved: false, error: 'Issuer approval required' };
+  }
+
+  const response = await fetch(`${API_BASE_URL}/auth/profile`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.user) {
+    verifiedIssuerUserId = null;
+    if (response.status === 401) clearAuthSession();
+    return { approved: false, error: data.error || 'Issuer approval required' };
+  }
+
+  currentUser = data.user;
+  localStorage.setItem('certicheck_user', JSON.stringify(data.user));
+  const approved = data.user.user_type === 'issuer' &&
+    data.user.is_active === true &&
+    data.user.issuer_status === 'approved';
+  verifiedIssuerUserId = approved ? data.user.id : null;
+  updateAuthUi();
+  if (currentPage === 'home') {
+    renderRoleLandingHome();
+    if (approved) {
+      refreshIssuerDashboardCertificates(data.user).catch((error) => {
+        console.error('Unable to refresh issuer certificates:', error.message || error);
+        const notice = document.getElementById('issuerDashboardNotice');
+        if (notice) {
+          notice.textContent = error.message || 'Unable to load issued certificates.';
+          notice.style.display = 'block';
+        }
+      });
+    }
+  }
+  return {
+    approved,
+    error: approved ? '' : 'Issuer approval required'
+  };
 }
 
 function getConnectedWalletAddress() {
@@ -365,19 +427,6 @@ function updateWalletButtonUi(button, walletAddress) {
 
 function updateWalletActionAvailability() {
   const connectedWallet = getConnectedWalletAddress();
-  const hasWallet = Boolean(connectedWallet);
-
-  document.querySelectorAll('[data-wallet-gated="issue"]').forEach((button) => {
-    button.disabled = !hasWallet;
-    button.title = hasWallet ? 'Issue certificate' : 'Connect your wallet to issue certificates';
-    button.setAttribute('aria-disabled', String(!hasWallet));
-  });
-
-  document.querySelectorAll('.revoke-certificate, .table-action.revoke-certificate').forEach((button) => {
-    button.disabled = !hasWallet;
-    button.title = hasWallet ? 'Revoke certificate' : 'Connect your wallet to revoke certificates';
-    button.setAttribute('aria-disabled', String(!hasWallet));
-  });
 
   document.querySelectorAll('[data-wallet-connect]').forEach((button) => {
     updateWalletButtonUi(button, connectedWallet);
@@ -787,6 +836,46 @@ function getRoleLandingStats() {
   return { total: entries.length, valid, revoked, institution: '', recent: entries.slice(0, 4) };
 }
 
+async function refreshIssuerDashboardCertificates(user = currentUser || getStoredUser()) {
+  const token = getAuthToken();
+  if (!token || !user || !isVerifiedIssuer(user)) {
+    throw new Error('Issuer approval required');
+  }
+
+  const response = await fetch(`${API_BASE_URL}/certificates/my-issued`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || 'Unable to load issued certificates.');
+  }
+  if (!Array.isArray(data.certificates)) {
+    throw new Error('Invalid certificate list response.');
+  }
+
+  const certificates = data.certificates.map((certificate) => ({
+    certificateId: certificate.certificate_id,
+    holderName: certificate.holder_name || '',
+    holderEmail: certificate.holder_email || '',
+    certificateType: certificate.certificate_type || '',
+    issuerName: certificate.issuer_name || '',
+    issuerWallet: certificate.issuer_wallet || '',
+    ipfsCid: certificate.ipfs_cid || '',
+    ipfsUri: certificate.ipfs_uri || '',
+    blockchainTransactionId: certificate.blockchain_transaction_id || '',
+    verificationStatus: certificate.status || certificate.verification_status || 'valid',
+    status: certificate.status || certificate.verification_status || 'valid',
+    issuedAt: certificate.issued_at || certificate.created_at || '',
+    revokedAt: certificate.revoked_at || null,
+    metadata: certificate.metadata || {}
+  }));
+  setIssuerIssuedCertificates(certificates, user);
+  if (currentPage === 'home' && String((currentUser || {}).id) === String(user.id)) {
+    renderRoleLandingHome();
+  }
+  return certificates;
+}
+
 function getCertificateFieldCatalog() {
   return {
     'Degree Certificate': [
@@ -1029,7 +1118,11 @@ function renderRoleLandingHome() {
   const user = currentUser || getStoredUser();
   if (!roleHome || !hero) return;
 
-  if (!user || (user.user_type !== 'issuer' && user.user_type !== 'admin')) {
+  if (
+    !user ||
+    (user.user_type !== 'issuer' && user.user_type !== 'admin') ||
+    (user.user_type === 'issuer' && !isVerifiedIssuer(user))
+  ) {
     roleHome.style.display = 'none';
     hero.style.display = 'block';
     if (features) features.style.display = 'block';
@@ -1068,9 +1161,7 @@ function renderRoleLandingHome() {
     const walletAddress = getConnectedWalletAddress();
     document.getElementById('roleHomeActions').innerHTML = `
       <a href="admin.html" class="btn-primary" style="display:inline-flex;align-items:center;justify-content:center;">Open full Admin Dashboard</a>
-      <button class="btn-ghost" data-page="issuer">Issue</button>
       <button class="btn-ghost" data-page="test">Verify</button>
-      <button class="btn-ghost" onclick="window.location.href='admin.html'">Revoke</button>
     `;
 
     document.getElementById('roleHomeSystem').innerHTML = `
@@ -1246,18 +1337,20 @@ function renderRoleLandingHome() {
                   <th>Holder</th>
                   <th>Cert ID</th>
                   <th>Issued</th>
+                  <th>IPFS CID</th>
                   <th>Status</th>
                   <th>Action</th>
                 </tr>
               </thead>
               <tbody>
                 ${recent.map(item => `
-                  <tr data-certificate-row="${item.certificateId || 'CERT-OAU-2026-001'}">
-                    <td>${item.holderName || 'Jane Doe'}</td>
-                    <td style="font-family:var(--font-mono);">${item.certificateId || 'CERT-OAU-2026-001'}</td>
-                    <td>${item.issuedAt ? new Date(item.issuedAt).toLocaleDateString() : '2026-09-18'}</td>
-                    <td><span class="status-pill ${String(item.verificationStatus || item.status || 'Valid').toLowerCase() === 'revoked' ? 'status-revoked' : 'status-valid'}">${String(item.verificationStatus || item.status || 'Valid')}</span></td>
-                    <td>${String(item.verificationStatus || item.status || 'Valid').toLowerCase() === 'revoked' ? '<span style="color:var(--text-muted);">Disabled</span>' : '<button class="table-action revoke-certificate" type="button" data-certificate-id="' + (item.certificateId || 'CERT-OAU-2026-001') + '">Revoke</button>'}</td>
+                  <tr data-certificate-row="${item.certificateId || ''}">
+                    <td>${item.holderName || '—'}</td>
+                    <td style="font-family:var(--font-mono);">${item.certificateId || '—'}</td>
+                    <td>${item.issuedAt ? new Date(item.issuedAt).toLocaleDateString() : '—'}</td>
+                    <td>${item.ipfsCid ? `<a href="${item.ipfsUri || `https://ipfs.io/ipfs/${encodeURIComponent(item.ipfsCid)}`}" target="_blank" rel="noopener noreferrer">${item.ipfsCid}</a>` : '—'}</td>
+                    <td><span class="status-pill ${String(item.verificationStatus || item.status || 'valid').toLowerCase() === 'revoked' ? 'status-revoked' : 'status-valid'}">${String(item.verificationStatus || item.status || 'valid').toLowerCase() === 'revoked' ? 'Revoked' : 'Valid'}</span></td>
+                    <td>${String(item.verificationStatus || item.status || 'valid').toLowerCase() === 'revoked' ? '<span style="color:var(--text-muted);">Revoked</span>' : `<button class="table-action revoke-certificate" type="button" data-certificate-id="${item.certificateId}">Revoke</button>`}</td>
                   </tr>
                 `).join('')}
               </tbody>
@@ -1285,31 +1378,30 @@ function renderRoleLandingHome() {
 
         const token = getAuthToken();
         try {
-          const connectedWallet = getConnectedWalletAddress();
-          const hasPhantomConnection = Boolean(window.solana && window.solana.isPhantom && connectedWallet);
-
-          if (hasPhantomConnection) {
-            const txSignature = await revokeCertificateWithPhantomWallet(certificateId, reason || 'Revoked by issuer', connectedWallet);
-            if (txSignature) {
-              console.info('Certificate revoked on-chain via Phantom:', txSignature);
-            }
-          } else if (token) {
-            const response = await fetch(`${API_BASE_URL}/certificates/revoke/${encodeURIComponent(certificateId)}`, {
-              method: 'PUT',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`
-              },
-              body: JSON.stringify({ reason: reason || 'Revoked by issuer' })
-            });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'Revoke failed');
+          if (!token || !isVerifiedIssuer()) {
+            throw new Error('Issuer approval required');
           }
+          const response = await fetch(`${API_BASE_URL}/certificates/my-issued/${encodeURIComponent(certificateId)}/revoke`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({ reason: reason || 'Revoked by issuer' })
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Revoke failed');
 
           const entries = getIssuerIssuedCertificates();
-          const updated = entries.map(item => item.certificateId === certificateId ? { ...item, verificationStatus: 'revoked', revokedAt: new Date().toISOString() } : item);
-          setIssuerIssuedCertificates(updated);
+          setIssuerIssuedCertificates(entries.map(item => item.certificateId === certificateId
+            ? { ...item, verificationStatus: 'revoked', status: 'revoked', revokedAt: data.certificate?.revoked_at || new Date().toISOString() }
+            : item));
           renderRoleLandingHome();
+          try {
+            await refreshIssuerDashboardCertificates();
+          } catch (refreshError) {
+            console.error('Certificate revoked but dashboard refresh failed:', refreshError.message || refreshError);
+          }
         } catch (error) {
           alert(error.message || 'Unable to revoke certificate.');
         }
@@ -1340,8 +1432,8 @@ function renderRoleLandingHome() {
         const user = getStoredUser();
 
         const connectedWallet = getConnectedWalletAddress();
-        if (!holderName || !holderEmail || !certificateType || !token || !user) {
-          notice.textContent = 'Enter the holder name, a valid holder email, and certificate type. Ensure you are signed in as an issuer.';
+        if (!holderName || !holderEmail || !certificateType || !token || !user || !isVerifiedIssuer(user)) {
+          notice.textContent = 'Issuer approval required. Enter the holder details and certificate type, and sign in as an approved issuer.';
           notice.style.display = 'block';
           return;
         }
@@ -1361,7 +1453,7 @@ function renderRoleLandingHome() {
           return;
         }
 
-        notice.textContent = 'Generating certificate record...';
+        notice.textContent = 'Saving certificate and pinning metadata...';
         notice.style.display = 'block';
         result.innerHTML = '';
 
@@ -1394,23 +1486,6 @@ function renderRoleLandingHome() {
             }
           };
 
-          const generatedCertificate = {
-            certificate_id: certificateId,
-            certificateId,
-            holderName,
-            holderEmail,
-            holderWallet,
-            certificateType,
-            issuerName: institution,
-            issuerWallet: connectedWallet || '',
-            verificationStatus: 'Valid',
-            status: 'valid',
-            issuedAt: new Date().toISOString(),
-            metadata,
-            ipfsCid: `generated-${Date.now().toString(16)}`,
-            blockchainTransactionId: `TX-${Date.now().toString(16).toUpperCase()}`
-          };
-
           const payload = {
             certificateId,
             holderName,
@@ -1423,11 +1498,6 @@ function renderRoleLandingHome() {
             onChain: false
           };
 
-          console.groupCollapsed('Issuance: POST /api/certificates/issue');
-          console.log('URL:', `${API_BASE_URL}/certificates/issue`);
-          console.log('Headers:', { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` });
-          console.log('Payload:', payload);
-
           const response = await fetch(`${API_BASE_URL}/certificates/issue`, {
             method: 'POST',
             headers: {
@@ -1439,36 +1509,20 @@ function renderRoleLandingHome() {
 
           let data = null;
           try { data = await response.json(); } catch (e) { console.warn('Non-JSON response from issuance endpoint', e); }
-          console.log('Response status:', response.status);
-          console.log('Response body:', data);
-          console.groupEnd();
 
           if (!response.ok) throw new Error((data && (data.error || data.message)) || 'Certificate issuance failed');
 
           const issued = data.certificate || {};
-          const nextId = issued.certificate_id || certificateId;
-          const ipfsCid = issued.ipfs_cid || generatedCertificate.ipfsCid;
-          const txSig = issued.blockchain_transaction_id || generatedCertificate.blockchainTransactionId;
-          const list = getIssuerIssuedCertificates();
-          list.unshift({
-            certificateId: nextId,
-            holderName,
-            holderWallet,
-            certificateType,
-            verificationStatus: 'Valid',
-            status: 'valid',
-            issuedAt: new Date().toISOString(),
-            ipfsCid,
-            blockchainTransactionId: txSig,
-            issuerEmail: user.email || 'issuer@certicheck.com',
-            metadata
-          });
-          setIssuerIssuedCertificates(list, user);
+          const nextId = issued.certificate_id;
+          if (!nextId) throw new Error('Certificate saved, but the API response did not include its certificate ID.');
+          const ipfsCid = issued.ipfs_cid || '';
+          const txSig = issued.blockchain_transaction_id || '';
+          const issuedAt = issued.issued_at || issued.created_at;
           setLastIssuerResult({
             title: 'Certificate issued successfully.',
             certificateId: nextId,
             ipfsCid,
-            transaction: txSig
+            transaction: txSig || 'Not issued on-chain'
           }, user);
 
           notice.style.display = 'none';
@@ -1478,8 +1532,11 @@ function renderRoleLandingHome() {
               <div style="margin-top:8px;font-size:13px;">${getHolderNotificationMessage(data.holder_notification)}</div>
               <div style="margin-top:12px;display:grid;gap:8px;font-size:13px;">
                 <div><strong>Certificate ID:</strong> ${nextId}</div>
-                <div class="issuer-cid"><strong>IPFS CID:</strong> <span>${ipfsCid}</span></div>
-                <div><strong>Transaction:</strong> ${txSig}</div>
+              <div><strong>Status:</strong> ${String(issued.status || 'valid').toLowerCase() === 'revoked' ? 'Revoked' : 'Valid'}</div>
+              <div><strong>Issued:</strong> ${issuedAt ? new Date(issuedAt).toLocaleString() : '—'}</div>
+              ${ipfsCid ? `<div class="issuer-cid"><strong>IPFS CID:</strong> <span>${ipfsCid}</span></div>` : '<div>IPFS metadata is not available.</div>'}
+              ${txSig ? `<div><strong>Transaction:</strong> ${txSig}</div>` : ''}
+              ${(data.warnings || []).map(warning => `<div class="alert alert-info">${warning}</div>`).join('')}
               </div>
               <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
                 <button type="button" class="btn-ghost" onclick="downloadCertificateArtifact({ certificateId: '${nextId}', certificateType: '${certificateType}', metadata: ${JSON.stringify(metadata).replace(/'/g, "&apos;")}})">Download certificate</button>
@@ -1487,7 +1544,13 @@ function renderRoleLandingHome() {
             </div>
           `;
           issuerDashboardForm.reset();
-          renderRoleLandingHome();
+          try {
+            await refreshIssuerDashboardCertificates(user);
+          } catch (refreshError) {
+            console.error('Certificate issued but dashboard refresh failed:', refreshError.message || refreshError);
+            notice.textContent = `Certificate issued. ${refreshError.message || 'The certificate list could not be refreshed.'}`;
+            notice.style.display = 'block';
+          }
         } catch (error) {
           notice.textContent = error.message || 'Issuance failed.';
           notice.style.display = 'block';
@@ -1573,47 +1636,134 @@ function initAuthPageForms(page) {
   if (page === "change-password") initChangePasswordForm();
 }
 
-async function renderVerifyResult(response) {
-  const resultEl = document.getElementById("verifyResult");
-  if (!resultEl) return;
+function VerificationResultModal({ response, certificateId = '' }) {
+  const dialog = document.getElementById('verificationResultModal');
+  if (!dialog) return null;
 
-  if (!response || !response.success) {
-    resultEl.innerHTML = `<div class="alert alert-error"><strong>Not Found</strong><br/>${response?.error || 'No certificate matched that ID.'}</div>`;
-    return;
+  const certificate = response?.certificate || {};
+  const rawStatus = String(
+    certificate.verification_status || certificate.status || response?.status || ''
+  ).toLowerCase();
+  const state = !response?.success || response?.status === 'not_found'
+    ? 'not-found'
+    : rawStatus === 'revoked'
+      ? 'revoked'
+      : rawStatus === 'valid'
+        ? 'valid'
+        : 'not-found';
+  const statusContent = {
+    valid: {
+      title: 'VALID',
+      message: 'This certificate is authentic and currently active.',
+      icon: '✓'
+    },
+    revoked: {
+      title: 'REVOKED',
+      message: 'This certificate was issued, but is no longer valid.',
+      icon: '!'
+    },
+    'not-found': {
+      title: 'NOT FOUND',
+      message: 'We could not find a certificate matching this ID.',
+      icon: '×'
+    }
+  }[state];
+  const issuedAt = certificate.issued_at || certificate.created_at || certificate.checked_at || certificate.verifiedAt;
+  const revokedAt = certificate.revoked_at || certificate.revokedAt;
+  const cid = certificate.ipfs_cid || certificate.ipfsCid || certificate.blockchain_hash;
+  const metadata = certificate.metadata && typeof certificate.metadata === 'object'
+    ? certificate.metadata
+    : {};
+  const name = certificate.holder_name || certificate.holderName || certificate.holder ||
+    metadata.recipientFullName || metadata.holderName || certificate.holder_email || '—';
+  const type = certificate.certificate_type || certificate.certificateType || metadata.documentType || '—';
+  const issuer = certificate.issuer_name || certificate.issuerName || certificate.issuer || '—';
+
+  dialog.dataset.state = state;
+  dialog.querySelector('#verificationStatusIcon').textContent = statusContent.icon;
+  dialog.querySelector('#verificationResultTitle').textContent = statusContent.title;
+  const message = state === 'not-found' && response?.error
+    ? response.error
+    : statusContent.message;
+  dialog.querySelector('#verificationResultMessage').textContent = state === 'revoked' && revokedAt
+    ? `${message} Revoked on ${new Date(revokedAt).toLocaleString()}.`
+    : message;
+
+  const metadataList = dialog.querySelector('#verificationResultMetadata');
+  metadataList.replaceChildren();
+  const addMetadata = (label, value, { href = '' } = {}) => {
+    const item = document.createElement('div');
+    item.className = 'verification-metadata-item';
+    const term = document.createElement('dt');
+    term.textContent = label;
+    const description = document.createElement('dd');
+    if (href) {
+      const link = document.createElement('a');
+      link.href = href;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = value;
+      description.appendChild(link);
+    } else {
+      description.textContent = value;
+    }
+    item.append(term, description);
+    metadataList.appendChild(item);
+  };
+
+  if (state !== 'not-found') {
+    addMetadata('Name', String(name));
+    addMetadata('Type', String(type));
+    addMetadata('Issuer', String(issuer));
+    addMetadata('Issued', issuedAt ? new Date(issuedAt).toLocaleDateString() : '—');
+    addMetadata('CID', cid ? String(cid) : '—', {
+      href: cid ? (certificate.ipfs_uri || certificate.ipfsUri || `https://ipfs.io/ipfs/${encodeURIComponent(cid)}`) : ''
+    });
+    addMetadata('Status', statusContent.title);
+    if (state === 'revoked' && revokedAt) {
+      addMetadata('Revoked', new Date(revokedAt).toLocaleString());
+    }
+  } else if (certificateId) {
+    addMetadata('Certificate ID', certificateId);
+    addMetadata('Status', statusContent.title);
   }
 
-  const certificate = response.certificate || {};
-  const rawStatus = (certificate.verification_status || response.status || 'unknown').toLowerCase();
-  const status = rawStatus === 'revoked' ? 'Revoked' : rawStatus === 'valid' ? 'Valid' : rawStatus === 'invalid' ? 'Invalid' : 'Not Found';
-  const color = rawStatus === 'valid' ? '#059669' : rawStatus === 'revoked' ? '#dc2626' : '#a855f7';
-  const lastChecked = certificate.checked_at || certificate.verifiedAt || certificate.issued_at || new Date().toISOString();
-  const txId = certificate.blockchain_transaction_id || certificate.blockchainTransactionId || 'Not issued on-chain';
-  const cid = certificate.blockchain_hash || certificate.ipfsCid || certificate.ipfs_cid || 'N/A';
-  const ipfsUri = certificate.ipfsUri || certificate.ipfs_uri || (cid && cid !== 'N/A' ? `https://ipfs.io/ipfs/${cid}` : null);
-  const issuerName = certificate.issuerName || certificate.issuer || certificate.issuer_name || certificate.issuer_wallet || 'Unknown issuer';
-  const holderName = certificate.holderName || certificate.holder || certificate.holder_name || certificate.holderEmail || '—';
+  if (!dialog.dataset.eventsBound) {
+    const closeDialog = (focusInput) => {
+      if (dialog.open) dialog.close();
+      if (focusInput) {
+        const input = document.getElementById('certIdInput');
+        input?.focus();
+        input?.select();
+      }
+    };
+    dialog.querySelectorAll('[data-verification-close]').forEach((button) => {
+      button.addEventListener('click', () => closeDialog(false));
+    });
+    dialog.querySelector('#verificationResultClose')?.addEventListener('click', () => closeDialog(true));
+    dialog.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      closeDialog(false);
+    });
+    dialog.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeDialog(false);
+      }
+    });
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) closeDialog(false);
+    });
+    dialog.dataset.eventsBound = 'true';
+  }
 
-  resultEl.innerHTML = `
-    <div class="result-card">
-      <div class="result-header" style="border-left:4px solid ${color};">
-        <div>
-          <div class="result-title">Certificate ${certificate.certificate_id || certificate.certificateId || 'ID'}</div>
-          <div class="result-subtitle">Status: <strong style="color:${color};text-transform:capitalize">${status}</strong></div>
-          <div style="margin-top:6px;font-size:13px;color:var(--text-secondary)">Source: <strong>${response.onChain ? 'On-chain' : (response.onChain === false ? 'Local / DB' : 'Unknown')}</strong></div>
-        </div>
-      </div>
-      <div class="result-body">
-        <div><strong>Issuer:</strong> ${issuerName}</div>
-        <div><strong>Holder:</strong> ${holderName}</div>
-        <div><strong>Type:</strong> ${certificate.certificate_type || certificate.certificateType || 'N/A'}</div>
-        <div><strong>Issued:</strong> ${new Date(lastChecked).toLocaleString()}</div>
-        <div><strong>IPFS:</strong> ${ipfsUri ? `<a href="${ipfsUri}" target="_blank" rel="noopener">${cid}</a>` : cid}</div>
-        <div><strong>Transaction:</strong> ${txId}${txId && txId !== 'Not issued on-chain' ? ` • <a href="https://explorer.solana.com/tx/${txId}?cluster=devnet" target="_blank" rel="noopener">View on Solana Explorer</a>` : ''}</div>
-        <div style="margin-top:12px;color:var(--text-secondary);font-size:13px;">${certificate.verification_message || response.message || 'No additional details available.'}</div>
-      </div>
-    </div>
-  `;
+  if (!dialog.open) dialog.showModal();
+  dialog.querySelector('[data-verification-close]')?.focus();
+  return dialog;
+}
 
+async function renderVerifyResult(response, certificateId = '') {
+  VerificationResultModal({ response, certificateId });
 }
 
 async function verifyCertificate() {
@@ -1629,20 +1779,23 @@ async function verifyCertificate() {
   }
 
   if (resultEl) {
-    resultEl.innerHTML = `<div class="alert alert-info">Checking certificate ${certificateId} on-chain...</div>`;
+    resultEl.textContent = '';
   }
 
   try {
     const response = await fetch(`${API_BASE_URL}/certificates/lookup/${encodeURIComponent(certificateId)}`);
     const data = await response.json();
     if (!response.ok) {
-      await renderVerifyResult({ success: false, error: data?.error || 'Not Found' });
+      await renderVerifyResult({ success: false, status: data?.status || 'not_found', error: data?.error || 'Not Found' }, certificateId);
       return;
     }
-    await renderVerifyResult(data);
+    await renderVerifyResult(data, certificateId);
   } catch (err) {
     const demoData = getDemoCertificateData(certificateId);
-    await renderVerifyResult(demoData ? { success: true, certificate: demoData } : { success: false, error: 'Not Found' });
+    await renderVerifyResult(
+      demoData ? { success: true, certificate: demoData } : { success: false, status: 'not_found', error: 'Certificate verification is unavailable right now.' },
+      certificateId
+    );
   }
 }
 
@@ -1799,6 +1952,13 @@ document.addEventListener("DOMContentLoaded", () => {
   currentUser = getStoredUser();
   updateAuthUi();
   renderRoleLandingHome();
+  if (getAuthToken()) {
+    refreshIssuerAuthorization().catch((error) => {
+      verifiedIssuerUserId = null;
+      console.error('Unable to verify issuer approval:', error.message || error);
+      renderRoleLandingHome();
+    });
+  }
   try { initTheme(); } catch (e) {}
 });
 
@@ -1971,7 +2131,7 @@ const FORGOT_OTP_RESEND_COOLDOWN_MS = 40_000;
 const FORGOT_OTP_RESEND_UNTIL_KEY = 'certicheck_forgot_otp_resend_until';
 let forgotOtpResendTimer = null;
 
-function initIssuerDashboard() {
+async function initIssuerDashboard() {
   const formWrap = document.getElementById("issuerFormWrap");
   const notice = document.getElementById("issuerNotice");
   const form = document.getElementById("issuerIssueForm");
@@ -1983,20 +2143,25 @@ function initIssuerDashboard() {
 
   const token = getAuthToken();
   if (!token) {
+    notice.textContent = 'Sign in to access issuer tools.';
     notice.style.display = "block";
     formWrap.style.display = "none";
     return;
   }
 
-  const user = getStoredUser();
-  if (!user) {
-    notice.style.display = "block";
-    formWrap.style.display = "none";
+  let authorization;
+  try {
+    authorization = await refreshIssuerAuthorization();
+  } catch (error) {
+    console.error('Unable to verify issuer approval:', error.message || error);
+    notice.textContent = 'Unable to verify issuer approval. Please try again.';
+    notice.style.display = 'block';
+    formWrap.style.display = 'none';
     return;
   }
-
-  if (user.user_type !== "issuer" && user.user_type !== "admin") {
-    notice.innerHTML = "Your account is not approved as an issuer yet. Please complete the issuer application first.";
+  const user = currentUser || getStoredUser();
+  if (!authorization.approved || !user || user.user_type !== 'issuer') {
+    notice.textContent = authorization.error || 'Issuer approval required';
     notice.style.display = "block";
     formWrap.style.display = "none";
     return;
@@ -2010,61 +2175,111 @@ function initIssuerDashboard() {
     const listEl = document.getElementById('issuerCertificatesList');
     if (!listEl) return [];
 
-    if (token) {
-      try {
-        const response = await fetch(`${API_BASE_URL}/verify/my-history`, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && Array.isArray(data.history)) {
-            return data.history.map((entry) => ({
-              certificateId: entry.certificate_id,
-              holderName: entry.certificate_type || entry.holder_name || '',
-              holderEmail: '',
-              certificateType: entry.certificate_type,
-              ipfsCid: entry.blockchain_hash || '',
-              ipfsUri: entry.blockchain_hash ? `https://ipfs.io/ipfs/${entry.blockchain_hash}` : null,
-              blockchainTransactionId: entry.blockchain_transaction_id,
-              verificationStatus: entry.verification_status,
-              issuedAt: entry.checked_at
-            }));
-          }
-        }
-      } catch (err) {
-        console.warn('Unable to load issuer certificates from backend:', err.message);
-      }
-    }
-
-      try {
-        const raw = localStorage.getItem(issuerIssuedKeyFor(user));
-        return raw ? JSON.parse(raw) : [];
-      } catch (e) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/certificates/my-issued`, {
+        headers: { Authorization: `Bearer ${getAuthToken()}` }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 403) {
+        verifiedIssuerUserId = null;
+        notice.textContent = data.error || 'Issuer approval required';
+        notice.style.display = 'block';
+        formWrap.style.display = 'none';
         return [];
       }
+      if (!response.ok) throw new Error(data.error || 'Unable to load issued certificates');
+      if (data.success && Array.isArray(data.certificates)) {
+        return data.certificates.map((entry) => ({
+          certificateId: entry.certificate_id,
+          holderName: entry.holder_name || '',
+          holderEmail: entry.holder_email || '',
+          certificateType: entry.certificate_type,
+          ipfsCid: entry.ipfs_cid || '',
+          ipfsUri: entry.ipfs_uri || (entry.ipfs_cid ? `https://ipfs.io/ipfs/${entry.ipfs_cid}` : null),
+          blockchainTransactionId: entry.blockchain_transaction_id || '',
+          verificationStatus: entry.status || entry.verification_status || 'valid',
+          issuedAt: entry.issued_at || entry.created_at,
+          revokedAt: entry.revoked_at,
+          metadata: entry.metadata || {}
+        }));
+      }
+      throw new Error(data.error || 'Invalid certificate list response');
+    } catch (err) {
+      console.error('Unable to load issuer certificates from backend:', err.message);
+      notice.textContent = err.message || 'Unable to load issuer certificates.';
+      notice.style.display = 'block';
+      return [];
+    }
+
+    return [];
   }
 
   async function renderIssuerCertificatesList() {
     const listEl = document.getElementById('issuerCertificatesList');
     if (!listEl) return;
     const all = await loadIssuerCertificates();
-    const ours = all.filter(c => c.issuerEmail === user.email || c.issuerWallet === (document.getElementById('issuerWallet')?.value || ''));
+    const ours = all.filter(c => c.certificateId);
     if (!ours.length) {
       listEl.innerHTML = 'No certificates issued yet.';
       return;
     }
 
-    listEl.innerHTML = `<table style="width:100%"><thead><tr><th>ID</th><th>Type</th><th>IPFS</th><th>On-chain</th><th>Status</th><th>Actions</th></tr></thead><tbody>${ours.map(c => `
-      <tr data-cert-id="${c.certificateId}">
-        <td style="font-family:var(--font-mono)">${c.certificateId}</td>
-        <td>${c.certificateType || '—'}</td>
-        <td class="issuer-cid">${c.ipfsCid ? `<a href="${c.ipfsUri || 'https://ipfs.io/ipfs/' + c.ipfsCid}" target="_blank">${c.ipfsCid}</a>` : '—'}</td>
-        <td>${c.blockchainTransactionId ? '<span style="color:#059669">Yes</span>' : 'No'}</td>
-        <td>${c.verificationStatus || 'issued'}</td>
-        <td>${c.verificationStatus === 'revoked' ? '<em>Revoked</em>' : `<button class="btn-ghost btn-revoke" data-cert="${c.certificateId}">Revoke</button>`}</td>
-      </tr>`).join('')}</tbody></table>`;
+    const table = document.createElement('table');
+    table.style.cssText = 'width:100%;table-layout:fixed;border-collapse:collapse';
+    const header = document.createElement('thead');
+    const headingRow = document.createElement('tr');
+    ['ID', 'Type', 'Issued', 'IPFS CID', 'On-chain', 'Status', 'Actions'].forEach((label) => {
+      const cell = document.createElement('th');
+      cell.textContent = label;
+      headingRow.appendChild(cell);
+    });
+    header.appendChild(headingRow);
+    const body = document.createElement('tbody');
+    ours.forEach((certificate) => {
+      const row = document.createElement('tr');
+      row.dataset.certId = certificate.certificateId;
+      const idCell = document.createElement('td');
+      idCell.style.cssText = 'font-family:var(--font-mono);overflow-wrap:anywhere';
+      idCell.textContent = certificate.certificateId;
+      const typeCell = document.createElement('td');
+      typeCell.style.overflowWrap = 'anywhere';
+      typeCell.textContent = certificate.certificateType || '—';
+      const dateCell = document.createElement('td');
+      dateCell.textContent = certificate.issuedAt ? new Date(certificate.issuedAt).toLocaleDateString() : '—';
+      const cidCell = document.createElement('td');
+      cidCell.className = 'issuer-cid';
+      cidCell.style.overflowWrap = 'anywhere';
+      if (certificate.ipfsCid) {
+        const link = document.createElement('a');
+        link.href = certificate.ipfsUri || `https://ipfs.io/ipfs/${encodeURIComponent(certificate.ipfsCid)}`;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = certificate.ipfsCid;
+        cidCell.appendChild(link);
+      } else {
+        cidCell.textContent = '—';
+      }
+      const chainCell = document.createElement('td');
+      chainCell.textContent = certificate.blockchainTransactionId ? 'Yes' : 'No';
+      const statusCell = document.createElement('td');
+      statusCell.textContent = String(certificate.verificationStatus || 'valid').toLowerCase() === 'revoked' ? 'Revoked' : 'Valid';
+      const actionsCell = document.createElement('td');
+      if (certificate.verificationStatus === 'revoked') {
+        const label = document.createElement('em');
+        label.textContent = 'Revoked';
+        actionsCell.appendChild(label);
+      } else {
+        const button = document.createElement('button');
+        button.className = 'btn-ghost btn-revoke';
+        button.dataset.cert = certificate.certificateId;
+        button.textContent = 'Revoke';
+        actionsCell.appendChild(button);
+      }
+      [idCell, typeCell, dateCell, cidCell, chainCell, statusCell, actionsCell].forEach((cell) => row.appendChild(cell));
+      body.appendChild(row);
+    });
+    table.append(header, body);
+    listEl.replaceChildren(table);
 
     // Wire revoke buttons
     listEl.querySelectorAll('.btn-revoke').forEach(btn => {
@@ -2075,34 +2290,16 @@ function initIssuerDashboard() {
 
         const token = getAuthToken();
         try {
-          const connectedWallet = getConnectedWalletAddress();
-          const hasPhantomConnection = Boolean(window.solana && window.solana.isPhantom && connectedWallet);
+          if (!token || !isVerifiedIssuer()) throw new Error('Issuer approval required');
+          const res = await fetch(`${API_BASE_URL}/certificates/my-issued/${encodeURIComponent(certId)}/revoke`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ reason: 'Revoked via issuer dashboard' })
+          });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error || 'Revoke failed');
 
-          if (hasPhantomConnection) {
-            const txSignature = await revokeCertificateWithPhantomWallet(certId, 'Revoked via issuer dashboard', connectedWallet);
-            if (txSignature) {
-              console.info('Revocation sent via Phantom:', txSignature);
-            }
-          } else if (token) {
-            const res = await fetch(`${API_BASE_URL}/certificates/revoke/${encodeURIComponent(certId)}`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-              body: JSON.stringify({ reason: 'Revoked via issuer dashboard' })
-            });
-            const json = await res.json();
-            if (!res.ok) throw new Error(json.error || 'Revoke failed');
-          } else {
-            const allLocal = await loadIssuerCertificates();
-            const updated = allLocal.map(x => x.certificateId === certId ? { ...x, verificationStatus: 'revoked', revokedAt: new Date().toISOString() } : x);
-            setIssuerIssuedCertificates(updated);
-          }
-
-          // Update UI: mark row revoked
-          const row = listEl.querySelector(`tr[data-cert-id="${certId}"]`);
-          if (row) {
-            row.querySelector('td:nth-child(5)').innerHTML = 'revoked';
-            row.querySelector('td:nth-child(6)').innerHTML = '<em>Revoked</em>';
-          }
+          await renderIssuerCertificatesList();
         } catch (err) {
           alert('Unable to revoke certificate: ' + (err.message || err));
         }
@@ -2136,6 +2333,11 @@ function initIssuerDashboard() {
     errorEl.style.display = "none";
     errorEl.textContent = "";
     resultEl.innerHTML = "";
+    if (!getAuthToken() || !isVerifiedIssuer()) {
+      errorEl.textContent = 'Issuer approval required';
+      errorEl.style.display = 'block';
+      return;
+    }
 
     const payload = {
       certificateId: document.getElementById("issuerCertId")?.value?.trim() || "",
@@ -2146,8 +2348,7 @@ function initIssuerDashboard() {
       issuerWallet: document.getElementById("issuerWallet")?.value?.trim() || "",
       metadata: {},
       expiry: document.getElementById("issuerExpiry")?.value || null,
-      walletAddress: document.getElementById("issuerWallet")?.value?.trim() || "",
-      issueOnChain: document.getElementById("issuerOnChain")?.checked || false
+      onChain: document.getElementById("issuerOnChain")?.checked || false
     };
 
     const rawMetadata = document.getElementById('issuerMetadata')?.value?.trim() || '';
@@ -2187,100 +2388,11 @@ function initIssuerDashboard() {
         } : null
       };
 
-      // If issuer requested on-chain issuance and Phantom is connected, perform client-side pin + sign
-      if (payload.issueOnChain && window.solana && window.solana.isPhantom) {
-        const metadata = {
-          ...payload.metadata,
-          certificateId: payload.certificateId,
-          holderName: payload.holderName,
-          holderEmail: payload.holderEmail,
-          certificateType: payload.certificateType,
-          issuerName: payload.issuerName,
-          expiry: payload.expiry || null
-        };
-
-        const pinRes = await fetch(`${API_BASE_URL}/certificates/pin`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ metadata })
-        });
-        const pinJson = await pinRes.json();
-        if (!pinRes.ok || !pinJson.cid) throw new Error(pinJson.error || 'Failed to pin metadata');
-        const ipfsCid = pinJson.cid;
-
-        const walletPayload = { ...payload, ipfsCid };
-        const onChainResult = await issueCertificateWithPhantomWallet(walletPayload, token);
-
-        const recordPayload = {
-          certificateId: payload.certificateId,
-          holderName: payload.holderName,
-          holderEmail: payload.holderEmail,
-          certificateType: payload.certificateType,
-          issuerName: payload.issuerName,
-          issuerWallet: window.solana.publicKey?.toString() || payload.issuerWallet || null,
-          ipfsCid,
-          blockchainTransactionId: onChainResult?.signature || null,
-          metadata
-        };
-
-        const recordRes = await fetch(`${API_BASE_URL}/certificates/issue-client-signed`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify(recordPayload)
-        });
-        const recordJson = await recordRes.json();
-        if (!recordRes.ok) throw new Error(recordJson.error || 'Failed to record client-signed issuance');
-
-        const certificate = recordJson.certificate || {};
-        const certificateId = certificate.certificate_id || payload.certificateId;
-        localStorage.setItem("certicheck_last_certificate", JSON.stringify(certificate));
-        localStorage.setItem("certicheck_last_certificate_id", certificateId);
-
-        try {
-          const arr = getIssuerIssuedCertificates();
-          const entry = {
-            certificateId,
-            holderName: certificate.holderName || payload.holderName || payload.holderEmail,
-            holderEmail: payload.holderEmail || null,
-            certificateType: payload.certificateType || certificate.certificate_type || null,
-            ipfsCid: certificate.ipfsCid || certificate.ipfs_cid || certificate.blockchain_hash || ipfsCid,
-            ipfsUri: certificate.ipfsUri || certificate.ipfs_uri || (ipfsCid ? `https://ipfs.io/ipfs/${ipfsCid}` : null),
-            blockchainTransactionId: certificate.blockchainTransactionId || certificate.blockchain_transaction_id || txid,
-            blockchainExplorerUrl: `https://explorer.solana.com/tx/${txid}?cluster=devnet`,
-            issuerEmail: user.email,
-            issuerWallet: recordPayload.issuerWallet || null,
-            metadata: payload.metadata || certificate.metadata || null,
-            expiry: payload.expiry || certificate.expiry || null,
-            issuedAt: new Date().toISOString()
-          };
-          arr.unshift(entry);
-          setIssuerIssuedCertificates(arr, user);
-        } catch (e) { console.warn('Failed to store issued certificate locally', e); }
-
-        resultEl.innerHTML = `
-          <div class="alert alert-success">
-            <strong>Certificate issued successfully (client-signed).</strong>
-            <div class="issuer-result-card" style="margin-top:12px;padding:14px;border:1px solid rgba(5,118,210,.12);border-radius:12px;">
-              <div><strong>ID:</strong> ${certificateId}</div>
-              <div><strong>On-chain:</strong> Yes</div>
-              <div><strong>Transaction:</strong> ${txid}</div>
-              <div><strong>Explorer:</strong> <a href="https://explorer.solana.com/tx/${txid}?cluster=devnet" target="_blank">View on Solana Explorer</a></div>
-              <div class="issuer-cid"><strong>IPFS CID:</strong> <span>${ipfsCid}</span></div>
-              <div>${getHolderNotificationMessage(recordJson.holder_notification)}</div>
-            </div>
-          </div>`;
-
-        try { renderIssuerCertificatesList(); } catch (e) {}
-        return;
-      }
-
-      // Fallback: server-side issuance flow
       const response = await fetch(`${API_BASE_URL}/certificates/issue`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          "x-demo-user-type": user.user_type || "issuer"
+          Authorization: `Bearer ${token}`
         },
         body: JSON.stringify(payload)
       });
@@ -2300,15 +2412,13 @@ function initIssuerDashboard() {
         certInput.value = certificateId;
       }
 
-      const status = certificate.status || 'issued';
-      const onChain = certificate.onChain ? 'Yes' : 'No';
-      const txId = certificate.blockchainTransactionId || 'N/A';
-      const txStatus = certificate.blockchainTransactionStatus ? certificate.blockchainTransactionStatus.confirmationStatus || JSON.stringify(certificate.blockchainTransactionStatus) : 'Pending';
+      const status = String(certificate.status || 'valid').toLowerCase() === 'revoked' ? 'Revoked' : 'Valid';
+      const txId = certificate.blockchain_transaction_id || 'Not issued on-chain';
+      const issuedAt = certificate.issued_at || certificate.created_at || new Date().toISOString();
       const explorerLink = certificate.blockchainExplorerUrl ? `<a href="${certificate.blockchainExplorerUrl}" target="_blank" rel="noopener noreferrer">View on Solana Explorer</a>` : '';
 
       // Append to issuer certificate list in localStorage for dashboard rendering
       try {
-        const storedRaw = null;
         const arr = getIssuerIssuedCertificates();
         const entry = {
           certificateId,
@@ -2323,7 +2433,7 @@ function initIssuerDashboard() {
           issuerWallet: payload.issuerWallet || null,
           metadata: payload.metadata || certificate.metadata || null,
           expiry: payload.expiry || certificate.expiry || null,
-          issuedAt: new Date().toISOString()
+          issuedAt
         };
         arr.unshift(entry);
         setIssuerIssuedCertificates(arr, user);
@@ -2335,11 +2445,11 @@ function initIssuerDashboard() {
           <div class="issuer-result-card" style="margin-top:12px;padding:14px;border:1px solid rgba(5,118,210,.12);border-radius:12px;">
             <div><strong>ID:</strong> ${certificateId}</div>
             <div><strong>Status:</strong> ${status}</div>
-            <div><strong>On-chain:</strong> ${onChain}</div>
+            <div><strong>Issued:</strong> ${new Date(issuedAt).toLocaleString()}</div>
             <div><strong>Transaction:</strong> ${txId}</div>
-            <div><strong>Transaction status:</strong> ${certificate.blockchainTransactionId ? txStatus : 'Not submitted'}</div>
             ${explorerLink ? `<div>${explorerLink}</div>` : ''}
-            <div class="issuer-cid"><strong>IPFS CID:</strong> <span>${certificate.ipfsCid || 'N/A'}</span></div>
+            ${certificate.ipfs_cid ? `<div class="issuer-cid"><strong>IPFS CID:</strong> <span>${certificate.ipfs_cid}</span></div>` : '<div>IPFS metadata is not available.</div>'}
+            ${(data.warnings || []).map(warning => `<div class="alert alert-info">${warning}</div>`).join('')}
             <div>${getHolderNotificationMessage(data.holder_notification)}</div>
           </div>
         </div>`;
@@ -2532,255 +2642,162 @@ function initSignupForm() {
   const firstNameEl = document.getElementById("signupFirstName");
   const lastNameEl = document.getElementById("signupLastName");
   const errorEl = document.getElementById("signupError");
-  const resendBtn = document.getElementById("resendOtpBtn");
-  const otpInput = document.getElementById("otpCode");
 
   if (!btn || btn.dataset.bound === "true") return;
   btn.dataset.bound = "true";
 
   btn.addEventListener("click", async () => {
     errorEl.style.display = "none";
-    const email = emailEl.value.trim();
+    const email = emailEl.value.trim().toLowerCase();
     const firstName = firstNameEl.value.trim();
     const lastName = lastNameEl.value.trim();
-    const password = "password";
 
     if (!email || !firstName || !lastName) {
       errorEl.textContent = "All fields are required";
       errorEl.style.display = "block";
       return;
     }
-
     if (!emailEl.checkValidity()) {
       errorEl.textContent = "Enter a valid email address";
       errorEl.style.display = "block";
       return;
     }
 
+    btn.disabled = true;
+    btn.textContent = "Sending OTP...";
     try {
-      btn.disabled = true;
-      btn.textContent = "Creating account...";
+      const response = await fetch(`${API_BASE_URL}/auth/send-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Unable to send verification code');
 
-      try {
-        const firebaseUser = await createUserWithFirebaseAuth(email, password);
-        console.log('Firebase Auth account created for:', firebaseUser?.user?.email || email);
-      } catch (firebaseErr) {
-        console.warn('Firebase Auth registration failed or unavailable:', firebaseErr?.message || firebaseErr);
-      }
-
-      try {
-        const registerResponse = await fetch(`${API_BASE_URL}/auth/register`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, firstName, lastName, userType: desiredSignupType || 'issuer' })
-        });
-        if (registerResponse.ok) {
-          const data = await registerResponse.json();
-          saveAuthSession(data.token, data.user);
-          // If there is a pending application draft, attach contact info and submit
-          const draft = loadPendingApplicationDraft();
-          if (draft) {
-            try {
-              draft.contactEmail = email;
-              await fetch(`${API_BASE_URL}/applications/submit`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
-                body: JSON.stringify(draft)
-              });
-              clearPendingApplicationDraft();
-            } catch (e) { console.warn('Failed to auto-submit draft after registration', e); }
-          }
-          navigate(data.user.user_type === 'admin' ? 'home' : data.user.user_type === 'issuer' ? 'home' : 'holder');
-          return;
-        } else {
-          const err = await registerResponse.json().catch(() => ({}));
-          errorEl.textContent = err.error || 'Registration failed';
-          errorEl.style.display = 'block';
-          btn.disabled = false;
-          btn.textContent = 'Create account';
-          return;
-        }
-        } catch (e) {
-          console.warn('Registration request failed', e);
-          errorEl.textContent = 'Registration failed';
-          errorEl.style.display = 'block';
-          btn.disabled = false;
-          btn.textContent = 'Create account';
-          return;
-        }
-      } catch (err) {
-        console.warn('Signup flow failed', err);
-        errorEl.textContent = 'Registration failed';
-        errorEl.style.display = 'block';
-        btn.disabled = false;
-        btn.textContent = 'Create account';
-        return;
-      }
-
-      // Try chain-first via API fallback, then local store
-    const token = getAuthToken();
-    const storedUser = getStoredUser();
-    const userEmail = (storedUser?.email || '').trim();
-    const userWallet = (storedUser?.wallet || '').trim();
-
-    async function renderCertificates(certificates) {
-      if (!certificates || !certificates.length) {
-        listEl.innerHTML = '<div>No certificates found for your account.</div>';
-        return;
-      }
-      listEl.innerHTML = certificates.map((certificate) => {
-        const certId = certificate.certificateId || certificate.certificate_id || 'Unknown certificate';
-        const status = certificate.status || certificate.verification_status || 'valid';
-        const issuer = certificate.issuerName || certificate.issuer_name || certificate.issuerWallet || certificate.issuer_wallet || 'Unknown issuer';
-        const date = certificate.issuedAt ? new Date(certificate.issuedAt).toLocaleDateString() : (certificate.issued_at ? new Date(certificate.issued_at).toLocaleDateString() : 'N/A');
-        const ipfsUrl = certificate.ipfsUri || (certificate.ipfsCid ? `https://ipfs.io/ipfs/${certificate.ipfsCid}` : null);
-        const verificationUrl = buildVerificationLink(certId);
-        return `
-          <div class="holder-cert-card">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
-              <div>
-                <div style="font-weight:800;font-size:15px;">${certId}</div>
-                <div style="color:var(--text-secondary);font-size:13px;">${certificate.certificate_type || certificate.certificateType || ''} · ${date}</div>
-              </div>
-              <div style="text-align:right;">
-                <div style="font-weight:800;color:${status === 'revoked' ? 'var(--danger)' : 'var(--success)'};">${status}</div>
-                ${ipfsUrl ? `<a href="${ipfsUrl}" target="_blank" class="btn-ghost">IPFS</a>` : ''}
-                <a href="${verificationUrl}" class="btn-outline">Verify</a>
-              </div>
-            </div>
-          </div>
-        `;
-      }).join('');
-    }
-
-    try {
-      // Prefer API lookup by holder (chain-local fallback)
-      const params = new URLSearchParams();
-      if (userEmail) params.set('email', userEmail);
-      if (userWallet) params.set('wallet', userWallet);
-      const res = await fetch(`/api/certificates/lookup-by-holder?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) {
-        const body = await res.json();
-        if (body && body.certificates) {
-          await renderCertificates(body.certificates);
-          wrap.style.display = 'block';
-          return;
-        }
-      }
+      pendingSignupData = {
+        email,
+        firstName,
+        lastName,
+        userType: desiredSignupType || 'issuer'
+      };
+      document.getElementById('otpEmailDesc').textContent = `Enter the 6-digit code sent to ${email}.`;
+      document.getElementById('otpCode').value = '';
+      navigate('verify-otp');
     } catch (err) {
-      console.warn('Holder API lookup failed, falling back to local store:', err);
+      errorEl.textContent = err.message || 'Unable to send verification code';
+      errorEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Send OTP';
     }
+  });
+}
 
-    // Final fallback: local store
-    try {
-      const ours = getHolderCertificatesForUser(user);
-      await renderCertificates(ours);
-      wrap.style.display = 'block';
+function initOTPVerificationForm() {
+  const btn = document.getElementById('verifyOtpBtn');
+  const otpInput = document.getElementById('otpCode');
+  const resendBtn = document.getElementById('resendOtpBtn');
+  const errorEl = document.getElementById('otpError');
+  if (!btn || btn.dataset.bound === 'true') return;
+  btn.dataset.bound = 'true';
+
+  btn.addEventListener('click', async () => {
+    errorEl.style.display = 'none';
+    const otp = otpInput.value.trim();
+    if (!pendingSignupData) {
+      errorEl.textContent = 'Your signup session expired. Please start again.';
+      errorEl.style.display = 'block';
+      navigate('signup');
       return;
-    } catch (err) {
-      console.warn('Failed to initialize holder dashboard:', err);
-      listEl.innerHTML = '<div>No certificates found for your account.</div>';
+    }
+    if (!/^\d{6}$/.test(otp)) {
+      errorEl.textContent = 'Enter the 6-digit code sent to your email.';
+      errorEl.style.display = 'block';
+      return;
     }
 
+    btn.disabled = true;
+    btn.textContent = 'Verifying...';
     try {
-      btn.disabled = true;
-      btn.textContent = "Verifying...";
+      const verifyResponse = await fetch(`${API_BASE_URL}/auth/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: pendingSignupData.email, otp })
+      });
+      const verifyData = await verifyResponse.json().catch(() => ({}));
+      if (!verifyResponse.ok) throw new Error(verifyData.error || 'Invalid or expired verification code');
 
-      let verified = false;
-      try {
-        const verifyResponse = await fetch(`${API_BASE_URL}/auth/verify-otp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: pendingSignupData.email, otp })
-        });
-        verified = verifyResponse.ok;
-      } catch (err) {
-        console.warn('OTP verification request failed, falling back to demo mode:', err.message);
-      }
+      const registerResponse = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: pendingSignupData.email,
+          password: 'password',
+          firstName: pendingSignupData.firstName,
+          lastName: pendingSignupData.lastName,
+          userType: pendingSignupData.userType,
+          otp
+        })
+      });
+      const registerData = await registerResponse.json().catch(() => ({}));
+      if (!registerResponse.ok) throw new Error(registerData.error || 'Registration failed');
 
-      if (verified) {
+      const draft = loadPendingApplicationDraft();
+      let applicationNotice = '';
+      if (draft) {
         try {
-          const registerResponse = await fetch(`${API_BASE_URL}/auth/register`, {
+          draft.contactEmail = pendingSignupData.email;
+          const applicationResponse = await fetch(`${API_BASE_URL}/applications/submit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: pendingSignupData.email,
-              password: pendingSignupData.password,
-              firstName: pendingSignupData.firstName,
-              lastName: pendingSignupData.lastName,
-              userType: pendingSignupData.userType,
-              otp
-            })
+            body: JSON.stringify(draft)
           });
-
-          if (registerResponse.ok) {
-            const data = await registerResponse.json();
-            if (data.token && data.user) {
-              saveAuthSession(data.token, data.user);
-              pendingSignupData = null;
-              // If a draft application exists, submit it now as the authenticated user
-              const draft = loadPendingApplicationDraft();
-              if (draft) {
-                try {
-                  await fetch(`${API_BASE_URL}/applications/submit`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
-                    body: JSON.stringify(draft)
-                  });
-                  clearPendingApplicationDraft();
-                } catch (e) {
-                  console.warn('Failed to auto-submit pending application after signup', e.message || e);
-                }
-              }
-              navigate(data.user.user_type === 'admin' ? 'home' : data.user.user_type === 'issuer' ? 'home' : 'holder');
-              return;
-            }
+          const applicationData = await applicationResponse.json().catch(() => ({}));
+          if (applicationResponse.ok) {
+            clearPendingApplicationDraft();
+          } else {
+            applicationNotice = ` Your application was not submitted: ${applicationData.error || 'Please submit it again.'}`;
           }
-        } catch (registerErr) {
-          console.warn('Registration request failed, falling back to demo mode:', registerErr.message);
+        } catch (applicationError) {
+          applicationNotice = ` Your application could not be submitted: ${applicationError.message || 'Please submit it again.'}`;
         }
       }
 
-      const role = pendingSignupData.userType || desiredSignupType || 'issuer';
-      saveDemoAuthSessionWithRole(pendingSignupData.email, pendingSignupData.firstName, pendingSignupData.lastName, role);
       pendingSignupData = null;
-      navigate(role === 'holder' ? 'holder' : 'home');
+      navigate('login');
+      showLoginNotice('Account created', `${registerData.message || 'Your account is pending admin approval. You can sign in after it has been approved.'}${applicationNotice}`);
     } catch (err) {
-      errorEl.textContent = "Demo signup completed locally.";
-      errorEl.style.display = "block";
+      errorEl.textContent = err.message || 'Unable to complete registration';
+      errorEl.style.display = 'block';
+    } finally {
       btn.disabled = false;
-      btn.textContent = "Verify & Create Account";
+      btn.textContent = 'Verify & Create Account';
     }
   });
 
-  // Resend OTP
-  resendBtn?.addEventListener("click", async () => {
-    if (!pendingSignupData) return;
-
+  resendBtn?.addEventListener('click', async () => {
+    if (!pendingSignupData || resendBtn.disabled) return;
+    resendBtn.disabled = true;
+    resendBtn.textContent = 'Resending...';
     try {
-      resendBtn.disabled = true;
-      resendBtn.textContent = "Resending...";
-
-      try {
-        await fetch(`${API_BASE_URL}/auth/send-otp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: pendingSignupData.email })
-        });
-      } catch {}
-
-      if (otpInput) { otpInput.value = ""; otpInput.focus(); }
-      errorEl.style.display = "none";
-      resendBtn.textContent = "OTP skipped in demo mode";
+      const response = await fetch(`${API_BASE_URL}/auth/resend-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: pendingSignupData.email })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Unable to resend verification code');
+      otpInput.value = '';
+      errorEl.style.display = 'none';
+      resendBtn.textContent = 'Code sent';
+    } catch (err) {
+      errorEl.textContent = err.message || 'Unable to resend verification code';
+      errorEl.style.display = 'block';
+    } finally {
       setTimeout(() => {
         resendBtn.disabled = false;
-        resendBtn.textContent = "Resend";
+        resendBtn.textContent = 'Resend';
       }, 3000);
-    } catch (err) {
-      errorEl.textContent = "Demo mode: OTP resend is ready.";
-      errorEl.style.display = "block";
-      resendBtn.disabled = false;
-      resendBtn.textContent = "Resend";
     }
   });
 }
@@ -2836,12 +2853,17 @@ function initLoginForm() {
 
   btn.addEventListener("click", async () => {
     errorEl.style.display = "none";
-    const email = emailEl.value.trim();
+    const email = emailEl.value.trim().toLowerCase();
     const password = passwordEl.value;
     const remember = rememberEl?.checked;
 
     if (!email || !password) {
       errorEl.textContent = "Email and password are required";
+      errorEl.style.display = "block";
+      return;
+    }
+    if (!emailEl.checkValidity()) {
+      errorEl.textContent = "Enter a valid email address";
       errorEl.style.display = "block";
       return;
     }
@@ -2888,7 +2910,8 @@ function initLoginForm() {
         EMAIL_NOT_REGISTERED: 'Email not registered',
         APPLICATION_PENDING: 'Application pending',
         APPLICATION_REJECTED: 'Application rejected',
-        APPLICATION_APPROVED: 'Application approved'
+        APPLICATION_APPROVED: 'Application approved',
+        USER_PENDING_APPROVAL: 'Account pending approval'
       };
       if (noticeTitles[errCode] && !showLoginNotice(noticeTitles[errCode], errMsg)) {
         errorEl.textContent = errMsg;
@@ -2926,7 +2949,7 @@ function initForgotPasswordForm() {
 
   btn.addEventListener("click", async () => {
     errorEl.style.display = "none";
-    const email = emailEl.value.trim();
+    const email = emailEl.value.trim().toLowerCase();
 
     if (!email) {
       errorEl.textContent = "Please enter your email";
@@ -2996,8 +3019,8 @@ function initChangePasswordForm() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Unable to change password');
 
-      const user = { ...getStoredUser(), must_change_password: false };
-      saveAuthSession(getAuthToken(), user);
+      const user = { ...getStoredUser(), ...(data.user || {}), must_change_password: false };
+      saveAuthSession(data.token, user);
       navigate(user.user_type === 'admin' || user.user_type === 'issuer' ? 'home' : 'holder');
     } catch (err) {
       errorEl.textContent = err.message || "Unable to change password";
@@ -3080,14 +3103,6 @@ function initVerifyResetOTPForm() {
     try {
       btn.disabled = true;
       btn.textContent = "Resetting...";
-
-      const verifyResponse = await fetch(`${API_BASE_URL}/auth/verify-forgot-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: pendingForgotEmail, otp })
-      });
-      const verifyData = await verifyResponse.json().catch(() => ({}));
-      if (!verifyResponse.ok) throw new Error(verifyData.error || 'Invalid or expired OTP');
 
       const resetResponse = await fetch(`${API_BASE_URL}/auth/reset-password`, {
           method: 'POST',

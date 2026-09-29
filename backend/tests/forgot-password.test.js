@@ -12,8 +12,12 @@ const authRoutes = require('../src/routes/auth');
 const originalPoolQuery = pool.query;
 const originalMethods = {
   findByEmail: User.findByEmail,
+  verifyPassword: User.verifyPassword,
   createUser: User.create,
   updatePassword: User.updatePassword,
+  createPasswordResetOtp: User.createPasswordResetOtp,
+  verifyPasswordResetOtp: User.verifyPasswordResetOtp,
+  resetPasswordWithOtp: User.resetPasswordWithOtp,
   createOtp: OTP.create,
   verifyOtp: OTP.verify,
   isOtpVerified: OTP.isVerified,
@@ -66,8 +70,12 @@ test.after(async () => {
   if (server) await new Promise(resolve => server.close(resolve));
   pool.query = originalPoolQuery;
   User.findByEmail = originalMethods.findByEmail;
+  User.verifyPassword = originalMethods.verifyPassword;
   User.create = originalMethods.createUser;
   User.updatePassword = originalMethods.updatePassword;
+  User.createPasswordResetOtp = originalMethods.createPasswordResetOtp;
+  User.verifyPasswordResetOtp = originalMethods.verifyPasswordResetOtp;
+  User.resetPasswordWithOtp = originalMethods.resetPasswordWithOtp;
   OTP.create = originalMethods.createOtp;
   OTP.verify = originalMethods.verifyOtp;
   OTP.isVerified = originalMethods.isOtpVerified;
@@ -82,7 +90,9 @@ test('signup and forgot-password OTP flows accept external email domains and con
     id: 42,
     email: 'person@gmail.com',
     password_hash: 'existing-hash',
-    must_change_password: false
+    must_change_password: false,
+    is_active: true,
+    user_type: 'user'
   };
   const deliveries = [];
   const passwordUpdates = [];
@@ -95,6 +105,7 @@ test('signup and forgot-password OTP flows accept external email domains and con
   let failedAttempts = 0;
 
   User.findByEmail = async email => registeredUsers.get(email.toLowerCase()) || null;
+  User.verifyPassword = async email => email.toLowerCase() === user.email ? user : null;
   User.create = async (email, password, firstName, lastName, userType) => {
     const newUser = {
       id: 43,
@@ -103,7 +114,8 @@ test('signup and forgot-password OTP flows accept external email domains and con
       first_name: firstName,
       last_name: lastName,
       user_type: userType,
-      is_active: true
+      is_active: false,
+      must_change_password: true
     };
     registrations.push({ email, password, firstName, lastName, userType });
     registeredUsers.set(email, newUser);
@@ -111,6 +123,23 @@ test('signup and forgot-password OTP flows accept external email domains and con
   };
   User.updatePassword = async (email, password) => {
     passwordUpdates.push({ email, password });
+    return user;
+  };
+  User.createPasswordResetOtp = async email => ({
+    otp_code: '123456',
+    expires_at: new Date(Date.now() + 10 * 60 * 1000),
+    email
+  });
+  User.verifyPasswordResetOtp = async (email, code) => {
+    if (email === user.email && code === '123456' && !forgotConsumed) return true;
+    failedAttempts += 1;
+    return false;
+  };
+  User.resetPasswordWithOtp = async (email, code, password) => {
+    if (email !== user.email || code !== '123456' || forgotConsumed) return null;
+    forgotConsumed = true;
+    user.password = password;
+    user.must_change_password = false;
     return user;
   };
   OTP.create = async (email, type) => ({ otp_code: '123456', expires_at: new Date(Date.now() + 10 * 60 * 1000), email, type });
@@ -168,13 +197,22 @@ test('signup and forgot-password OTP flows accept external email domains and con
     lastName: 'Student'
   });
   assert.equal(registrationResponse.status, 201);
+  const registrationData = await registrationResponse.json();
+  assert.equal(registrationData.user.is_approved, false);
+  assert.equal(registrationData.user.must_change_password, true);
+  assert.equal(registrationData.token, undefined);
   assert.deepEqual(registrations, [{
     email: 'student@school.edu',
-    password: 'valid-password',
+    password: 'password',
     firstName: 'New',
     lastName: 'Student',
     userType: 'user'
   }]);
+
+  const externalDomainLogin = await post('login', { email: 'PERSON@GMAIL.COM', password: 'valid-password' });
+  assert.equal(externalDomainLogin.status, 200);
+  const invalidLoginEmail = await post('login', { email: 'not-an-email', password: 'valid-password' });
+  assert.equal(invalidLoginEmail.status, 400);
 
   const invalidForgotEmail = await post('forgot-password', { email: 'not-an-email' });
   assert.equal(invalidForgotEmail.status, 400);
@@ -193,7 +231,9 @@ test('signup and forgot-password OTP flows accept external email domains and con
 
   const resetResponse = await post('reset-password', { email: user.email, otp: '123456', newPassword: 'new-secure-password' });
   assert.equal(resetResponse.status, 200);
-  assert.deepEqual(passwordUpdates, [{ email: user.email, password: 'new-secure-password' }]);
+  assert.deepEqual(passwordUpdates, []);
+  assert.equal(user.password, 'new-secure-password');
+  assert.equal(user.must_change_password, false);
   assert.equal(forgotConsumed, true);
 
   const reusedOtp = await post('reset-password', { email: user.email, otp: '123456', newPassword: 'another-password' });
@@ -203,4 +243,13 @@ test('signup and forgot-password OTP flows accept external email domains and con
   const invalidResetEmail = await post('reset-password', { email: 'not-an-email', otp: '123456', newPassword: 'another-password' });
   assert.equal(invalidVerifyEmail.status, 400);
   assert.equal(invalidResetEmail.status, 400);
+
+  EmailService.sendOTP = async () => {
+    const error = new Error('Email delivery is not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASS.');
+    error.code = 'EMAIL_NOT_CONFIGURED';
+    throw error;
+  };
+  const missingSmtpResponse = await post('forgot-password', { email: user.email });
+  assert.equal(missingSmtpResponse.status, 503);
+  assert.match((await missingSmtpResponse.json()).error, /Email delivery is not configured/);
 });

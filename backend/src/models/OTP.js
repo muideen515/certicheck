@@ -1,4 +1,5 @@
 const pool = require('../db/connection');
+const crypto = require('crypto');
 
 class OTP {
   static memStore = new Map();
@@ -9,7 +10,7 @@ class OTP {
 
   // Generate a random 6-digit OTP string
   static generateOTP() {
-    return Math.floor(100000 + Math.random() * 900000).toString();
+    return String(crypto.randomInt(100000, 1000000));
   }
 
   // Create and store OTP for email
@@ -138,6 +139,25 @@ class OTP {
         return (Date.now() - new Date(rec.verified_at).getTime()) < 10 * 60 * 1000 && new Date(rec.expires_at) > new Date();
       }
       return false;
+    }
+  }
+
+  static async isVerifiedCode(email, otpCode, otpType = 'forgot_password') {
+    const normalizedEmail = this.normalizeEmail(email);
+    const cleanCode = String(otpCode || '').trim();
+    try {
+      const result = await pool.query(
+        `SELECT id FROM otp_verification
+         WHERE email = $1 AND otp_code = $2 AND otp_type = $3
+           AND is_verified = true AND verified_at IS NOT NULL AND expires_at > NOW()
+         ORDER BY verified_at DESC LIMIT 1`,
+        [normalizedEmail, cleanCode, otpType]
+      );
+      return result.rows.length > 0;
+    } catch (err) {
+      const record = this.memStore.get(`${normalizedEmail}:${otpType}`);
+      return Boolean(record && record.otp_code === cleanCode && record.is_verified &&
+        record.verified_at && new Date(record.expires_at) > new Date());
     }
   }
 

@@ -142,7 +142,7 @@ const VerifyAPI = {
   },
 
   async revokeCertificate(certificateId, reason) {
-    const response = await fetch(`${API_BASE_URL}/certificates/revoke/${encodeURIComponent(certificateId)}`, {
+    const response = await fetch(`${API_BASE_URL}/certificates/my-issued/${encodeURIComponent(certificateId)}/revoke`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
