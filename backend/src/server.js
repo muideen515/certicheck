@@ -20,7 +20,7 @@ const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0';
 
 // ── MIDDLEWARE ─────────────────────────────────────────────────────────────
-const allowedOrigins = [
+const allowedOrigins = new Set([
   'https://certicheck-psi.vercel.app',
   'http://localhost:3000',
   'http://localhost:5000',
@@ -31,13 +31,17 @@ const allowedOrigins = [
   'http://127.0.0.1:5500',
   'http://127.0.0.1:4173',
   'http://127.0.0.1:5173',
-  'file://'
-];
+  'file://',
+  ...String(process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean)
+]);
 app.use(cors({
   origin: function(origin, cb) {
     // allow local development origins and GitHub Codespaces port-forwarded domains
     if (!origin) return cb(null, true);
-    if (allowedOrigins.includes(origin)) return cb(null, true);
+    if (allowedOrigins.has(origin)) return cb(null, true);
     if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return cb(null, true);
     if (/^https:\/\/[a-zA-Z0-9-]+\.(app\.github\.dev|githubpreview\.dev)(:\d+)?$/.test(origin)) return cb(null, true);
     return cb(new Error('Not allowed by CORS'));

@@ -286,9 +286,6 @@ function clearAuthSession() {
   localStorage.removeItem("certicheck_user");
   localStorage.removeItem("certicheck_active_profile");
   verifiedIssuerUserId = null;
-  if (window.signOutFirebaseUser) {
-    window.signOutFirebaseUser().catch((error) => console.warn('Firebase sign-out failed:', error.message || error));
-  }
   currentUser = null;
   updateAuthUi();
 }
@@ -2852,14 +2849,6 @@ function initOTPVerificationForm() {
   });
 }
 
-async function createUserWithFirebaseAuth(email, password) {
-  const auth = window.getFirebaseAuth ? window.getFirebaseAuth() : (typeof firebase !== 'undefined' ? firebase.auth() : null);
-  if (!auth || typeof auth.createUserWithEmailAndPassword !== 'function') {
-    throw new Error('Firebase Auth is not available yet.');
-  }
-  return auth.createUserWithEmailAndPassword(email, password);
-}
-
 function showLoginNotice(title, message) {
   const dialog = document.getElementById('loginNoticeDialog');
   const titleEl = document.getElementById('loginNoticeTitle');
@@ -2965,14 +2954,6 @@ function initLoginForm() {
       btn.textContent = "Sign In";
     }
   });
-}
-
-async function sendPasswordResetEmailWithFirebase(email) {
-  const auth = window.getFirebaseAuth ? window.getFirebaseAuth() : (typeof firebase !== 'undefined' ? firebase.auth() : null);
-  if (!auth || typeof auth.sendPasswordResetEmail !== 'function') {
-    throw new Error('Firebase Auth is not available yet.');
-  }
-  return auth.sendPasswordResetEmail(email);
 }
 
 function initForgotPasswordForm() {

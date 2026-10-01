@@ -6,6 +6,8 @@ This document outlines recommended steps to deploy the Certicheck backend to pro
 
 This workspace has a local DB-backed deployment, but no verified public frontend/backend URL is configured here. Vercel/Render deployment still requires a hosted database, production secrets, CORS configuration, and a public smoke test. Until those are supplied, report the system as local/demo mode rather than live production.
 
+Set `CORS_ORIGINS` on Render to a comma-separated list of exact frontend origins, including the production Vercel domain. The main site sends login and other API requests to the Render API URL configured in `script.js` by default; `window.CERTICHECK_API_BASE_URL` can override it when deploying the static frontend.
+
 1. Environment variables
    - Create a `.env` file with required values:
      - `PORT=5000`
