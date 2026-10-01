@@ -6,6 +6,7 @@ const bodyParser = require('body-parser');
 const https = require('https');
 const pool = require('./db/connection');
 const { initializeDatabase } = require('./db/init');
+const EmailService = require('./services/emailService');
 
 // Routes
 const authRoutes = require('./routes/auth');
@@ -202,6 +203,8 @@ async function startServer() {
     } else {
       console.log('✓ Running in DEMO_MODE — skipping database initialization');
     }
+
+    await EmailService.verifyTransporter();
 
     app.listen(PORT, HOST, () => {
       console.log(`✓ Certicheck backend running on http://${HOST}:${PORT}`);

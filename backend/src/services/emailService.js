@@ -34,9 +34,9 @@ class EmailService {
     if (this.transporter) return;
 
     const smtpUser = configuredSmtpUser();
-    const smtpPassword = process.env.SMTP_PASS || String(process.env.EMAIL_PASSWORD || '').replace(/\s+/g, '');
+    const smtpPassword = process.env.SMTP_PASS || String(process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS || '').replace(/\s+/g, '');
     const hasCustomSmtp = Boolean(process.env.SMTP_HOST && smtpUser && smtpPassword);
-    const hasEmailService = Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD);
+    const hasEmailService = Boolean(process.env.EMAIL_USER && (process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS));
 
     // 1. Custom SMTP configuration
     if (hasCustomSmtp) {
@@ -94,9 +94,9 @@ class EmailService {
 
   static getConfigurationStatus() {
     const smtpUser = configuredSmtpUser();
-    const smtpPassword = process.env.SMTP_PASS || process.env.EMAIL_PASSWORD;
+    const smtpPassword = process.env.SMTP_PASS || process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS;
     const hasCustomSmtp = Boolean(process.env.SMTP_HOST && smtpUser && smtpPassword);
-    const hasEmailService = Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD);
+    const hasEmailService = Boolean(process.env.EMAIL_USER && (process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS));
     return {
       mode: hasCustomSmtp || hasEmailService ? 'smtp' : 'console',
       provider: hasCustomSmtp ? 'custom-smtp' : hasEmailService ? (process.env.EMAIL_SERVICE || 'gmail') : 'console',
@@ -107,6 +107,22 @@ class EmailService {
   static assertConfigured() {
     this.initTransporter();
     if (process.env.NODE_ENV === 'production') this.getFromAddress();
+  }
+
+  static async verifyTransporter() {
+    try {
+      this.initTransporter();
+      if (this.getConfigurationStatus().mode !== 'smtp') return false;
+      await this.transporter.verify();
+      console.log('✓ EmailService: SMTP connection verified and ready to send messages.');
+      return true;
+    } catch (err) {
+      const message = err.code === 'EMAIL_NOT_CONFIGURED' || err.code === 'EMAIL_FROM_MISMATCH'
+        ? err.message
+        : 'SMTP connection verification failed. Check email configuration and provider connectivity.';
+      console.error(`EmailService configuration error: ${message}`);
+      return false;
+    }
   }
 
   static getFromAddress() {
@@ -123,6 +139,20 @@ class EmailService {
     }
 
     return fromAddress;
+  }
+
+  static async sendEmail({ to, subject, html }) {
+    this.initTransporter();
+    const normalizedEmail = String(to || '').trim().toLowerCase();
+    if (!this.isValidEmail(normalizedEmail)) {
+      throw new Error('A valid recipient email address is required.');
+    }
+    return this.transporter.sendMail({
+      from: this.getFromAddress(),
+      to: normalizedEmail,
+      subject,
+      html
+    });
   }
 
   static async sendOTP(email, otp, otpType = 'signup') {

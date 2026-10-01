@@ -180,6 +180,79 @@ test('SMTP transport accepts EMAIL_USER and EMAIL_PASSWORD as credential aliases
   }
 });
 
+test('Gmail transport accepts EMAIL_USER and EMAIL_PASS and sendEmail uses the configured sender', async () => {
+  const originalTransporter = EmailService.transporter;
+  const originalCreateTransport = nodemailer.createTransport;
+  const originalEnv = Object.fromEntries([
+    'SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'EMAIL_USER', 'EMAIL_PASSWORD',
+    'EMAIL_PASS', 'EMAIL_FROM'
+  ].map(name => [name, process.env[name]]));
+  let transportOptions;
+  let message;
+  delete process.env.SMTP_HOST;
+  delete process.env.SMTP_USER;
+  delete process.env.SMTP_PASS;
+  delete process.env.EMAIL_PASSWORD;
+  process.env.EMAIL_USER = 'sender@gmail.com';
+  process.env.EMAIL_PASS = 'example-test-app-password';
+  process.env.EMAIL_FROM = 'CertiCheck <sender@gmail.com>';
+  EmailService.transporter = null;
+  nodemailer.createTransport = options => {
+    transportOptions = options;
+    return { sendMail: async mail => { message = mail; return { messageId: 'test-message' }; } };
+  };
+
+  try {
+    const result = await EmailService.sendEmail({
+      to: ' Recipient@Example.org ',
+      subject: 'Test message',
+      html: '<p>Test</p>'
+    });
+    assert.equal(transportOptions.service, 'gmail');
+    assert.equal(transportOptions.auth.user, process.env.EMAIL_USER);
+    assert.equal(transportOptions.auth.pass, process.env.EMAIL_PASS);
+    assert.equal(message.from, process.env.EMAIL_FROM);
+    assert.equal(message.to, 'recipient@example.org');
+    assert.equal(result.messageId, 'test-message');
+  } finally {
+    EmailService.transporter = originalTransporter;
+    nodemailer.createTransport = originalCreateTransport;
+    for (const [name, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
+test('startup transport verification reports success and sanitizes provider errors', async () => {
+  const originalTransporter = EmailService.transporter;
+  const originalConfig = EmailService.getConfigurationStatus;
+  const originalLog = console.log;
+  const originalError = console.error;
+  const logs = [];
+  const errors = [];
+  EmailService.getConfigurationStatus = () => ({ mode: 'smtp' });
+  console.log = message => logs.push(String(message));
+  console.error = message => errors.push(String(message));
+
+  try {
+    EmailService.transporter = { verify: async () => true };
+    assert.equal(await EmailService.verifyTransporter(), true);
+    assert.match(logs[0], /SMTP connection verified/);
+
+    const secretBearingError = new Error('authentication failed for secret@example.org with raw-password');
+    EmailService.transporter = { verify: async () => { throw secretBearingError; } };
+    assert.equal(await EmailService.verifyTransporter(), false);
+    assert.match(errors[0], /SMTP connection verification failed/);
+    assert.equal(errors[0].includes('raw-password'), false);
+  } finally {
+    EmailService.transporter = originalTransporter;
+    EmailService.getConfigurationStatus = originalConfig;
+    console.log = originalLog;
+    console.error = originalError;
+  }
+});
+
 test('missing SMTP configuration fails clearly in production and falls back in development', async () => {
   const originalTransporter = EmailService.transporter;
   const originalEnv = Object.fromEntries([
