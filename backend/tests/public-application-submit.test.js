@@ -77,6 +77,26 @@ test('public application submissions are visible to admin review queue', async (
   );
 });
 
+test('public application submissions do not require a use case or wallet address', async () => {
+  const port = process.env.TEST_SERVER_PORT;
+  const response = await fetch(`http://localhost:${port}/api/applications/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      orgName: 'Optional Fields Org',
+      orgType: 'university',
+      contactName: 'Alex Applicant',
+      contactEmail: 'alex@optional-fields.example',
+      contactRole: 'Registrar',
+      volume: '1 – 100 certificates'
+    })
+  });
+
+  const data = await response.json();
+  assert.equal(response.status, 201, `Unexpected submit status: ${JSON.stringify(data)}`);
+  assert.ok(data.success, `Submission should succeed: ${JSON.stringify(data)}`);
+});
+
 test('admin dashboard reflects approved applications in demo mode', async () => {
   const port = process.env.TEST_SERVER_PORT;
   const base = `http://localhost:${port}`;

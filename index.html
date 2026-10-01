@@ -42,7 +42,15 @@
 
     <div class="nav-actions">
       <button id="navToggle" class="btn-ghost" aria-label="Toggle menu" aria-controls="primaryNavLinks" aria-expanded="false" title="Menu" style="display:none;">☰</button>
-      <button id="themeToggle" class="btn-toggle" aria-label="Toggle dark mode" title="Switch to dark mode"></button>
+      <button id="themeToggle" class="btn-toggle" aria-label="Switch to dark mode" title="Switch to dark mode">
+        <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <circle cx="12" cy="12" r="4"></circle>
+          <path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"></path>
+        </svg>
+        <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M20.2 15.1A8.5 8.5 0 0 1 8.9 3.8 8.5 8.5 0 1 0 20.2 15.1Z"></path>
+        </svg>
+      </button>
       <button class="btn-ghost" data-page="login">Login</button>
     </div>
   </nav>
@@ -549,11 +557,12 @@
         <div class="form-step active" id="form-step-1">
           <div class="field">
             <label class="field-label" for="orgName">Organisation Name</label>
-            <input class="field-input" id="orgName" placeholder="e.g. University of Lagos" type="text"/>
+            <input class="field-input" id="orgName" placeholder="e.g. University of Lagos" type="text" required/>
           </div>
           <div class="field">
             <label class="field-label" for="orgType">Organisation Type</label>
-            <select class="field-input" id="orgType">
+            <select class="field-input" id="orgType" required>
+              <option value="">Select organisation type</option>
               <option value="university">University</option>
               <option value="college">College</option>
               <option value="bootcamp">Bootcamp</option>
@@ -566,7 +575,7 @@
             </select>
           </div>
           <div class="field">
-            <label class="field-label" for="orgWebsite">Website</label>
+            <label class="field-label" for="orgWebsite">Website <span style="font-weight:400;opacity:0.6">(optional)</span></label>
             <input class="field-input" id="orgWebsite" placeholder="https://yourorganisation.com" type="url"/>
           </div>
         </div>
@@ -575,7 +584,7 @@
         <div class="form-step" id="form-step-2">
           <div class="field">
             <label class="field-label" for="contactName">Full Name</label>
-            <input class="field-input" id="contactName" placeholder="Jane Doe" type="text"/>
+            <input class="field-input" id="contactName" placeholder="Jane Doe" type="text" required/>
           </div>
           <div class="field">
             <label class="field-label" for="contactEmail">Official Company / Department Email</label>
@@ -588,7 +597,7 @@
           </div>
           <div class="field">
             <label class="field-label" for="contactRole">Role / Title</label>
-            <select class="field-input" id="contactRole">
+            <select class="field-input" id="contactRole" required>
               <option value="">Select a role/title</option>
             </select>
           </div>
@@ -597,17 +606,18 @@
         <!-- Step 3 -->
         <div class="form-step" id="form-step-3">
           <div class="field">
-            <label class="field-label" for="useCase">Use Case</label>
+            <label class="field-label" for="useCase">Use Case <span style="font-weight:400;opacity:0.6">(optional)</span></label>
             <textarea class="field-input" id="useCase" rows="4" placeholder="Describe what credentials you plan to issue…"></textarea>
           </div>
           <div class="field">
             <label class="field-label" for="volume">Expected Monthly Volume</label>
-            <select class="field-input" id="volume">
+            <select class="field-input" id="volume" required>
+              <option value="">Select expected monthly volume</option>
               <option>1 – 100 certificates</option>
               <option>101 – 1,000 certificates</option>
               <option>1,001 – 10,000 certificates</option>
               <option>10,000+ certificates</option>
-              <option> Custom </option>
+              <option value="custom">Custom</option>
             </select>
           </div>
           <div class="field" id="volumeCustomField" style="display:none">
@@ -617,7 +627,7 @@
           <div class="field">
             <label class="field-label" for="wallet">Solana Wallet Address <span style="font-weight:400;opacity:0.6">(optional)</span></label>
             <input class="field-input font-mono" id="wallet" placeholder="e.g. 7xKX...mVqP" type="text"/>
-            <div style="margin-top:8px;font-size:13px;color:var(--text-secondary)">Connect a wallet later to issue certificates on Solana devnet or mainnet from the issuer dashboard.</div>
+            <div style="margin-top:8px;font-size:13px;color:var(--text-secondary)">You can provide a Solana wallet address later.</div>
           </div>
         </div>
 
@@ -629,7 +639,7 @@
         </div>
 
         <div class="form-actions" id="formActions">
-          <button type="button" class="btn-ghost" id="formBack" style="display:none">Official email</button>
+          <button type="button" class="btn-ghost" id="formBack" style="display:none">Back</button>
           <button type="button" class="btn-primary" id="formNext">Continue →</button>
         </div>
       </div>

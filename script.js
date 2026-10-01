@@ -2852,14 +2852,6 @@ function initOTPVerificationForm() {
   });
 }
 
-async function signInWithFirebaseAuth(email, password) {
-  const auth = window.getFirebaseAuth ? window.getFirebaseAuth() : (typeof firebase !== 'undefined' ? firebase.auth() : null);
-  if (!auth || typeof auth.signInWithEmailAndPassword !== 'function') {
-    throw new Error('Firebase Auth is not available yet.');
-  }
-  return auth.signInWithEmailAndPassword(email, password);
-}
-
 async function createUserWithFirebaseAuth(email, password) {
   const auth = window.getFirebaseAuth ? window.getFirebaseAuth() : (typeof firebase !== 'undefined' ? firebase.auth() : null);
   if (!auth || typeof auth.createUserWithEmailAndPassword !== 'function') {
@@ -2931,13 +2923,6 @@ function initLoginForm() {
       if (response.ok) {
         const data = await response.json();
         if (data.token) {
-          signInWithFirebaseAuth(email, password)
-            .then((firebaseUser) => {
-              console.log('Firebase Auth sign-in successful for:', firebaseUser?.user?.email || email);
-            })
-            .catch((firebaseErr) => {
-              console.warn('Firebase Auth sign-in unavailable or failed:', firebaseErr?.message || firebaseErr);
-            });
           if (remember) setRememberedLoginEmail(email); else setRememberedLoginEmail("");
           saveAuthSession(data.token, data.user);
           if (data.user.must_change_password) {
@@ -3419,6 +3404,7 @@ function updateContactRoleOptions() {
 
   nextBtn.addEventListener("click", (event) => {
     event.preventDefault();
+    if (!validateApplyStep(applyStep)) return;
     if (applyStep < 3) {
       setApplyStep(applyStep + 1);
     } else {
@@ -3431,6 +3417,18 @@ function updateContactRoleOptions() {
     if (applyStep > 1) setApplyStep(applyStep - 1);
   });
 })();
+
+function validateApplyStep(step) {
+  const stepElement = document.getElementById(`form-step-${step}`);
+  if (!stepElement) return false;
+
+  const invalidField = stepElement.querySelector(':invalid');
+  if (!invalidField) return true;
+
+  invalidField.reportValidity();
+  invalidField.focus();
+  return false;
+}
 
 function setApplyStep(step) {
   // Hide old step

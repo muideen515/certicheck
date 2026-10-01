@@ -918,14 +918,6 @@ async function loginAdmin(event) {
   }
 
   try {
-    if (window.getFirebaseAuth) {
-      try {
-        await window.getFirebaseAuth().signInWithEmailAndPassword(email, password);
-      } catch (firebaseError) {
-        console.warn('Firebase admin sign-in unavailable; using backend admin session:', firebaseError.message || firebaseError);
-      }
-    }
-
     const data = await requestJson("/auth/admin/login", {
       method: "POST",
       body: JSON.stringify({ email, password })

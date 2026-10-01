@@ -10,8 +10,27 @@ const adminJs = fs.readFileSync(path.join(rootDir, 'admin.js'), 'utf8');
 
 test('application form buttons do not submit the page', () => {
   assert.match(indexHtml, /<button type="button" class="btn-ghost" id="formBack"/);
+  assert.match(indexHtml, /id="formBack"[^>]*>Back<\/button>/);
   assert.match(indexHtml, /<button type="button" class="btn-primary" id="formNext"/);
   assert.match(scriptJs, /nextBtn\.addEventListener\("click", \(event\) => \{\s*event\.preventDefault\(\);/s);
+  assert.match(scriptJs, /if \(!validateApplyStep\(applyStep\)\) return;/);
+  assert.match(scriptJs, /function validateApplyStep\(step\)/);
+  assert.match(indexHtml, /id="orgName"[^>]*required/);
+  assert.match(indexHtml, /id="orgType"[^>]*required/);
+  assert.match(indexHtml, /id="contactName"[^>]*required/);
+  assert.match(indexHtml, /id="contactEmailInput"[^>]*required/);
+  assert.match(indexHtml, /id="contactRole"[^>]*required/);
+  const useCaseField = indexHtml.match(/<textarea class="field-input" id="useCase"[^>]*>/)?.[0] || '';
+  assert.doesNotMatch(useCaseField, /\brequired\b/);
+  assert.match(indexHtml, /id="volume"[^>]*required/);
+  const walletField = indexHtml.match(/<input class="field-input font-mono" id="wallet"[^>]*>/)?.[0] || '';
+  assert.doesNotMatch(walletField, /\brequired\b/);
+  assert.match(indexHtml, /for="useCase">Use Case <span[^>]*>\(optional\)<\/span>/);
+  assert.match(indexHtml, /for="wallet">Solana Wallet Address <span[^>]*>\(optional\)<\/span>/);
+  assert.doesNotMatch(indexHtml.match(/<input class="field-input" id="orgWebsite"[^>]*>/)?.[0] || '', /\brequired\b/);
+  assert.match(indexHtml, /id="volumeCustom" type="number" min="1" step="1" placeholder="[^"]+" \/>/);
+  assert.match(indexHtml, /<option value="custom">Custom<\/option>/);
+  assert.match(scriptJs, /volumeCustomInput\.required = isCustom/);
   assert.match(scriptJs, /backBtn\?\.addEventListener\("click", \(event\) => \{\s*event\.preventDefault\(\);/s);
 });
 
