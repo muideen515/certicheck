@@ -95,6 +95,36 @@ const localApiOrigin = ["localhost", "127.0.0.1"].includes(window.location.hostn
   : null;
 const API_BASE_URL = window.CERTICHECK_API_BASE_URL ||
   (localApiOrigin ? `${localApiOrigin}/api` : "https://certicheck-backend-8hu3.onrender.com/api");
+let solanaWeb3Loading;
+
+function loadSolanaWeb3() {
+  const existing = window.solanaWeb3 || window.SolanaWeb3;
+  if (existing) return Promise.resolve(existing);
+  if (solanaWeb3Loading) return solanaWeb3Loading;
+
+  solanaWeb3Loading = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/@solana/web3.js@1.90.0/lib/index.iife.min.js';
+    script.async = true;
+    script.onload = () => {
+      const library = window.solanaWeb3 || window.SolanaWeb3;
+      if (library) {
+        resolve(library);
+      } else {
+        solanaWeb3Loading = null;
+        reject(new Error('Solana web3 browser library did not load correctly.'));
+      }
+    };
+    script.onerror = () => {
+      solanaWeb3Loading = null;
+      reject(new Error('Unable to load the Solana web3 browser library.'));
+    };
+    document.head.appendChild(script);
+  });
+
+  return solanaWeb3Loading;
+}
+
 const nativeFetch = window.fetch.bind(window);
 window.fetch = (url, options = {}) => {
   const requestUrl = new URL(url, window.location.href);
@@ -567,7 +597,8 @@ async function issueCertificateWithPhantomWallet(payload, token) {
     throw new Error('Connect your Phantom wallet before issuing certificates on-chain.');
   }
 
-  const { Connection, PublicKey, SystemProgram } = (window.solanaWeb3 || window.SolanaWeb3 || {}).Web3 || window.solanaWeb3 || {};
+  const solanaWeb3 = await loadSolanaWeb3();
+  const { Connection, PublicKey, SystemProgram } = solanaWeb3.Web3 || solanaWeb3;
   if (!Connection || !PublicKey || !SystemProgram) {
     throw new Error('Solana web3 browser library did not load correctly.');
   }
@@ -576,7 +607,7 @@ async function issueCertificateWithPhantomWallet(payload, token) {
     throw new Error('Anchor browser library did not load correctly.');
   }
 
-  const connection = new Connection(window.solanaWeb3.clusterApiUrl('devnet'), 'confirmed');
+  const connection = new Connection(solanaWeb3.clusterApiUrl('devnet'), 'confirmed');
   const wallet = {
     publicKey: new PublicKey(publicKey),
     signTransaction: async (tx) => provider.signTransaction(tx),
@@ -657,8 +688,9 @@ async function revokeCertificateWithPhantomWallet(certificateId, reason, issuerW
     throw new Error('Connect your wallet before revoking a certificate.');
   }
 
-  const { Connection, PublicKey } = window.solanaWeb3;
-  const connection = new Connection(window.solanaWeb3.clusterApiUrl('devnet'), 'confirmed');
+  const solanaWeb3 = await loadSolanaWeb3();
+  const { Connection, PublicKey } = solanaWeb3.Web3 || solanaWeb3;
+  const connection = new Connection(solanaWeb3.clusterApiUrl('devnet'), 'confirmed');
   const wallet = {
     publicKey: new PublicKey(publicKey),
     signTransaction: async (tx) => provider.signTransaction(tx),

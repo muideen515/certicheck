@@ -1,5 +1,7 @@
 const express = require('express');
 const pool = require('../db/connection');
+const Application = require('../models/Application');
+const VerifyHistory = require('../models/VerifyHistory');
 const demoAppStore = require('../services/demoApplicationStore');
 const { verifyToken, verifyAdmin, logAudit, verifyAdminToken } = require('../middleware/auth');
 
@@ -43,9 +45,9 @@ router.get('/dashboard', verifyAdminToken, verifyAdmin, async (req, res) => {
   try {
     if (process.env.DEMO_MODE === 'true') {
       const allApps = demoAppStore.getAllApplications(200, 0);
-      const pendingApplications = allApps.filter(app => app.status === 'pending').length;
-      const approvedApplications = allApps.filter(app => app.status === 'approved').length;
-      const rejectedApplications = allApps.filter(app => app.status === 'rejected').length;
+      const pendingApps = demoAppStore.getApplicationsByStatus('pending', 50, 0);
+      const approvedApps = demoAppStore.getApplicationsByStatus('approved', 50, 0);
+      const rejectedApps = demoAppStore.getApplicationsByStatus('rejected', 50, 0);
       const recentAudit = allApps.slice().reverse().map(app => ({
         id: app.id,
         action_type: app.status === 'approved' ? 'APPLICATION_APPROVE' : app.status === 'rejected' ? 'APPLICATION_REJECT' : 'APPLICATION_SUBMIT',
@@ -61,48 +63,61 @@ router.get('/dashboard', verifyAdminToken, verifyAdmin, async (req, res) => {
       return res.json({
         success: true,
         stats: {
-          pendingApplications,
-          approvedApplications,
-          rejectedApplications,
+          pendingApplications: allApps.filter(app => app.status === 'pending').length,
+          approvedApplications: allApps.filter(app => app.status === 'approved').length,
+          rejectedApplications: allApps.filter(app => app.status === 'rejected').length,
           revokedCertificates: 0,
           totalVerifications: 0
         },
-        recentAudit
+        recentAudit: recentAudit.slice(0, 20),
+        pendingApplications: pendingApps,
+        approvedApplications: approvedApps,
+        rejectedApplications: rejectedApps,
+        history: [],
+        revoked: [],
+        auditLog: recentAudit.slice(0, 50)
       });
     }
 
-    const pendingApps = await pool.query(
-      'SELECT COUNT(*) as count FROM pending_applications WHERE status = $1',
-      ['pending']
-    );
-
-    const approvedApps = await pool.query(
-      'SELECT COUNT(*) as count FROM pending_applications WHERE status = $1',
-      ['approved']
-    );
-
-    const revokedCerts = await pool.query(
-      'SELECT COUNT(*) as count FROM verify_history WHERE verification_status = $1',
-      ['revoked']
-    );
-
-    const totalVerifications = await pool.query(
-      'SELECT COUNT(*) as count FROM verify_history'
-    );
-
-    const recentAudit = await pool.query(
-      'SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT 20'
-    );
+    const [
+      pendingCount,
+      approvedCount,
+      revokedCount,
+      verificationCount,
+      pendingApplications,
+      approvedApplications,
+      rejectedApplications,
+      history,
+      revoked,
+      auditLog
+    ] = await Promise.all([
+      pool.query('SELECT COUNT(*) as count FROM pending_applications WHERE status = $1', ['pending']),
+      pool.query('SELECT COUNT(*) as count FROM pending_applications WHERE status = $1', ['approved']),
+      pool.query('SELECT COUNT(*) as count FROM verify_history WHERE verification_status = $1', ['revoked']),
+      pool.query('SELECT COUNT(*) as count FROM verify_history'),
+      Application.getPending(50, 0),
+      Application.getByStatus('approved', 50, 0),
+      Application.getByStatus('rejected', 50, 0),
+      VerifyHistory.getHistory(50, 0),
+      VerifyHistory.getRevokedCerts(50, 0),
+      pool.query('SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT 50')
+    ]);
 
     res.json({
       success: true,
       stats: {
-        pendingApplications: parseInt(pendingApps.rows[0].count),
-        approvedApplications: parseInt(approvedApps.rows[0].count),
-        revokedCertificates: parseInt(revokedCerts.rows[0].count),
-        totalVerifications: parseInt(totalVerifications.rows[0].count)
+        pendingApplications: parseInt(pendingCount.rows[0].count),
+        approvedApplications: parseInt(approvedCount.rows[0].count),
+        revokedCertificates: parseInt(revokedCount.rows[0].count),
+        totalVerifications: parseInt(verificationCount.rows[0].count)
       },
-      recentAudit: recentAudit.rows
+      recentAudit: auditLog.rows.slice(0, 20),
+      pendingApplications,
+      approvedApplications,
+      rejectedApplications,
+      history,
+      revoked,
+      auditLog: auditLog.rows
     });
   } catch (err) {
     console.error('Dashboard stats error:', err);

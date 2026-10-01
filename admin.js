@@ -25,6 +25,7 @@ let adminReviewFilters = {
   sort: 'newest'
 };
 let adminPollTimer = null;
+let adminDashboardRequest = null;
 
 function startAdminDashboardPolling() {
   if (adminPollTimer) return;
@@ -813,33 +814,26 @@ async function handleRevokeAction(id) {
 }
 
 async function loadAdminDashboard() {
+  if (adminDashboardRequest) return adminDashboardRequest;
+
+  adminDashboardRequest = loadAdminDashboardData();
   try {
-    const results = await Promise.allSettled([
-      requestJson("/admin/dashboard"),
-        requestJson("/applications/pending?limit=50&offset=0"),
-        requestJson("/applications/rejected?limit=50&offset=0"),
-        requestJson("/applications/approved?limit=50&offset=0"),
-        requestJson("/verify/history?limit=50&offset=0"),
-        requestJson("/verify/revoked?limit=50&offset=0"),
-        requestJson("/admin/audit-log?limit=50&offset=0")
-    ]);
+    await adminDashboardRequest;
+  } finally {
+    adminDashboardRequest = null;
+  }
+}
 
-    const valueAt = index => results[index].status === 'fulfilled' ? results[index].value : {};
-    const dashboardData = valueAt(0);
-    const pendingData = valueAt(1);
-    const rejectedData = valueAt(2);
-    const approvedData = valueAt(3);
-    const historyData = valueAt(4);
-    const revokedData = valueAt(5);
-    const auditData = valueAt(6);
-
+async function loadAdminDashboardData() {
+  try {
+    const dashboardData = await requestJson("/admin/dashboard");
     adminState.stats = dashboardData.stats || adminState.stats || null;
-    if (results[1].status === 'fulfilled') adminState.pendingApps = getApplicationList(pendingData);
-    if (results[2].status === 'fulfilled') adminState.rejectedApps = getApplicationList(rejectedData);
-    if (results[3].status === 'fulfilled') adminState.approvedApps = getApplicationList(approvedData);
-    if (results[4].status === 'fulfilled') adminState.checks = Array.isArray(historyData.history) ? historyData.history : [];
-    if (results[5].status === 'fulfilled') adminState.revoked = Array.isArray(revokedData.revoked) ? revokedData.revoked : [];
-    if (results[6].status === 'fulfilled') adminState.auditLog = Array.isArray(auditData.auditLog) ? auditData.auditLog : [];
+    adminState.pendingApps = getApplicationList({ applications: dashboardData.pendingApplications });
+    adminState.rejectedApps = getApplicationList({ applications: dashboardData.rejectedApplications });
+    adminState.approvedApps = getApplicationList({ applications: dashboardData.approvedApplications });
+    adminState.checks = Array.isArray(dashboardData.history) ? dashboardData.history : [];
+    adminState.revoked = Array.isArray(dashboardData.revoked) ? dashboardData.revoked : [];
+    adminState.auditLog = Array.isArray(dashboardData.auditLog) ? dashboardData.auditLog : [];
 
     requestJson("/admin/access-log", {
       method: "POST",
