@@ -1,6 +1,13 @@
 "use strict";
 
-const API_BASE_URL = "https://certicheck-backend-8hu3.onrender.com";
+const localApiOrigin = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+  ? (["3000", "5000"].includes(window.location.port)
+    ? window.location.origin
+    : "http://127.0.0.1:5000")
+  : null;
+const API_BASE_URL = window.CERTICHECK_API_BASE_URL
+  ? window.CERTICHECK_API_BASE_URL.replace(/\/api\/?$/, "")
+  : localApiOrigin || "https://certicheck-backend-8hu3.onrender.com";
 const apiFetch = (url, options = {}) => fetch(url, { ...options, credentials: "include" });
 const ADMIN_SESSION_KEY = "certicheck_admin_logged_in";
 const ADMIN_TOKEN_KEY = "certicheck_admin_token";

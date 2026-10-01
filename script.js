@@ -88,9 +88,22 @@ const FAQ_DATA = [
   },
 ];
 
-const API_BASE_URL = "https://certicheck-backend-8hu3.onrender.com/api";
+const localApiOrigin = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+  ? (["3000", "5000"].includes(window.location.port)
+    ? window.location.origin
+    : "http://127.0.0.1:5000")
+  : null;
+const API_BASE_URL = window.CERTICHECK_API_BASE_URL ||
+  (localApiOrigin ? `${localApiOrigin}/api` : "https://certicheck-backend-8hu3.onrender.com/api");
 const nativeFetch = window.fetch.bind(window);
-window.fetch = (url, options = {}) => nativeFetch(url, { ...options, credentials: "include" });
+window.fetch = (url, options = {}) => {
+  const requestUrl = new URL(url, window.location.href);
+  const apiOrigin = new URL(API_BASE_URL, window.location.href).origin;
+  return nativeFetch(url, {
+    ...options,
+    credentials: requestUrl.origin === apiOrigin ? "include" : options.credentials || "same-origin"
+  });
+};
 
 function getPreviewBaseUrl() {
   try {
@@ -427,6 +440,7 @@ function updateWalletButtonUi(button, walletAddress) {
 
 function updateWalletActionAvailability() {
   const connectedWallet = getConnectedWalletAddress();
+  const hasWallet = Boolean(connectedWallet);
 
   document.querySelectorAll('[data-wallet-connect]').forEach((button) => {
     updateWalletButtonUi(button, connectedWallet);
@@ -2446,6 +2460,7 @@ async function initIssuerDashboard() {
       const status = String(certificate.status || 'valid').toLowerCase() === 'revoked' ? 'Revoked' : 'Valid';
       const txId = certificate.blockchain_transaction_id || 'Not issued on-chain';
       const issuedAt = certificate.issued_at || certificate.created_at || new Date().toISOString();
+      const ipfsSource = certificate.ipfs_source || 'fallback';
       const explorerLink = certificate.blockchainExplorerUrl ? `<a href="${certificate.blockchainExplorerUrl}" target="_blank" rel="noopener noreferrer">View on Solana Explorer</a>` : '';
 
       // Append to issuer certificate list in localStorage for dashboard rendering
@@ -2907,13 +2922,6 @@ function initLoginForm() {
       btn.disabled = true;
       btn.textContent = "Signing in...";
 
-      try {
-        const firebaseUser = await signInWithFirebaseAuth(email, password);
-        console.log('Firebase Auth sign-in successful for:', firebaseUser?.user?.email || email);
-      } catch (firebaseErr) {
-        console.warn('Firebase Auth sign-in unavailable or failed:', firebaseErr?.message || firebaseErr);
-      }
-
       const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2923,6 +2931,13 @@ function initLoginForm() {
       if (response.ok) {
         const data = await response.json();
         if (data.token) {
+          signInWithFirebaseAuth(email, password)
+            .then((firebaseUser) => {
+              console.log('Firebase Auth sign-in successful for:', firebaseUser?.user?.email || email);
+            })
+            .catch((firebaseErr) => {
+              console.warn('Firebase Auth sign-in unavailable or failed:', firebaseErr?.message || firebaseErr);
+            });
           if (remember) setRememberedLoginEmail(email); else setRememberedLoginEmail("");
           saveAuthSession(data.token, data.user);
           if (data.user.must_change_password) {
