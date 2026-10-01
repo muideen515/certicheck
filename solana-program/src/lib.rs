@@ -7,7 +7,11 @@ declare_id!("4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob");
 pub mod certi_check {
     use super::*;
 
-    pub fn initialize_issuer(ctx: Context<InitializeIssuer>, name: String, uri: String) -> Result<()> {
+    pub fn initialize_issuer(
+        ctx: Context<InitializeIssuer>,
+        name: String,
+        uri: String,
+    ) -> Result<()> {
         let issuer = &mut ctx.accounts.issuer;
         issuer.authority = ctx.accounts.authority.key();
         issuer.name = name;
@@ -45,7 +49,10 @@ pub mod certi_check {
         cert.bump = ctx.bumps.certificate;
 
         let issuer = &mut ctx.accounts.issuer;
-        issuer.cert_count = issuer.cert_count.checked_add(1).unwrap_or(issuer.cert_count);
+        issuer.cert_count = issuer
+            .cert_count
+            .checked_add(1)
+            .unwrap_or(issuer.cert_count);
         Ok(())
     }
 

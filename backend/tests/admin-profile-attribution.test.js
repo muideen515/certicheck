@@ -9,6 +9,7 @@ const jwt = require('jsonwebtoken');
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'certicheck-admin-'));
 process.env.DEMO_MODE = 'true';
+process.env.ADMIN_EMAIL = 'admin@certicheck.com';
 process.env.ADMIN_JWT_SECRET = 'admin-profile-test-secret';
 process.env.JWT_SECRET = 'admin-profile-test-secret';
 process.env.DEMO_ADMIN_STORE_FILE = path.join(tempDir, 'admins.json');

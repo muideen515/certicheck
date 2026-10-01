@@ -1,8 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const EmailService = require('../src/services/emailService');
 
 let server;
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'certicheck-applications-'));
 const applicationEmails = [];
 const originalSendApplicationReceived = EmailService.sendApplicationReceived;
 const originalSendApplicationDecision = EmailService.sendApplicationDecision;
@@ -17,6 +21,7 @@ async function startServer() {
 
 test.before(async () => {
   process.env.DEMO_MODE = 'true';
+  process.env.DEMO_APPLICATION_STORE_FILE = path.join(tempDir, 'applications.json');
   EmailService.sendApplicationReceived = async (...args) => {
     applicationEmails.push({ type: 'received', args });
     return { messageId: 'test-received' };
@@ -29,9 +34,10 @@ test.before(async () => {
 });
 
 test.after(async () => {
-  if (server) server.close();
+  if (server) await new Promise(resolve => server.close(resolve));
   EmailService.sendApplicationReceived = originalSendApplicationReceived;
   EmailService.sendApplicationDecision = originalSendApplicationDecision;
+  fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
 test('public application submissions are visible to admin review queue', async () => {
