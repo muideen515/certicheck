@@ -34,6 +34,7 @@ test.before(async () => {
   storeFile = path.join(tempDir, 'certificates.json');
   process.env.CERTIFICATE_STORE_FILE = storeFile;
   process.env.DEMO_MODE = 'true';
+  process.env.SOLANA_ENABLE = 'false';
   fs.writeFileSync(storeFile, JSON.stringify([]));
   const port = await startServer();
   process.env.TEST_SERVER_PORT = port;
@@ -175,6 +176,11 @@ test('certificate lifecycle persists metadata and returns database, IPFS, and re
         status: params[7],
         ipfs_cid: params[8],
         ipfs_uri: params[9],
+        ipfs_source: null,
+        attachment_cid: null,
+        attachment_filename: null,
+        attachment_uri: null,
+        attachment_source: null,
         blockchain_transaction_id: params[10],
         metadata: JSON.parse(params[11]),
         issued_at: params[12],
@@ -184,16 +190,26 @@ test('certificate lifecycle persists metadata and returns database, IPFS, and re
       return { rows: [savedCertificate] };
     }
     if (sql.includes('UPDATE certificates')) {
+      if (sql.includes("SET status = 'revoked'")) {
+        savedCertificate = {
+          ...savedCertificate,
+          status: 'revoked',
+          revoked_at: new Date().toISOString()
+        };
+        return { rows: [savedCertificate] };
+      }
       savedCertificate = {
         ...savedCertificate,
         ipfs_cid: params[0],
         ipfs_uri: params[1],
-        blockchain_transaction_id: params[2]
+        ipfs_source: params[2],
+        attachment_cid: params[3],
+        attachment_filename: params[4],
+        attachment_uri: params[5],
+        attachment_source: params[6],
+        metadata: JSON.parse(params[7]),
+        blockchain_transaction_id: params[8]
       };
-      if (sql.includes("SET status = 'revoked'")) {
-        savedCertificate.status = 'revoked';
-        savedCertificate.revoked_at = new Date().toISOString();
-      }
       return { rows: [savedCertificate] };
     }
     if (sql.includes('FROM certificates c')) {
@@ -234,7 +250,16 @@ test('certificate lifecycle persists metadata and returns database, IPFS, and re
         holderEmail: 'lifecycle@example.com',
         certificateType: 'Degree Certificate',
         issuerName: 'Lifecycle University',
-        metadata: { programName: 'Computer Science', graduationYear: 2026 }
+        metadata: {
+          programName: 'Computer Science',
+          graduationYear: 2026,
+          attachment: {
+            name: 'degree.pdf',
+            type: 'application/pdf',
+            size: 8,
+            dataUrl: 'data:application/pdf;base64,JVBERi0xLjQ='
+          }
+        }
       })
     });
     assert.equal(issueResponse.status, 201);
@@ -245,7 +270,14 @@ test('certificate lifecycle persists metadata and returns database, IPFS, and re
     assert.ok(issueResult.certificate.issued_at);
     assert.ok(issueResult.certificate.created_at);
     assert.ok(issueResult.certificate.ipfs_cid);
+    assert.equal(issueResult.certificate.ipfs_source, 'fallback');
+    assert.equal(issueResult.certificate.ipfs_uri, null);
+    assert.equal(issueResult.certificate.attachment_filename, 'degree.pdf');
+    assert.equal(issueResult.certificate.attachment_cid, null);
+    assert.equal(issueResult.certificate.attachment_source, 'fallback');
+    assert.equal('dataUrl' in issueResult.certificate.metadata.attachment, false);
     assert.equal(savedCertificate.status, 'valid');
+    assert.equal(savedCertificate.ipfs_source, 'fallback');
 
     const listResponse = await fetch(`${baseUrl}/my-issued`, { headers });
     assert.equal(listResponse.status, 200);
@@ -254,6 +286,9 @@ test('certificate lifecycle persists metadata and returns database, IPFS, and re
     assert.equal(listResult.certificates[0].certificate_id, 'CERT-DB-LIFECYCLE-001');
     assert.equal(listResult.certificates[0].status, 'valid');
     assert.equal(listResult.certificates[0].ipfs_cid, issueResult.certificate.ipfs_cid);
+    assert.equal(listResult.certificates[0].ipfs_source, 'fallback');
+    assert.equal(listResult.certificates[0].attachment_filename, 'degree.pdf');
+    assert.equal(listResult.certificates[0].attachment_source, 'fallback');
 
     const revokeResponse = await fetch(`${baseUrl}/my-issued/CERT-DB-LIFECYCLE-001/revoke`, {
       method: 'PUT',
@@ -271,6 +306,9 @@ test('certificate lifecycle persists metadata and returns database, IPFS, and re
     assert.equal(verifyResult.status, 'revoked');
     assert.equal(verifyResult.certificate.metadata.programName, 'Computer Science');
     assert.equal(verifyResult.certificate.metadata.graduationYear, 2026);
+    assert.equal(verifyResult.certificate.ipfs_source, 'fallback');
+    assert.equal(verifyResult.certificate.attachment_filename, 'degree.pdf');
+    assert.equal(verifyResult.certificate.attachment_source, 'fallback');
     assert.ok(verifyResult.certificate.revoked_at);
 
     const missingResponse = await fetch(`${baseUrl}/lookup/CERT-DB-LIFECYCLE-MISSING`);
@@ -286,12 +324,13 @@ test('certificate lifecycle persists metadata and returns database, IPFS, and re
 test('backend certificate issue, lookup, and revoke API flow', async () => {
   const port = process.env.TEST_SERVER_PORT;
   const baseUrl = `http://localhost:${port}`;
+  const certificateId = `CERT-API-${Date.now()}`;
 
   const issueResponse = await fetch(`${baseUrl}/api/certificates/issue`, {
     method: 'POST',
     headers: demoHeaders,
     body: JSON.stringify({
-      certificateId: 'CERT-API-001',
+      certificateId,
       holderName: 'Alice Example',
       holderEmail: 'alice@example.com',
       certificateType: 'API Integration Test',
@@ -305,7 +344,7 @@ test('backend certificate issue, lookup, and revoke API flow', async () => {
   assert.equal(issueResponse.status, 201);
   const issueResult = await issueResponse.json();
   assert.equal(issueResult.success, true);
-  assert.equal(issueResult.certificate.certificate_id, 'CERT-API-001');
+  assert.equal(issueResult.certificate.certificate_id, certificateId);
   assert.equal(issueResult.certificate.verification_status, 'valid');
   assert.ok(issueResult.certificate.ipfs_cid);
   assert.ok(issueResult.certificate.issued_at);
@@ -317,15 +356,15 @@ test('backend certificate issue, lookup, and revoke API flow', async () => {
   assert.equal(listResponse.status, 200);
   const listResult = await listResponse.json();
   assert.equal(listResult.success, true);
-  assert.equal(listResult.certificates.length, 1);
-  assert.equal(listResult.certificates[0].certificate_id, 'CERT-API-001');
-  assert.equal(listResult.certificates[0].ipfs_cid, issueResult.certificate.ipfs_cid);
+  const listedCertificate = listResult.certificates.find(item => item.certificate_id === certificateId);
+  assert.ok(listedCertificate);
+  assert.equal(listedCertificate.ipfs_cid, issueResult.certificate.ipfs_cid);
 
-  const lookupResponse = await fetch(`${baseUrl}/api/certificates/lookup/CERT-API-001`);
+  const lookupResponse = await fetch(`${baseUrl}/api/certificates/lookup/${encodeURIComponent(certificateId)}`);
   assert.equal(lookupResponse.status, 200);
   const lookupResult = await lookupResponse.json();
   assert.equal(lookupResult.success, true);
-  assert.equal(lookupResult.certificate.certificate_id, 'CERT-API-001');
+  assert.equal(lookupResult.certificate.certificate_id, certificateId);
   assert.equal(lookupResult.status, 'valid');
   assert.equal(lookupResult.certificate.metadata.program, 'Testing');
 
@@ -347,7 +386,7 @@ test('backend certificate issue, lookup, and revoke API flow', async () => {
   const forbiddenResult = await forbiddenResponse.json();
   assert.equal(forbiddenResult.error, 'Not allowed to revoke this certificate');
 
-  const revokeResponse = await fetch(`${baseUrl}/api/certificates/my-issued/CERT-API-001/revoke`, {
+  const revokeResponse = await fetch(`${baseUrl}/api/certificates/my-issued/${encodeURIComponent(certificateId)}/revoke`, {
     method: 'PUT',
     headers: demoHeaders,
     body: JSON.stringify({ reason: 'Integration test issuer revoke' })
@@ -358,14 +397,14 @@ test('backend certificate issue, lookup, and revoke API flow', async () => {
   assert.equal(revokeResult.certificate.verification_status, 'revoked');
   assert.ok(revokeResult.certificate.revoked_at);
 
-  const legacyRevokeResponse = await fetch(`${baseUrl}/api/certificates/revoke/CERT-API-001`, {
+  const legacyRevokeResponse = await fetch(`${baseUrl}/api/certificates/revoke/${encodeURIComponent(certificateId)}`, {
     method: 'PUT',
     headers: demoHeaders,
     body: JSON.stringify({ reason: 'Integration test legacy issuer revoke' })
   });
   assert.equal(legacyRevokeResponse.status, 200);
 
-  const verifyResponse = await fetch(`${baseUrl}/api/certificates/lookup/CERT-API-001`);
+  const verifyResponse = await fetch(`${baseUrl}/api/certificates/lookup/${encodeURIComponent(certificateId)}`);
   assert.equal(verifyResponse.status, 200);
   const verifyResult = await verifyResponse.json();
   assert.equal(verifyResult.certificate.verification_status, 'revoked');

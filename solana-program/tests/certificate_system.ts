@@ -115,7 +115,7 @@ describe("certificate_system tests", () => {
 
     // Revoke
     await program.methods
-      .revokeCertificate()
+      .revokeCertificate("Integration test revocation")
       .accounts({
         certificate: certificatePda,
         issuer: issuerPda,
@@ -125,6 +125,8 @@ describe("certificate_system tests", () => {
 
     const certAccount: any = await program.account.certificateAccount.fetch(certificatePda);
     assert.strictEqual(certAccount.status, 1);
+    assert.strictEqual(certAccount.revokeReason, 'Integration test revocation');
+    assert.strictEqual(certAccount.isRevoked, true);
     assert.ok(Number(certAccount.revokedAt) > 0);
   });
 
@@ -266,7 +268,7 @@ describe('certificate_system', () => {
 
   it('revokes the certificate and updates status', async () => {
     const tx = await program.methods
-      .revokeCertificate()
+      .revokeCertificate("Integration test revocation")
       .accounts({
         certificate: certificatePda,
         issuer: issuerPda,
@@ -279,6 +281,8 @@ describe('certificate_system', () => {
 
     const certAccount = await program.account.certificateAccount.fetch(certificatePda) as any;
     assert.equal(certAccount.status, 1);
+    assert.equal(certAccount.revokeReason, 'Integration test revocation');
+    assert.equal(certAccount.isRevoked, true);
     assert.ok(Number(certAccount.revokedAt) > 0);
   });
 

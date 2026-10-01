@@ -134,6 +134,11 @@ CREATE TABLE IF NOT EXISTS certificates (
   status VARCHAR(20) DEFAULT 'valid' CHECK (status IN ('valid', 'invalid', 'revoked', 'expired')),
   ipfs_cid VARCHAR(255),
   ipfs_uri TEXT,
+  ipfs_source VARCHAR(32),
+  attachment_cid VARCHAR(255),
+  attachment_filename VARCHAR(255),
+  attachment_uri TEXT,
+  attachment_source VARCHAR(32),
   blockchain_transaction_id VARCHAR(255),
   metadata JSONB,
   issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  revoked_at TIMESTAMP,
@@ -141,6 +146,11 @@ CREATE TABLE IF NOT EXISTS certificates (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ALTER TABLE certificates ADD COLUMN IF NOT EXISTS issuer_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE certificates ADD COLUMN IF NOT EXISTS ipfs_source VARCHAR(32);
+ALTER TABLE certificates ADD COLUMN IF NOT EXISTS attachment_cid VARCHAR(255);
+ALTER TABLE certificates ADD COLUMN IF NOT EXISTS attachment_filename VARCHAR(255);
+ALTER TABLE certificates ADD COLUMN IF NOT EXISTS attachment_uri TEXT;
+ALTER TABLE certificates ADD COLUMN IF NOT EXISTS attachment_source VARCHAR(32);
 CREATE INDEX IF NOT EXISTS idx_certificates_certificate_id ON certificates(certificate_id);
 CREATE INDEX IF NOT EXISTS idx_certificates_issuer_user_id ON certificates(issuer_user_id);
 

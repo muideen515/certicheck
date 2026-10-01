@@ -38,7 +38,9 @@
         { "name": "issuer", "isMut": true, "isSigner": false },
         { "name": "authority", "isMut": true, "isSigner": true }
       ],
-      "args": []
+      "args": [
+        { "name": "reason", "type": "string" }
+      ]
     }
   ],
   "accounts": [
@@ -68,9 +70,10 @@
           { "name": "certType", "type": "string" },
           { "name": "metadataUri", "type": "string" },
           { "name": "metadataHash", "type": "string" },
-          { "name": "revokeReason", "type": "string" },
           { "name": "status", "type": "u8" },
+          { "name": "revokeReason", "type": "string" },
           { "name": "issuedAt", "type": "i64" },
+          { "name": "isRevoked", "type": "bool" },
           { "name": "revokedAt", "type": "i64" },
           { "name": "bump", "type": "u8" }
         ]

@@ -68,7 +68,9 @@ On first admin authentication, the backend seeds three individual admin accounts
 
 Signup, login, and password reset accept valid email addresses from any domain. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, and `SMTP_PASS` in your deployment environment, or use `EMAIL_USER` and `EMAIL_PASSWORD` for the Gmail service transport. Set `EMAIL_FROM` to the same mailbox used to authenticate with SMTP. Never store SMTP passwords in a tracked file or commit them. Configure SPF/DKIM with your mail provider. In production the API returns a clear configuration error when SMTP is missing; development mode logs OTPs to the backend console instead of sending email. Password-reset OTPs expire after 10 minutes, allow at most five attempts, and are consumed after a successful reset.
 
-Without `PINATA_JWT`, metadata pinning uses the documented local/demo fallback and no real Pinata CID should be claimed. Without `SOLANA_ENABLE=true`, `SOLANA_KEYPAIR_PATH` or `SOLANA_PAYER_SECRET`, and a deployed `CERTIFICATE_PROGRAM_ID`, on-chain issuance is disabled and the Solana test is skipped.
+With `PINATA_JWT` configured, certificate issuance pins the metadata JSON and any uploaded supporting file to Pinata, then stores each CID, gateway URI, source, and attachment filename on the certificate record. Without `PINATA_JWT`, metadata keeps a fallback hash marked with `ipfs_source: "fallback"` and no Pinata gateway URI; attachments remain unpinned and retain their filename. Metadata-pin errors are logged and surfaced as issuance warnings with source `pinata-failed`; the service does not substitute a fallback hash when configured Pinata metadata pinning fails. Attachment-only failures are recorded as `attachment_source: "pinata-failed"`. Never commit the JWT.
+
+Without `SOLANA_ENABLE=true`, `SOLANA_KEYPAIR_PATH` or `SOLANA_PAYER_SECRET`, and a deployed `CERTIFICATE_PROGRAM_ID`, on-chain issuance is disabled and the Solana test is skipped.
 
 If you want on-chain certificate issuance and revocation, set `SOLANA_ENABLE=true` and provide either `SOLANA_KEYPAIR_PATH` or `SOLANA_PAYER_SECRET`.
 
@@ -141,6 +143,7 @@ Signup accepts valid email addresses from any domain and creates accounts in a p
 
 - `POST /api/certificates/issue`, `/issue-client-signed`, and `/pin` require an authenticated, active issuer whose linked issuer profile has `approved` status.
 - `GET /api/certificates/my-issued` and `PUT /api/certificates/my-issued/:certificateId/revoke` require the same approved issuer status. The legacy `PUT /api/certificates/revoke/:certificateId` path enforces the same rules. Issuer revocation is limited to the issuer that created the certificate or an approved issuer profile with the matching authority wallet.
+- With Solana enabled, revocation includes its reason in the on-chain instruction and the database is updated only after that transaction succeeds; failed on-chain revocations return an error without changing the certificate's database status.
 - Standard issuance saves a valid certificate record before attempting IPFS pinning; a Pinata failure leaves the DB certificate available and is returned in `warnings`. A local digest fallback is used only in demo mode, not reported as an IPFS CID in production. Public `GET /api/certificates/lookup/:certificateId` returns certificate metadata and status, or `404` with `status: "not_found"`.
 - Unapproved callers receive `403 Issuer approval required`; callers without revocation authority receive `403 Not allowed to revoke this certificate`.
 - Issuer status is read from server-side account/profile records. Client-supplied role headers do not grant issuer access; administrators continue to manage issuer approval through the application workflow.

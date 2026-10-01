@@ -1,7 +1,7 @@
 const express = require('express');
 const pool = require('../db/connection');
 const { verifyToken, verifyIssuer, logAudit } = require('../middleware/auth');
-const { pinJsonToIpfs } = require('../services/ipfsService');
+const { pinJsonToIpfs, pinFileToIpfs } = require('../services/ipfsService');
 const { issueCertificateOnChain, revokeCertificateOnChain, lookupCertificateOnChain, getTransactionStatus } = require('../services/solanaService');
 const { getDemoCertificate } = require('../services/demoCertificateService');
 const { CertificateStore } = require('../services/certificateStore');
@@ -13,8 +13,16 @@ const MAX_CERTIFICATE_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 function getCertificateAttachmentError(metadata) {
   const attachment = metadata?.attachment;
   if (!attachment) return null;
-  if (typeof attachment !== 'object' || typeof attachment.dataUrl !== 'string') {
+  if (typeof attachment !== 'object' || Array.isArray(attachment)) {
     return 'The supporting file could not be read. Please choose it again.';
+  }
+  if (attachment.name && String(attachment.name).length > 255) {
+    return 'Supporting file names must be 255 characters or fewer.';
+  }
+  if (typeof attachment.dataUrl !== 'string') {
+    return attachment.name && !attachment.cid
+      ? 'The supporting file could not be read. Please choose it again.'
+      : null;
   }
   const match = attachment.dataUrl.match(/^data:[^;,]+;base64,([A-Za-z0-9+/=\r\n]+)$/);
   if (!match) return 'The supporting file has an invalid format.';
@@ -38,6 +46,75 @@ function getPublicCertificateMetadata(metadata) {
     publicMetadata.attachment = attachment;
   }
   return publicMetadata;
+}
+
+async function pinCertificateAttachment(metadata) {
+  const storedMetadata = getPublicCertificateMetadata(metadata);
+  const attachment = metadata?.attachment;
+  if (!attachment || typeof attachment !== 'object' || Array.isArray(attachment)) {
+    return { metadata: storedMetadata, attachment: null, warning: null };
+  }
+  if (typeof attachment.dataUrl !== 'string') {
+    return {
+      metadata: storedMetadata,
+      attachment: attachment.cid ? {
+        cid: attachment.cid,
+        uri: attachment.uri || null,
+        source: attachment.source || 'external',
+        filename: attachment.name || null
+      } : null,
+      warning: null
+    };
+  }
+
+  if (!process.env.PINATA_JWT) {
+    storedMetadata.attachment = {
+      ...storedMetadata.attachment,
+      source: 'fallback',
+      storage: 'File not pinned; configure PINATA_JWT to store attachments on IPFS'
+    };
+    return {
+      metadata: storedMetadata,
+      attachment: { source: 'fallback', filename: attachment.name || null },
+      warning: 'Supporting file was not pinned because PINATA_JWT is not configured.'
+    };
+  }
+
+  try {
+    const result = await pinFileToIpfs({
+      dataUrl: attachment.dataUrl,
+      filename: attachment.name
+    });
+    storedMetadata.attachment = {
+      ...storedMetadata.attachment,
+      cid: result.cid,
+      uri: result.uri,
+      source: result.source,
+      storage: 'Pinned to IPFS'
+    };
+    return {
+      metadata: storedMetadata,
+      attachment: {
+        cid: result.cid,
+        uri: result.uri,
+        source: result.source,
+        filename: attachment.name || null
+      },
+      warning: null
+    };
+  } catch (err) {
+    console.error(`Supporting file upload failed for certificate attachment: ${err.message}`);
+    storedMetadata.attachment = {
+      ...storedMetadata.attachment,
+      source: 'pinata-failed',
+      storage: 'File upload to IPFS failed'
+    };
+    return {
+      metadata: storedMetadata,
+      attachment: { source: 'pinata-failed', filename: attachment.name || null },
+      warning: 'Supporting file could not be pinned to IPFS. The certificate was issued without an IPFS file link.'
+    };
+  }
 }
 
 let certificateStore;
@@ -101,18 +178,8 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
     const requestedMetadata = typeof metadata === 'object' && metadata !== null ? metadata : {};
     const attachmentError = getCertificateAttachmentError(requestedMetadata);
     if (attachmentError) return res.status(400).json({ error: attachmentError });
+    const storedMetadata = getPublicCertificateMetadata(requestedMetadata);
     const issuedAt = new Date().toISOString();
-    const certificateMetadata = {
-      certificateId: trimmedCertificateId,
-      holderName: trimmedHolderName,
-      holderEmail: trimmedHolderEmail,
-      certificateType: trimmedCertificateType,
-      issuerName: trimmedIssuerName,
-      issuerWallet: trimmedIssuerWallet || null,
-      issuedAt,
-      status: 'valid',
-      metadata: requestedMetadata
-    };
 
     const existingCertificate = process.env.DEMO_MODE === 'true'
       ? getCertificateStore().lookup(trimmedCertificateId)
@@ -155,7 +222,7 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
           null,
           null,
           null,
-          JSON.stringify(requestedMetadata),
+          JSON.stringify(storedMetadata),
           issuedAt
         ]
       );
@@ -173,23 +240,43 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
 
     let ipfsCid = null;
     let ipfsUri = null;
+    let ipfsSource = process.env.PINATA_JWT ? 'pinata-failed' : 'fallback';
+    let attachmentDetails = null;
     let blockchainTransactionId = null;
     let issuancePath = 'database-only';
     const warnings = [];
     try {
+      const prepared = await pinCertificateAttachment(requestedMetadata);
+      attachmentDetails = prepared.attachment;
+      Object.assign(storedMetadata, prepared.metadata);
+      if (prepared.warning) warnings.push(prepared.warning);
+
+      const certificateMetadata = {
+        certificateId: trimmedCertificateId,
+        holderName: trimmedHolderName,
+        holderEmail: trimmedHolderEmail,
+        certificateType: trimmedCertificateType,
+        issuerName: trimmedIssuerName,
+        issuerWallet: trimmedIssuerWallet || null,
+        issuedAt,
+        status: 'valid',
+        metadata: storedMetadata
+      };
       const ipfsResult = await pinJsonToIpfs(certificateMetadata);
-      const isUnpinnedFallback = ipfsResult?.source === 'fallback' && process.env.DEMO_MODE !== 'true';
-      ipfsCid = isUnpinnedFallback ? null : (ipfsResult?.cid || null);
-      ipfsUri = ipfsCid ? `https://gateway.pinata.cloud/ipfs/${ipfsCid}` : null;
-      if (isUnpinnedFallback) warnings.push('Certificate saved, but IPFS is not configured; metadata was not pinned.');
-      else if (!ipfsCid) warnings.push('Certificate saved, but IPFS did not return a content ID.');
-      else issuancePath = 'ipfs-only';
+      ipfsSource = ipfsResult?.source || (process.env.PINATA_JWT ? 'pinata-failed' : 'fallback');
+      ipfsCid = ipfsResult?.cid || null;
+      ipfsUri = ipfsResult?.uri || null;
+      if (!ipfsCid) warnings.push('Certificate was saved, but IPFS did not return a content identifier.');
+      else issuancePath = ipfsSource === 'pinata' ? 'ipfs-pinned' : 'fallback-hash';
     } catch (ipfsErr) {
-      console.warn('Certificate saved, but IPFS pinning failed:', ipfsErr.message);
-      warnings.push('Certificate saved, but metadata could not be pinned to IPFS.');
+      ipfsSource = process.env.PINATA_JWT ? 'pinata-failed' : 'fallback';
+      console.error(`Certificate ${trimmedCertificateId} was saved, but IPFS metadata pinning failed: ${ipfsErr.message}`);
+      warnings.push(process.env.PINATA_JWT
+        ? 'Certificate was saved, but Pinata did not pin its metadata. No Pinata CID is available.'
+        : 'Certificate was saved, but IPFS metadata could not be pinned.');
     }
 
-    if (ipfsCid && (onChain === true || process.env.SOLANA_ENABLE === 'true')) {
+    if (ipfsCid && ipfsSource === 'pinata' && (onChain === true || process.env.SOLANA_ENABLE === 'true')) {
       try {
         blockchainTransactionId = await issueCertificateOnChain({
           certificateId: trimmedCertificateId,
@@ -207,18 +294,32 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
         console.warn('Certificate issuance transaction failed, recording database/IPFS only:', chainErr.message);
         warnings.push('Certificate saved, but on-chain issuance failed.');
       }
-    } else if (onChain === true && !ipfsCid) {
-      warnings.push('On-chain issuance was skipped because IPFS metadata is unavailable.');
+    } else if ((onChain === true || process.env.SOLANA_ENABLE === 'true') && ipfsSource !== 'pinata') {
+      warnings.push('On-chain issuance was skipped because a Pinata-pinned metadata CID is unavailable.');
     }
 
-    if (dbCertificate && (ipfsCid || blockchainTransactionId)) {
+    if (dbCertificate) {
       try {
         const result = await safeQuery(
           `UPDATE certificates
-           SET ipfs_cid = $1, ipfs_uri = $2, blockchain_transaction_id = $3, updated_at = NOW()
-           WHERE certificate_id = $4
+           SET ipfs_cid = $1, ipfs_uri = $2, ipfs_source = $3,
+               attachment_cid = $4, attachment_filename = $5, attachment_uri = $6,
+               attachment_source = $7, metadata = $8,
+               blockchain_transaction_id = $9, updated_at = NOW()
+           WHERE certificate_id = $10
            RETURNING *`,
-          [ipfsCid, ipfsUri, blockchainTransactionId, trimmedCertificateId]
+          [
+            ipfsCid,
+            ipfsUri,
+            ipfsSource,
+            attachmentDetails?.cid || null,
+            attachmentDetails?.filename || null,
+            attachmentDetails?.uri || null,
+            attachmentDetails?.source || null,
+            JSON.stringify(storedMetadata),
+            blockchainTransactionId,
+            trimmedCertificateId
+          ]
         );
         dbCertificate = result.rows[0] || dbCertificate;
       } catch (dbErr) {
@@ -249,8 +350,13 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
         issuerWallet: trimmedIssuerWallet,
         ipfsCid,
         ipfsUri,
+        ipfsSource,
+        attachmentCid: attachmentDetails?.cid,
+        attachmentFilename: attachmentDetails?.filename,
+        attachmentUri: attachmentDetails?.uri,
+        attachmentSource: attachmentDetails?.source,
         blockchainTransactionId,
-        metadata: requestedMetadata,
+        metadata: storedMetadata,
         issuedAt,
         userId: req.user.id
       });
@@ -260,6 +366,10 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
       certificateId: trimmedCertificateId,
       ipfsCid,
       ipfsUri,
+      ipfsSource,
+      attachmentCid: attachmentDetails?.cid || null,
+      attachmentFilename: attachmentDetails?.filename || null,
+      attachmentUri: attachmentDetails?.uri || null,
       issuerName: trimmedIssuerName,
       issuerWallet: trimmedIssuerWallet,
       holderName: trimmedHolderName,
@@ -278,7 +388,7 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
       issuerName: trimmedIssuerName,
       issuerWallet: trimmedIssuerWallet,
       issuedAt,
-      ipfsCid,
+      ipfsCid: ipfsSource === 'pinata' ? ipfsCid : null,
       blockchainTransactionId,
       metadata: requestedMetadata
     });
@@ -290,6 +400,11 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
         certificate_id: trimmedCertificateId,
         ipfs_cid: ipfsCid,
         ipfs_uri: ipfsUri,
+        ipfs_source: ipfsSource,
+        attachment_cid: attachmentDetails?.cid || null,
+        attachment_filename: attachmentDetails?.filename || null,
+        attachment_uri: attachmentDetails?.uri || null,
+        attachment_source: attachmentDetails?.source || null,
         blockchain_transaction_id: blockchainTransactionId,
         certificate_type: trimmedCertificateType,
         status: 'valid',
@@ -300,7 +415,7 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
         issuer_wallet: trimmedIssuerWallet,
         holder_name: trimmedHolderName,
         holder_email: trimmedHolderEmail,
-        metadata: requestedMetadata
+        metadata: storedMetadata
       },
       warnings
     });
@@ -313,11 +428,21 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
 // Pin raw certificate metadata to IPFS and return the CID (used for client-side signing flows)
 router.post('/pin', verifyToken, verifyIssuer, async (req, res) => {
   try {
-    const metadata = req.body?.metadata || {};
-    const pinResult = await pinJsonToIpfs(metadata);
+    const requestedMetadata = req.body?.metadata || {};
+    const attachmentError = getCertificateAttachmentError(requestedMetadata);
+    if (attachmentError) return res.status(400).json({ success: false, error: attachmentError });
+    const prepared = await pinCertificateAttachment(requestedMetadata);
+    const pinResult = await pinJsonToIpfs(prepared.metadata);
     const ipfsCid = pinResult?.cid;
     if (!ipfsCid) return res.status(500).json({ success: false, error: 'Failed to pin metadata' });
-    return res.json({ success: true, cid: ipfsCid, uri: `https://gateway.pinata.cloud/ipfs/${ipfsCid}` });
+    return res.json({
+      success: true,
+      cid: ipfsCid,
+      uri: pinResult.uri || null,
+      source: pinResult.source || 'fallback',
+      attachment: prepared.attachment,
+      warnings: prepared.warning ? [prepared.warning] : []
+    });
   } catch (err) {
     console.error('Pin metadata error:', err);
     return res.status(500).json({ success: false, error: 'Pin failed', details: err.message });
@@ -335,6 +460,8 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
       issuerName,
       issuerWallet,
       ipfsCid,
+      ipfsUri: suppliedIpfsUri,
+      ipfsSource: suppliedIpfsSource,
       blockchainTransactionId,
       metadata = {}
     } = req.body;
@@ -347,6 +474,14 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
     const normalizedMetadata = typeof metadata === 'object' && metadata !== null ? metadata : {};
     const attachmentError = getCertificateAttachmentError(normalizedMetadata);
     if (attachmentError) return res.status(400).json({ error: attachmentError });
+    const ipfsSource = suppliedIpfsSource === 'pinata' ? 'pinata' : 'fallback';
+    const ipfsUri = ipfsSource === 'pinata'
+      ? (suppliedIpfsUri || `https://gateway.pinata.cloud/ipfs/${encodeURIComponent(ipfsCid)}`)
+      : null;
+    const preparedAttachment = await pinCertificateAttachment(normalizedMetadata);
+    const storedMetadata = preparedAttachment.metadata;
+    const attachment = preparedAttachment.attachment || {};
+    const warnings = preparedAttachment.warning ? [preparedAttachment.warning] : [];
 
     const issuedAt = new Date().toISOString();
 
@@ -354,8 +489,8 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
     try {
       const result = await safeQuery(
         `INSERT INTO certificates
-          (certificate_id, issuer_user_id, issuer_name, issuer_wallet, holder_name, holder_email, certificate_type, status, ipfs_cid, ipfs_uri, blockchain_transaction_id, metadata, issued_at, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
+          (certificate_id, issuer_user_id, issuer_name, issuer_wallet, holder_name, holder_email, certificate_type, status, ipfs_cid, ipfs_uri, ipfs_source, attachment_cid, attachment_filename, attachment_uri, attachment_source, blockchain_transaction_id, metadata, issued_at, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW(),NOW())
          RETURNING *`,
         [
           trimmedCertificateId,
@@ -367,9 +502,14 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
           certificateType,
           'valid',
           ipfsCid,
-          `https://gateway.pinata.cloud/ipfs/${ipfsCid}`,
+          ipfsUri,
+          ipfsSource,
+          attachment.cid || null,
+          attachment.filename || null,
+          attachment.uri || null,
+          attachment.source || null,
           blockchainTransactionId,
-          JSON.stringify(normalizedMetadata),
+          JSON.stringify(storedMetadata),
           issuedAt
         ]
       );
@@ -406,9 +546,14 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
         issuerName,
         issuerWallet: issuerWallet || null,
         ipfsCid,
-        ipfsUri: `https://gateway.pinata.cloud/ipfs/${ipfsCid}`,
+        ipfsUri,
+        ipfsSource,
+        attachmentCid: attachment.cid || null,
+        attachmentFilename: attachment.filename || null,
+        attachmentUri: attachment.uri || null,
+        attachmentSource: attachment.source || null,
         blockchainTransactionId,
-        metadata: normalizedMetadata,
+        metadata: storedMetadata,
         issuedAt,
         userId: req.user.id
         });
@@ -424,6 +569,8 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
     await logAudit(req.user.id, 'CERTIFICATE_VERIFY', 'certificate', trimmedCertificateId, 'success', null, {
       certificateId: trimmedCertificateId,
       ipfsCid,
+      ipfsUri,
+      ipfsSource,
       issuerName,
       issuerWallet,
       holderName,
@@ -440,12 +587,12 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
       issuerName,
       issuerWallet,
       issuedAt,
-      ipfsCid,
+      ipfsCid: ipfsSource === 'pinata' ? ipfsCid : null,
       blockchainTransactionId,
       metadata: normalizedMetadata
     });
 
-    return res.status(201).json({ success: true, holder_notification: { sent: holderNotification.sent, mode: holderNotification.mode }, certificate: { certificate_id: trimmedCertificateId, ipfs_cid: ipfsCid, ipfs_uri: `https://gateway.pinata.cloud/ipfs/${ipfsCid}`, blockchain_transaction_id: blockchainTransactionId, status: 'valid', verification_status: 'valid', issuer_name: issuerName, issuer_wallet: issuerWallet, holder_name: holderName, holder_email: holderEmail, certificate_type: certificateType, metadata: normalizedMetadata, issued_at: dbCertificate?.issued_at || issuedAt, created_at: dbCertificate?.created_at || issuedAt } });
+    return res.status(201).json({ success: true, warnings, holder_notification: { sent: holderNotification.sent, mode: holderNotification.mode }, certificate: { certificate_id: trimmedCertificateId, ipfs_cid: ipfsCid, ipfs_uri: ipfsUri, ipfs_source: ipfsSource, attachment_cid: attachment.cid || null, attachment_filename: attachment.filename || null, attachment_uri: attachment.uri || null, attachment_source: attachment.source || null, blockchain_transaction_id: blockchainTransactionId, status: 'valid', verification_status: 'valid', issuer_name: issuerName, issuer_wallet: issuerWallet, holder_name: holderName, holder_email: holderEmail, certificate_type: certificateType, metadata: storedMetadata, issued_at: dbCertificate?.issued_at || issuedAt, created_at: dbCertificate?.created_at || issuedAt } });
   } catch (err) {
     console.error('Issue client-signed error:', err);
     return res.status(500).json({ error: 'Failed to record client-signed issuance', details: err.message });
@@ -457,7 +604,8 @@ router.get('/my-issued', verifyToken, verifyIssuer, async (req, res) => {
     let certificates;
     try {
       const result = await safeQuery(
-        `SELECT certificate_id, certificate_type, status, ipfs_cid, ipfs_uri,
+        `SELECT certificate_id, certificate_type, status, ipfs_cid, ipfs_uri, ipfs_source,
+                attachment_cid, attachment_filename, attachment_uri, attachment_source,
                 blockchain_transaction_id, holder_name, holder_email, issuer_name,
                 issuer_wallet, metadata, issued_at, created_at, revoked_at
          FROM certificates
@@ -474,6 +622,11 @@ router.get('/my-issued', verifyToken, verifyIssuer, async (req, res) => {
           verification_status: record.verification_status,
           ipfs_cid: record.ipfs_cid || record.blockchain_hash,
           ipfs_uri: record.ipfs_uri,
+          ipfs_source: record.ipfs_source || 'fallback',
+          attachment_cid: record.attachment_cid || null,
+          attachment_filename: record.attachment_filename || null,
+          attachment_uri: record.attachment_uri || null,
+          attachment_source: record.attachment_source || null,
           blockchain_transaction_id: record.blockchain_transaction_id,
           holder_name: record.holder_name,
           holder_email: record.holder_email,
@@ -500,6 +653,11 @@ router.get('/my-issued', verifyToken, verifyIssuer, async (req, res) => {
         verification_status: record.verification_status,
         ipfs_cid: record.ipfs_cid || record.blockchain_hash,
         ipfs_uri: record.ipfs_uri,
+        ipfs_source: record.ipfs_source || 'fallback',
+        attachment_cid: record.attachment_cid || null,
+        attachment_filename: record.attachment_filename || null,
+        attachment_uri: record.attachment_uri || null,
+        attachment_source: record.attachment_source || null,
         blockchain_transaction_id: record.blockchain_transaction_id,
         holder_name: record.holder_name,
         holder_email: record.holder_email,
@@ -573,12 +731,21 @@ async function revokeIssuerCertificate(req, res) {
       return res.status(404).json({ error: 'Certificate not found' });
     }
 
-    let blockchainTransactionId = suppliedTransactionId || null;
-    if (!blockchainTransactionId && process.env.SOLANA_ENABLE === 'true' && process.env.CERTIFICATE_PROGRAM_ID) {
+    let blockchainTransactionId = process.env.SOLANA_ENABLE === 'true'
+      ? null
+      : suppliedTransactionId || null;
+    if (process.env.SOLANA_ENABLE === 'true' && process.env.CERTIFICATE_PROGRAM_ID) {
       try {
-        blockchainTransactionId = await revokeCertificateOnChain({ certificateId, reason });
+        blockchainTransactionId = await revokeCertificateOnChain({
+          certificateId,
+          issuerWallet: certificate.issuer_wallet || req.user.issuer_wallet,
+          reason
+        });
       } catch (chainErr) {
-        console.warn('On-chain issuer revoke failed; continuing with database revocation:', chainErr.message);
+        console.error('On-chain issuer revoke failed; database status remains unchanged:', chainErr.message);
+        return res.status(502).json({
+          error: 'On-chain revocation failed. The certificate remains valid on-chain; please retry.'
+        });
       }
     }
 
@@ -602,7 +769,8 @@ async function revokeIssuerCertificate(req, res) {
                  )
                )
              )
-           RETURNING certificate_id, certificate_type, status, ipfs_cid, ipfs_uri,
+           RETURNING certificate_id, certificate_type, status, ipfs_cid, ipfs_uri, ipfs_source,
+                     attachment_cid, attachment_filename, attachment_uri, attachment_source,
                      blockchain_transaction_id, holder_name, holder_email, issuer_name,
                      issuer_wallet, metadata, issued_at, created_at, revoked_at`,
           [reason, blockchainTransactionId, certificateId, req.user.id]
@@ -628,6 +796,11 @@ async function revokeIssuerCertificate(req, res) {
             verification_status: revoked.verification_status,
             ipfs_cid: revoked.ipfs_cid || revoked.blockchain_hash,
             ipfs_uri: revoked.ipfs_uri,
+            ipfs_source: revoked.ipfs_source || 'fallback',
+            attachment_cid: revoked.attachment_cid || null,
+            attachment_filename: revoked.attachment_filename || null,
+            attachment_uri: revoked.attachment_uri || null,
+            attachment_source: revoked.attachment_source || null,
             blockchain_transaction_id: revoked.blockchain_transaction_id,
             holder_name: revoked.holder_name,
             holder_email: revoked.holder_email,
@@ -646,6 +819,7 @@ async function revokeIssuerCertificate(req, res) {
     }
 
     if (!updated) return res.status(503).json({ error: 'Certificate revocation could not be saved. Please try again.' });
+    updated.verification_status = updated.status;
 
     try {
       await safeQuery(
@@ -680,7 +854,8 @@ router.get('/lookup/:certificateId', async (req, res) => {
 
     try {
       const result = await safeQuery(
-        `SELECT certificate_id, certificate_type, status, ipfs_cid, ipfs_uri,
+        `SELECT certificate_id, certificate_type, status, ipfs_cid, ipfs_uri, ipfs_source,
+                attachment_cid, attachment_filename, attachment_uri, attachment_source,
                 blockchain_transaction_id, holder_name, holder_email, issuer_name,
                 issuer_wallet, metadata, issued_at, created_at, revoked_at
          FROM certificates WHERE certificate_id = $1 LIMIT 1`,

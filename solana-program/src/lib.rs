@@ -39,6 +39,7 @@ pub mod certi_check {
         cert.metadata_hash = metadata_hash;
         cert.revoke_reason = String::new();
         cert.status = 0;
+        cert.is_revoked = false;
         cert.issued_at = Clock::get()?.unix_timestamp;
         cert.revoked_at = 0;
         cert.bump = ctx.bumps.certificate;
@@ -48,14 +49,17 @@ pub mod certi_check {
         Ok(())
     }
 
-    pub fn revoke_certificate(ctx: Context<RevokeCertificate>) -> Result<()> {
+    pub fn revoke_certificate(ctx: Context<RevokeCertificate>, reason: String) -> Result<()> {
         let issuer = &ctx.accounts.issuer;
         require!(issuer.is_active, ErrorCode::InactiveIssuer);
         let cert = &mut ctx.accounts.certificate;
         require_keys_eq!(cert.issuer, issuer.key(), ErrorCode::UnauthorizedRevocation);
         require!(cert.status == 0, ErrorCode::AlreadyRevoked);
+        require!(reason.len() <= 256, ErrorCode::RevocationReasonTooLong);
 
         cert.status = 1;
+        cert.is_revoked = true;
+        cert.revoke_reason = reason;
         cert.revoked_at = Clock::get()?.unix_timestamp;
         Ok(())
     }
@@ -80,9 +84,10 @@ pub struct CertificateAccount {
     pub cert_type: String,
     pub metadata_uri: String,
     pub metadata_hash: String,
-    pub revoke_reason: String,
     pub status: u8,
+    pub revoke_reason: String,
     pub issued_at: i64,
+    pub is_revoked: bool,
     pub revoked_at: i64,
     pub bump: u8,
 }
@@ -114,7 +119,7 @@ pub struct IssueCertificate<'info> {
         payer = authority,
         seeds = [b"certificate", issuer.key().as_ref(), cert_id.as_bytes()],
         bump,
-        space = 8 + 32 + 32 + 4 + 256 + 4 + 128 + 4 + 128 + 4 + 200 + 4 + 128 + 4 + 256 + 1 + 8 + 8 + 1,
+        space = 8 + 32 + 32 + 4 + 256 + 4 + 128 + 4 + 128 + 4 + 200 + 4 + 128 + 4 + 256 + 1 + 8 + 1 + 8 + 1,
     )]
     pub certificate: Account<'info, CertificateAccount>,
     #[account(mut)]
@@ -140,4 +145,6 @@ pub enum ErrorCode {
     InactiveIssuer,
     #[msg("Only the issuing authority can revoke this certificate")]
     UnauthorizedRevocation,
+    #[msg("Revocation reason cannot exceed 256 bytes")]
+    RevocationReasonTooLong,
 }

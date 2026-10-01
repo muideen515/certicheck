@@ -663,7 +663,7 @@ async function revokeCertificateWithPhantomWallet(certificateId, reason, issuerW
   const [certificatePda] = await PublicKey.findProgramAddress([Buffer.from('certificate'), issuerPda.toBuffer(), Buffer.from(certificateId)], program.programId);
 
   const signature = await program.methods
-    .revokeCertificate()
+    .revokeCertificate(reason || 'Revoked by issuer')
     .accounts({
       certificate: certificatePda,
       issuer: issuerPda,
@@ -862,6 +862,11 @@ async function refreshIssuerDashboardCertificates(user = currentUser || getStore
     issuerWallet: certificate.issuer_wallet || '',
     ipfsCid: certificate.ipfs_cid || '',
     ipfsUri: certificate.ipfs_uri || '',
+    ipfsSource: certificate.ipfs_source || 'fallback',
+    attachmentCid: certificate.attachment_cid || '',
+    attachmentUri: certificate.attachment_uri || '',
+    attachmentFilename: certificate.attachment_filename || '',
+    attachmentSource: certificate.attachment_source || '',
     blockchainTransactionId: certificate.blockchain_transaction_id || '',
     verificationStatus: certificate.status || certificate.verification_status || 'valid',
     status: certificate.status || certificate.verification_status || 'valid',
@@ -1305,7 +1310,7 @@ function renderRoleLandingHome() {
                 <strong>${latestIssuerResult.title || 'Certificate issued successfully.'}</strong>
                 <div style="margin-top:12px;display:grid;gap:8px;font-size:13px;">
                   <div><strong>Certificate ID:</strong> ${latestIssuerResult.certificateId || 'N/A'}</div>
-                  <div class="issuer-cid"><strong>IPFS CID:</strong> <span>${latestIssuerResult.ipfsCid || 'N/A'}</span></div>
+                  <div class="issuer-cid"><strong>${latestIssuerResult.ipfsSource === 'pinata' ? 'IPFS CID:' : 'Fallback ID:'}</strong> <span>${latestIssuerResult.ipfsCid || 'N/A'}</span></div>
                   <div><strong>Transaction:</strong> ${latestIssuerResult.transaction || 'N/A'}</div>
                 </div>
               </div>
@@ -1348,7 +1353,7 @@ function renderRoleLandingHome() {
                     <td>${item.holderName || '—'}</td>
                     <td style="font-family:var(--font-mono);">${item.certificateId || '—'}</td>
                     <td>${item.issuedAt ? new Date(item.issuedAt).toLocaleDateString() : '—'}</td>
-                    <td>${item.ipfsCid ? `<a href="${item.ipfsUri || `https://ipfs.io/ipfs/${encodeURIComponent(item.ipfsCid)}`}" target="_blank" rel="noopener noreferrer">${item.ipfsCid}</a>` : '—'}</td>
+                    <td>${item.ipfsCid ? (item.ipfsSource === 'pinata' ? `<a href="https://gateway.pinata.cloud/ipfs/${encodeURIComponent(item.ipfsCid)}" target="_blank" rel="noopener noreferrer">${item.ipfsCid}</a>` : `${item.ipfsCid} (fallback)`) : '—'}</td>
                     <td><span class="status-pill ${String(item.verificationStatus || item.status || 'valid').toLowerCase() === 'revoked' ? 'status-revoked' : 'status-valid'}">${String(item.verificationStatus || item.status || 'valid').toLowerCase() === 'revoked' ? 'Revoked' : 'Valid'}</span></td>
                     <td>${String(item.verificationStatus || item.status || 'valid').toLowerCase() === 'revoked' ? '<span style="color:var(--text-muted);">Revoked</span>' : `<button class="table-action revoke-certificate" type="button" data-certificate-id="${item.certificateId}">Revoke</button>`}</td>
                   </tr>
@@ -1479,7 +1484,7 @@ function renderRoleLandingHome() {
               type: attachmentFile?.type || 'application/octet-stream',
               size: attachmentFile?.size || 0,
               dataUrl: attachmentData,
-              storage: 'Embedded in certificate metadata and IPFS metadata bundle'
+              storage: 'Uploaded as a separate IPFS attachment when Pinata is configured'
             } : {
               name: null,
               storage: 'No supporting file attached'
@@ -1516,12 +1521,14 @@ function renderRoleLandingHome() {
           const nextId = issued.certificate_id;
           if (!nextId) throw new Error('Certificate saved, but the API response did not include its certificate ID.');
           const ipfsCid = issued.ipfs_cid || '';
+          const ipfsSource = issued.ipfs_source || 'fallback';
           const txSig = issued.blockchain_transaction_id || '';
           const issuedAt = issued.issued_at || issued.created_at;
           setLastIssuerResult({
             title: 'Certificate issued successfully.',
             certificateId: nextId,
             ipfsCid,
+            ipfsSource,
             transaction: txSig || 'Not issued on-chain'
           }, user);
 
@@ -1534,7 +1541,8 @@ function renderRoleLandingHome() {
                 <div><strong>Certificate ID:</strong> ${nextId}</div>
               <div><strong>Status:</strong> ${String(issued.status || 'valid').toLowerCase() === 'revoked' ? 'Revoked' : 'Valid'}</div>
               <div><strong>Issued:</strong> ${issuedAt ? new Date(issuedAt).toLocaleString() : '—'}</div>
-              ${ipfsCid ? `<div class="issuer-cid"><strong>IPFS CID:</strong> <span>${ipfsCid}</span></div>` : '<div>IPFS metadata is not available.</div>'}
+              ${ipfsCid ? `<div class="issuer-cid"><strong>${issued.ipfs_source === 'pinata' ? 'IPFS CID:' : 'Fallback ID:'}</strong> ${issued.ipfs_source === 'pinata' ? `<a href="https://gateway.pinata.cloud/ipfs/${encodeURIComponent(ipfsCid)}" target="_blank" rel="noopener noreferrer">${ipfsCid}</a>` : `<span>${ipfsCid}</span>`}</div>` : '<div>IPFS metadata is not available.</div>'}
+              ${issued.attachment_cid ? `<div><strong>Supporting file:</strong> ${issued.attachment_filename || 'Attachment'} ${issued.attachment_source === 'pinata' ? `<a href="https://gateway.pinata.cloud/ipfs/${encodeURIComponent(issued.attachment_cid)}" target="_blank" rel="noopener noreferrer">${issued.attachment_cid}</a>` : `${issued.attachment_cid} (fallback)`}</div>` : ''}
               ${txSig ? `<div><strong>Transaction:</strong> ${txSig}</div>` : ''}
               ${(data.warnings || []).map(warning => `<div class="alert alert-info">${warning}</div>`).join('')}
               </div>
@@ -1671,6 +1679,7 @@ function VerificationResultModal({ response, certificateId = '' }) {
   const issuedAt = certificate.issued_at || certificate.created_at || certificate.checked_at || certificate.verifiedAt;
   const revokedAt = certificate.revoked_at || certificate.revokedAt;
   const cid = certificate.ipfs_cid || certificate.ipfsCid || certificate.blockchain_hash;
+  const ipfsSource = certificate.ipfs_source || certificate.ipfsSource || '';
   const metadata = certificate.metadata && typeof certificate.metadata === 'object'
     ? certificate.metadata
     : {};
@@ -1716,9 +1725,22 @@ function VerificationResultModal({ response, certificateId = '' }) {
     addMetadata('Type', String(type));
     addMetadata('Issuer', String(issuer));
     addMetadata('Issued', issuedAt ? new Date(issuedAt).toLocaleDateString() : '—');
-    addMetadata('CID', cid ? String(cid) : '—', {
-      href: cid ? (certificate.ipfs_uri || certificate.ipfsUri || `https://ipfs.io/ipfs/${encodeURIComponent(cid)}`) : ''
+    addMetadata(ipfsSource === 'pinata' ? 'IPFS CID' : 'Fallback ID', cid ? String(cid) : '—', {
+      href: cid && ipfsSource === 'pinata'
+        ? `https://gateway.pinata.cloud/ipfs/${encodeURIComponent(cid)}`
+        : ''
     });
+    if (certificate.attachment_cid || certificate.metadata?.attachment?.cid) {
+      const attachmentCid = certificate.attachment_cid || certificate.metadata.attachment.cid;
+      const attachmentFilename = certificate.attachment_filename || certificate.metadata?.attachment?.name || 'Supporting file';
+      const attachmentSource = certificate.attachment_source || certificate.metadata?.attachment?.source;
+      addMetadata('File', String(attachmentFilename));
+      addMetadata('File CID', String(attachmentCid), {
+        href: attachmentSource === 'pinata'
+          ? `https://gateway.pinata.cloud/ipfs/${encodeURIComponent(attachmentCid)}`
+          : ''
+      });
+    }
     addMetadata('Status', statusContent.title);
     if (state === 'revoked' && revokedAt) {
       addMetadata('Revoked', new Date(revokedAt).toLocaleString());
@@ -2195,7 +2217,12 @@ async function initIssuerDashboard() {
           holderEmail: entry.holder_email || '',
           certificateType: entry.certificate_type,
           ipfsCid: entry.ipfs_cid || '',
-          ipfsUri: entry.ipfs_uri || (entry.ipfs_cid ? `https://ipfs.io/ipfs/${entry.ipfs_cid}` : null),
+          ipfsUri: entry.ipfs_uri || '',
+          ipfsSource: entry.ipfs_source || 'fallback',
+          attachmentCid: entry.attachment_cid || '',
+          attachmentUri: entry.attachment_uri || '',
+          attachmentFilename: entry.attachment_filename || '',
+          attachmentSource: entry.attachment_source || '',
           blockchainTransactionId: entry.blockchain_transaction_id || '',
           verificationStatus: entry.status || entry.verification_status || 'valid',
           issuedAt: entry.issued_at || entry.created_at,
@@ -2250,12 +2277,16 @@ async function initIssuerDashboard() {
       cidCell.className = 'issuer-cid';
       cidCell.style.overflowWrap = 'anywhere';
       if (certificate.ipfsCid) {
-        const link = document.createElement('a');
-        link.href = certificate.ipfsUri || `https://ipfs.io/ipfs/${encodeURIComponent(certificate.ipfsCid)}`;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        link.textContent = certificate.ipfsCid;
-        cidCell.appendChild(link);
+        if (certificate.ipfsSource === 'pinata') {
+          const link = document.createElement('a');
+          link.href = `https://gateway.pinata.cloud/ipfs/${encodeURIComponent(certificate.ipfsCid)}`;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.textContent = certificate.ipfsCid;
+          cidCell.appendChild(link);
+        } else {
+          cidCell.textContent = `${certificate.ipfsCid} (fallback)`;
+        }
       } else {
         cidCell.textContent = '—';
       }
@@ -2384,7 +2415,7 @@ async function initIssuerDashboard() {
           type: attachmentFile.type || 'application/octet-stream',
           size: attachmentFile.size,
           dataUrl: attachmentData,
-          storage: 'Embedded in certificate metadata and IPFS metadata bundle'
+          storage: 'Uploaded as a separate IPFS attachment when Pinata is configured'
         } : null
       };
 
@@ -2426,7 +2457,8 @@ async function initIssuerDashboard() {
           holderEmail: payload.holderEmail || null,
           certificateType: payload.certificateType || certificate.certificate_type || null,
           ipfsCid: certificate.ipfsCid || certificate.ipfs_cid || certificate.blockchain_hash || null,
-          ipfsUri: certificate.ipfsUri || certificate.ipfs_uri || (certificate.ipfsCid ? `https://ipfs.io/ipfs/${certificate.ipfsCid}` : null),
+          ipfsUri: certificate.ipfsUri || certificate.ipfs_uri || null,
+          ipfsSource: certificate.ipfs_source || 'fallback',
           blockchainTransactionId: certificate.blockchainTransactionId || certificate.blockchain_transaction_id || null,
           blockchainExplorerUrl: certificate.blockchainExplorerUrl || null,
           issuerEmail: user.email,
@@ -2448,7 +2480,7 @@ async function initIssuerDashboard() {
             <div><strong>Issued:</strong> ${new Date(issuedAt).toLocaleString()}</div>
             <div><strong>Transaction:</strong> ${txId}</div>
             ${explorerLink ? `<div>${explorerLink}</div>` : ''}
-            ${certificate.ipfs_cid ? `<div class="issuer-cid"><strong>IPFS CID:</strong> <span>${certificate.ipfs_cid}</span></div>` : '<div>IPFS metadata is not available.</div>'}
+            ${certificate.ipfs_cid ? `<div class="issuer-cid"><strong>${ipfsSource === 'pinata' ? 'IPFS CID:' : 'Fallback ID:'}</strong> ${ipfsSource === 'pinata' ? `<a href="https://gateway.pinata.cloud/ipfs/${encodeURIComponent(certificate.ipfs_cid)}" target="_blank" rel="noopener noreferrer">${certificate.ipfs_cid}</a>` : `<span>${certificate.ipfs_cid}</span>`}</div>` : '<div>IPFS metadata is not available.</div>'}
             ${(data.warnings || []).map(warning => `<div class="alert alert-info">${warning}</div>`).join('')}
             <div>${getHolderNotificationMessage(data.holder_notification)}</div>
           </div>
@@ -2570,7 +2602,10 @@ function initHolderDashboard() {
       const status = certificate.status || certificate.verification_status || 'valid';
       const issuer = certificate.issuerName || certificate.issuer_name || certificate.issuerWallet || certificate.issuer_wallet || 'Unknown issuer';
       const date = certificate.issuedAt ? new Date(certificate.issuedAt).toLocaleDateString() : (certificate.issued_at ? new Date(certificate.issued_at).toLocaleDateString() : 'N/A');
-      const ipfsUrl = certificate.ipfsUri || (certificate.ipfsCid ? `https://ipfs.io/ipfs/${certificate.ipfsCid}` : null);
+      const ipfsSource = certificate.ipfsSource || certificate.ipfs_source;
+      const ipfsUrl = ipfsSource === 'pinata' && certificate.ipfsCid
+        ? `https://gateway.pinata.cloud/ipfs/${encodeURIComponent(certificate.ipfsCid)}`
+        : null;
       const verificationUrl = buildVerificationLink(certId);
 
       return `
