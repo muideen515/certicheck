@@ -2820,9 +2820,12 @@ function initOTPVerificationForm() {
       });
       const registerData = await registerResponse.json().catch(() => ({}));
       if (!registerResponse.ok) throw new Error(registerData.error || 'Registration failed');
+      const welcomeEmailNotice = registerData.notification?.emailSent === false
+        ? ' Your account was created, but the welcome email could not be delivered.'
+        : '';
 
       const draft = loadPendingApplicationDraft();
-      let applicationNotice = '';
+      let applicationNotice = welcomeEmailNotice;
       if (draft) {
         try {
           draft.contactEmail = pendingSignupData.email;
@@ -3465,7 +3468,7 @@ function setApplyStep(step) {
   applyStep = step;
 }
 
-function submitApplyForm() {
+async function submitApplyForm() {
   const name  = document.getElementById("contactName")?.value || "";
   const emailInput = document.getElementById("contactEmailInput");
   const email = (emailInput?.value || "").trim();
@@ -3503,31 +3506,50 @@ function submitApplyForm() {
   };
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
-  fetch(`${API_BASE_URL}/applications/submit`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(applicationData)
-  })
-  .then(async res => {
-    const data = await res.json().catch(() => ({}));
-    if (res.ok && (data.success || data.id || data.application)) {
-      const hidden = document.getElementById('contactEmail');
-      if (hidden) hidden.value = email;
-      showSuccessMessage(email);
-      return;
+  const submitButton = document.getElementById('formNext');
+  const backButton = document.getElementById('formBack');
+  const statusMessage = document.getElementById('applicationSubmitError');
+  if (submitButton?.disabled) return;
+
+  if (statusMessage) {
+    statusMessage.textContent = '';
+    statusMessage.style.display = 'none';
+  }
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = 'Submitting…';
+  }
+  if (backButton) backButton.disabled = true;
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/applications/submit`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(applicationData)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !(data.success || data.id || data.application)) {
+      throw new Error(data.error || 'The application could not be submitted.');
     }
 
-    console.error('Application submission failed:', data);
+    clearPendingApplicationDraft();
+    const hidden = document.getElementById('contactEmail');
+    if (hidden) hidden.value = email;
+    showSuccessMessage(email, data.notification?.emailSent !== false);
+  } catch (error) {
+    console.error('Error submitting application:', error);
     saveApplicationLocally(applicationData);
-    const hidden = document.getElementById('contactEmail'); if (hidden) hidden.value = email;
-    showSuccessMessage(email);
-  })
-  .catch(err => {
-    console.error('Error submitting application:', err);
-    saveApplicationLocally(applicationData);
-    const hidden = document.getElementById('contactEmail'); if (hidden) hidden.value = email;
-    showSuccessMessage(email);
-  });
+    if (statusMessage) {
+      statusMessage.textContent = `Your application was not submitted and is not yet in the admin review queue. Your details are saved as a draft in this browser. ${error.message || 'Please check your connection and try again.'}`;
+      statusMessage.style.display = 'flex';
+    }
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = applyStep === 3 ? 'Submit Application' : 'Continue →';
+    }
+    if (backButton) backButton.disabled = false;
+  }
 }
 
 function saveApplicationLocally(applicationData) {
@@ -3559,7 +3581,7 @@ function clearPendingApplicationDraft() {
   try { localStorage.removeItem('certicheck_pending_application_draft'); } catch (e) {}
 }
 
-function showSuccessMessage(officialEmail) {
+function showSuccessMessage(officialEmail, confirmationEmailSent = true) {
   navigate("apply");
   document.getElementById(`form-step-${applyStep}`)?.classList.remove("active");
   document.getElementById("form-step-success")?.classList.add("active");
@@ -3567,8 +3589,10 @@ function showSuccessMessage(officialEmail) {
 
   const msg = document.getElementById("successMsg");
   if (msg) {
-    // Replace previous success wording with a concise waiting state
-    msg.innerHTML = `<div style="font-weight:800;font-size:18px;color:var(--purple-mid);">WAITING FOR REVIEW</div><div style="margin-top:16px;text-align:left;background:var(--bg-subtle);padding:14px;border-radius:8px;"><strong>Official contact:</strong> ${officialEmail}</div>`;
+    const emailNotice = confirmationEmailSent
+      ? ''
+      : '<div style="margin-top:12px;color:var(--red);">Your application was submitted, but we could not send the confirmation email. Please contact support if you need confirmation.</div>';
+    msg.innerHTML = `<div style="font-weight:800;font-size:18px;color:var(--purple-mid);">WAITING FOR REVIEW</div><div style="margin-top:16px;text-align:left;background:var(--bg-subtle);padding:14px;border-radius:8px;"><strong>Official contact:</strong> ${officialEmail}</div>${emailNotice}`;
   }
 
   // Mark all steps done

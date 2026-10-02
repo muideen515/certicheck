@@ -37,7 +37,26 @@ test('application form buttons do not submit the page', () => {
 test('application confirmation does not show an auto-generated CertiCheck email', () => {
   assert.doesNotMatch(indexHtml, /generatedEmailCard|Your CertiCheck email/);
   assert.doesNotMatch(scriptJs, /generateCertiCheckEmail|generatedEmailCard/);
-  assert.match(scriptJs, /showSuccessMessage\(officialEmail\)/);
+  assert.match(scriptJs, /showSuccessMessage\(officialEmail, confirmationEmailSent = true\)/);
+});
+
+test('signup communicates welcome-email delivery failures', () => {
+  assert.match(scriptJs, /welcomeEmailNotice/);
+  assert.match(scriptJs, /account was created, but the welcome email could not be delivered/i);
+  assert.match(scriptJs, /notification\?\.emailSent === false/);
+});
+
+test('failed application submissions show an error instead of a false success state', () => {
+  const submitFunction = scriptJs.match(/async function submitApplyForm\(\) \{[\s\S]*?\n\}/)?.[0] || '';
+  assert.match(indexHtml, /id="applicationSubmitError"[^>]*role="alert"/);
+  assert.match(submitFunction, /submitButton\.disabled = true/);
+  assert.match(submitFunction, /Your application was not submitted and is not yet in the admin review queue/);
+  const successIndex = submitFunction.indexOf('showSuccessMessage(email,');
+  const catchIndex = submitFunction.indexOf('} catch (error) {');
+  assert.ok(successIndex >= 0 && successIndex < catchIndex, 'Success should only be shown before the failure handler');
+  assert.match(submitFunction, /data\.notification\?\.emailSent !== false/);
+  assert.match(scriptJs, /confirmationEmailSent = true/);
+  assert.match(scriptJs, /we could not send the confirmation email/i);
 });
 
 test('forgot-password OTP screen provides a resend control with a 40-second cooldown', () => {
@@ -55,5 +74,11 @@ test('login guidance explains the default password and required password change'
 test('admin dashboard refreshes for successful applications without manual reload', () => {
   assert.match(adminJs, /startAdminDashboardPolling\(\)/);
   assert.match(adminJs, /loadAdminDashboard\(\)\.catch\(\(\) => \{\}\);/);
+  assert.match(adminJs, /}, 5000\)/);
   assert.match(adminJs, /stopAdminDashboardPolling\(\)/);
+});
+
+test('admin actions show a warning when notification delivery fails', () => {
+  assert.match(adminJs, /Email notification was not delivered/);
+  assert.match(adminJs, /Email notification failed for/);
 });

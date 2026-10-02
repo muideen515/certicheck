@@ -55,18 +55,21 @@ app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
 // ── HEALTH CHECK ───────────────────────────────────────────────────────────
 app.get('/health', async (req, res) => {
+  const email = EmailService.getReadiness();
   try {
     const result = await pool.query('SELECT NOW()');
     res.json({
       status: 'ok',
       timestamp: result.rows[0].now,
-      message: 'Certicheck backend is running'
+      message: 'Certicheck backend is running',
+      email
     });
   } catch (err) {
     res.status(200).json({
       status: 'degraded',
       message: 'Backend is running, but the database is unavailable',
-      error: err.message
+      error: err.message,
+      email
     });
   }
 });
@@ -208,7 +211,10 @@ async function startServer() {
       console.log('✓ Running in DEMO_MODE — skipping database initialization');
     }
 
-    await EmailService.verifyTransporter();
+    const emailReady = await EmailService.verifyTransporter();
+    if (!emailReady && process.env.NODE_ENV === 'production') {
+      throw new Error('SMTP is not configured and verified. Set valid SMTP environment variables before running in production.');
+    }
 
     app.listen(PORT, HOST, () => {
       console.log(`✓ Certicheck backend running on http://${HOST}:${PORT}`);

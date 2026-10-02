@@ -33,7 +33,7 @@ function startAdminDashboardPolling() {
     if (isAdminLoggedIn()) {
       loadAdminDashboard().catch(() => {});
     }
-  }, 15000);
+  }, 5000);
 }
 
 function stopAdminDashboardPolling() {
@@ -617,10 +617,18 @@ async function handleBulkAction(action) {
   }
 
   try {
+    let emailFailures = 0;
     for (const id of selected) {
-      await requestJson(`/applications/${id}/${action === 'approve' ? 'approve' : 'reject'}`, { method: 'PUT' });
+      const result = await requestJson(`/applications/${id}/${action === 'approve' ? 'approve' : 'reject'}`, { method: 'PUT' });
+      if (result.notification?.emailSent === false) emailFailures += 1;
     }
-    showAdminToast(`${selected.length} application${selected.length > 1 ? 's were' : ' was'} ${action === 'approve' ? 'approved' : 'rejected'}.`, 'success');
+    const actionMessage = `${selected.length} application${selected.length > 1 ? 's were' : ' was'} ${action === 'approve' ? 'approved' : 'rejected'}.`;
+    showAdminToast(
+      emailFailures
+        ? `${actionMessage} Email notification failed for ${emailFailures} applicant${emailFailures > 1 ? 's' : ''}.`
+        : actionMessage,
+      emailFailures ? 'danger' : 'success'
+    );
     await loadAdminDashboard();
   } catch (err) {
     showAdminToast(err.message || 'Bulk action failed.', 'danger');
@@ -776,7 +784,10 @@ function renderAdminDashboard() {
       if (action === 'approve' || action === 'reject') handleApplicationAction(action, id);
     });
   });
+<<<<<<< HEAD
   renderPendingUserAccounts();
+=======
+>>>>>>> c6bfbf741cb7e9f78ca3ad746786c2fe2f4540fb
 }
 
 async function handleCreateAccountForApplication(id) {
@@ -796,8 +807,12 @@ async function handleCreateAccountForApplication(id) {
 async function handleApplicationAction(action, id) {
   try {
     const endpoint = action === "approve" ? `/applications/${id}/approve` : `/applications/${id}/reject`;
-    await requestJson(endpoint, { method: "PUT" });
-    showAdminToast(action === 'approve' ? 'Application approved and moved to approved queue.' : 'Application revoked and moved to revoked queue.', action === 'approve' ? 'success' : 'danger');
+    const result = await requestJson(endpoint, { method: "PUT" });
+    const actionMessage = action === 'approve' ? 'Application approved and moved to approved queue.' : 'Application revoked and moved to revoked queue.';
+    showAdminToast(
+      result.notification?.emailSent === false ? `${actionMessage} Email notification was not delivered.` : actionMessage,
+      result.notification?.emailSent === false ? 'danger' : action === 'approve' ? 'success' : 'danger'
+    );
     await loadAdminDashboard();
   } catch (err) {
     showAdminError(err.message);
@@ -818,22 +833,52 @@ async function loadAdminDashboard() {
 
   adminDashboardRequest = loadAdminDashboardData();
   try {
+<<<<<<< HEAD
     await adminDashboardRequest;
   } finally {
     adminDashboardRequest = null;
   }
 }
+=======
+    const results = await Promise.allSettled([
+      requestJson("/admin/dashboard"),
+      requestJson("/applications/pending?limit=50&offset=0"),
+      requestJson("/applications/rejected?limit=50&offset=0"),
+      requestJson("/applications/approved?limit=50&offset=0"),
+      requestJson("/verify/history?limit=50&offset=0"),
+      requestJson("/verify/revoked?limit=50&offset=0"),
+      requestJson("/admin/audit-log?limit=50&offset=0")
+    ]);
+
+    const valueAt = index => results[index].status === 'fulfilled' ? results[index].value : {};
+    const dashboardData = valueAt(0);
+    const pendingData = valueAt(1);
+    const rejectedData = valueAt(2);
+    const approvedData = valueAt(3);
+    const historyData = valueAt(4);
+    const revokedData = valueAt(5);
+    const auditData = valueAt(6);
+>>>>>>> c6bfbf741cb7e9f78ca3ad746786c2fe2f4540fb
 
 async function loadAdminDashboardData() {
   try {
     const dashboardData = await requestJson("/admin/dashboard");
     adminState.stats = dashboardData.stats || adminState.stats || null;
+<<<<<<< HEAD
     adminState.pendingApps = getApplicationList({ applications: dashboardData.pendingApplications });
     adminState.rejectedApps = getApplicationList({ applications: dashboardData.rejectedApplications });
     adminState.approvedApps = getApplicationList({ applications: dashboardData.approvedApplications });
     adminState.checks = Array.isArray(dashboardData.history) ? dashboardData.history : [];
     adminState.revoked = Array.isArray(dashboardData.revoked) ? dashboardData.revoked : [];
     adminState.auditLog = Array.isArray(dashboardData.auditLog) ? dashboardData.auditLog : [];
+=======
+    if (results[1].status === 'fulfilled') adminState.pendingApps = getApplicationList(pendingData);
+    if (results[2].status === 'fulfilled') adminState.rejectedApps = getApplicationList(rejectedData);
+    if (results[3].status === 'fulfilled') adminState.approvedApps = getApplicationList(approvedData);
+    if (results[4].status === 'fulfilled') adminState.checks = Array.isArray(historyData.history) ? historyData.history : [];
+    if (results[5].status === 'fulfilled') adminState.revoked = Array.isArray(revokedData.revoked) ? revokedData.revoked : [];
+    if (results[6].status === 'fulfilled') adminState.auditLog = Array.isArray(auditData.auditLog) ? auditData.auditLog : [];
+>>>>>>> c6bfbf741cb7e9f78ca3ad746786c2fe2f4540fb
 
     requestJson("/admin/access-log", {
       method: "POST",

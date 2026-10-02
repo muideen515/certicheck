@@ -63,13 +63,18 @@ router.post('/submit', async (req, res) => {
       userId, orgName, orgType, website, contactName, contactEmail, generatedEmail, contactRole, volume, useCase, wallet
     );
 
-    await EmailService.sendApplicationReceived(contactEmail, contactName, orgName);
+    const emailResult = await EmailService.sendApplicationReceived(contactEmail, contactName, orgName);
+    const emailSent = EmailService.getReadiness().configured && Boolean(emailResult);
+    if (!emailSent) {
+      console.error('Application confirmation email was not delivered.');
+    }
 
     await logAudit(userId, 'APPLICATION_SUBMIT', 'application', app.id, 'success');
 
     res.status(201).json({
       success: true,
       message: 'Application submitted successfully',
+      notification: { emailSent },
       application: { ...app, generated_email: app.generated_email || generatedEmail }
     });
   } catch (err) {
@@ -153,13 +158,19 @@ router.put('/:appId/approve', verifyAdminToken, verifyAdmin, async (req, res) =>
     const app = await Application.approve(appId, actor.id, actor.name, actor.profilePicture);
     if (!app) return res.status(404).json({ error: 'Application not found' });
 
+    let emailSent = false;
     if (app?.contact_email) {
-      await EmailService.sendApplicationDecision(
-        app.contact_email,
-        app.contact_name,
-        app.organization_name,
-        true
-      );
+      try {
+        const delivery = await EmailService.sendApplicationDecision(
+          app.contact_email,
+          app.contact_name,
+          app.organization_name,
+          true
+        );
+        emailSent = EmailService.getReadiness().configured && Boolean(delivery);
+      } catch {
+        console.error('Application approval email was not delivered.');
+      }
     }
 
     await logAudit(actor.id, 'APPLICATION_APPROVE', 'application', appId, 'success', null, {
@@ -170,6 +181,7 @@ router.put('/:appId/approve', verifyAdminToken, verifyAdmin, async (req, res) =>
     res.json({
       success: true,
       message: 'Application approved',
+      notification: { emailSent },
       application: app
     });
   } catch (err) {
@@ -242,14 +254,20 @@ router.put('/:appId/reject', verifyAdminToken, verifyAdmin, async (req, res) => 
     const app = await Application.reject(appId, actor.id, actor.name, actor.profilePicture);
     if (!app) return res.status(404).json({ error: 'Application not found' });
 
+    let emailSent = false;
     if (app?.contact_email) {
-      await EmailService.sendApplicationDecision(
-        app.contact_email,
-        app.contact_name,
-        app.organization_name,
-        false,
-        req.body?.reason || ''
-      );
+      try {
+        const delivery = await EmailService.sendApplicationDecision(
+          app.contact_email,
+          app.contact_name,
+          app.organization_name,
+          false,
+          req.body?.reason || ''
+        );
+        emailSent = EmailService.getReadiness().configured && Boolean(delivery);
+      } catch {
+        console.error('Application rejection email was not delivered.');
+      }
     }
 
     await logAudit(actor.id, 'APPLICATION_REJECT', 'application', appId, 'success', null, {
@@ -260,6 +278,7 @@ router.put('/:appId/reject', verifyAdminToken, verifyAdmin, async (req, res) => 
     res.json({
       success: true,
       message: 'Application rejected',
+      notification: { emailSent },
       application: app
     });
   } catch (err) {
