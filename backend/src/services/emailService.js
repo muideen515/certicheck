@@ -245,16 +245,12 @@ class EmailService {
       </div>
     `;
 
-    try {
-      await this.transporter.sendMail({
-        from: this.getFromAddress(),
-        to: normalizedEmail,
-        subject: 'Welcome to CertiCheck',
-        html
-      });
-    } catch (err) {
-      console.error('Error sending welcome email:', err);
-    }
+    return this.transporter.sendMail({
+      from: this.getFromAddress(),
+      to: normalizedEmail,
+      subject: 'Welcome to CertiCheck',
+      html
+    });
   }
 
   static async sendApplicationReceived(email, applicantName, organizationName) {
@@ -317,8 +313,8 @@ class EmailService {
         subject,
         html
       });
-    } catch (err) {
-      console.error('Error sending application decision email:', err);
+    } catch {
+      console.error('Error sending application decision email.');
       return null;
     }
   }

@@ -166,7 +166,9 @@ test('signup and forgot-password OTP flows accept external email domains and con
     deliveries.push({ email, code, type });
     return { success: true };
   };
-  EmailService.sendWelcome = async () => {};
+  EmailService.sendWelcome = async () => {
+    throw new Error('test SMTP delivery failure');
+  };
   pool.query = async () => ({ rows: [] });
 
   const app = express();
@@ -198,6 +200,7 @@ test('signup and forgot-password OTP flows accept external email domains and con
   });
   assert.equal(registrationResponse.status, 201);
   const registrationData = await registrationResponse.json();
+  assert.equal(registrationData.notification.emailSent, false);
   assert.equal(registrationData.user.is_approved, false);
   assert.equal(registrationData.user.must_change_password, true);
   assert.equal(registrationData.token, undefined);

@@ -11,6 +11,7 @@ const applicationEmails = [];
 const originalSendApplicationReceived = EmailService.sendApplicationReceived;
 const originalSendApplicationDecision = EmailService.sendApplicationDecision;
 const originalGetConfigurationStatus = EmailService.getConfigurationStatus;
+const originalGetReadiness = EmailService.getReadiness;
 
 async function startServer() {
   const app = require('../src/server');
@@ -27,7 +28,7 @@ test.before(async () => {
     applicationEmails.push({ type: 'received', args });
     return { messageId: 'test-received' };
   };
-  EmailService.getConfigurationStatus = () => ({ mode: 'smtp' });
+  EmailService.getReadiness = () => ({ configured: true, verified: true });
   EmailService.sendApplicationDecision = async (...args) => {
     applicationEmails.push({ type: 'decision', args });
     return { messageId: 'test-decision' };
@@ -40,6 +41,7 @@ test.after(async () => {
   EmailService.sendApplicationReceived = originalSendApplicationReceived;
   EmailService.sendApplicationDecision = originalSendApplicationDecision;
   EmailService.getConfigurationStatus = originalGetConfigurationStatus;
+  EmailService.getReadiness = originalGetReadiness;
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -143,6 +145,7 @@ test('admin dashboard reflects approved applications in demo mode', async () => 
 
   const approvedData = await approveResponse.json();
   assert.equal(approveResponse.status, 200, `Unexpected approve status: ${JSON.stringify(approvedData)}`);
+  assert.equal(approvedData.notification.emailSent, true);
   assert.ok(applicationEmails.some(email =>
     email.type === 'decision' && email.args[0] === 'grace@demo-approved.example' && email.args[3] === true
   ), 'Approved application should send an approval email to the applicant contact email');
@@ -184,6 +187,43 @@ test('rejected applications send a decision email to the applicant contact email
       contactRole: 'Registrar'
     })
   });
+
+  test('application decision remains successful and reports when notification delivery fails', async () => {
+    const port = process.env.TEST_SERVER_PORT;
+    const base = `http://localhost:${port}`;
+    const createResponse = await fetch(`${base}/api/applications/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orgName: 'Notification Failure University',
+        orgType: 'university',
+        contactName: 'Morgan Applicant',
+        contactEmail: 'morgan@notification-failure.example',
+        contactRole: 'Registrar'
+      })
+    });
+    const created = await createResponse.json();
+    assert.equal(createResponse.status, 201);
+
+    const originalSend = EmailService.sendApplicationDecision;
+    EmailService.sendApplicationDecision = async () => null;
+    try {
+      const response = await fetch(`${base}/api/applications/${created.application.id}/approve`, {
+        method: 'PUT',
+        headers: {
+          Authorization: 'Bearer demo-token',
+          'x-demo-user-type': 'admin',
+          'Content-Type': 'application/json'
+        }
+      });
+      const result = await response.json();
+      assert.equal(response.status, 200);
+      assert.equal(result.success, true);
+      assert.equal(result.notification.emailSent, false);
+    } finally {
+      EmailService.sendApplicationDecision = originalSend;
+    }
+  });
   const created = await createResponse.json();
   assert.equal(createResponse.status, 201, `Unexpected create status: ${JSON.stringify(created)}`);
 
@@ -198,6 +238,7 @@ test('rejected applications send a decision email to the applicant contact email
   });
   const rejected = await rejectResponse.json();
   assert.equal(rejectResponse.status, 200, `Unexpected reject status: ${JSON.stringify(rejected)}`);
+  assert.equal(rejected.notification.emailSent, true);
   assert.ok(applicationEmails.some(email =>
     email.type === 'decision' &&
     email.args[0] === 'taylor@example.edu' &&

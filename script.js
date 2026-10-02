@@ -2788,9 +2788,12 @@ function initOTPVerificationForm() {
       });
       const registerData = await registerResponse.json().catch(() => ({}));
       if (!registerResponse.ok) throw new Error(registerData.error || 'Registration failed');
+      const welcomeEmailNotice = registerData.notification?.emailSent === false
+        ? ' Your account was created, but the welcome email could not be delivered.'
+        : '';
 
       const draft = loadPendingApplicationDraft();
-      let applicationNotice = '';
+      let applicationNotice = welcomeEmailNotice;
       if (draft) {
         try {
           draft.contactEmail = pendingSignupData.email;

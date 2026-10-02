@@ -352,13 +352,19 @@ router.post('/register', async (req, res) => {
 
     await logAudit(newUser.id, 'REGISTER', 'user', newUser.id, 'success');
 
-    // Send welcome email
-    await EmailService.sendWelcome(email, firstName);
+    let welcomeEmailSent = false;
+    try {
+      const delivery = await EmailService.sendWelcome(email, firstName);
+      welcomeEmailSent = EmailService.getReadiness().configured && Boolean(delivery);
+    } catch {
+      console.error('Welcome email was not delivered.');
+    }
 
     res.status(201).json({
       success: true,
       code: 'ACCOUNT_PENDING_APPROVAL',
       message: 'Registration successful. Your account is pending admin approval. Once approved, sign in with the default password and change it immediately.',
+      notification: { emailSent: welcomeEmailSent },
       user: {
         id: newUser.id,
         email: newUser.email,

@@ -40,6 +40,12 @@ test('application confirmation does not show an auto-generated CertiCheck email'
   assert.match(scriptJs, /showSuccessMessage\(officialEmail, confirmationEmailSent = true\)/);
 });
 
+test('signup communicates welcome-email delivery failures', () => {
+  assert.match(scriptJs, /welcomeEmailNotice/);
+  assert.match(scriptJs, /account was created, but the welcome email could not be delivered/i);
+  assert.match(scriptJs, /notification\?\.emailSent === false/);
+});
+
 test('failed application submissions show an error instead of a false success state', () => {
   const submitFunction = scriptJs.match(/async function submitApplyForm\(\) \{[\s\S]*?\n\}/)?.[0] || '';
   assert.match(indexHtml, /id="applicationSubmitError"[^>]*role="alert"/);
@@ -70,4 +76,9 @@ test('admin dashboard refreshes for successful applications without manual reloa
   assert.match(adminJs, /loadAdminDashboard\(\)\.catch\(\(\) => \{\}\);/);
   assert.match(adminJs, /}, 5000\)/);
   assert.match(adminJs, /stopAdminDashboardPolling\(\)/);
+});
+
+test('admin actions show a warning when notification delivery fails', () => {
+  assert.match(adminJs, /Email notification was not delivered/);
+  assert.match(adminJs, /Email notification failed for/);
 });

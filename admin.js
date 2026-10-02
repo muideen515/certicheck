@@ -617,10 +617,18 @@ async function handleBulkAction(action) {
   }
 
   try {
+    let emailFailures = 0;
     for (const id of selected) {
-      await requestJson(`/applications/${id}/${action === 'approve' ? 'approve' : 'reject'}`, { method: 'PUT' });
+      const result = await requestJson(`/applications/${id}/${action === 'approve' ? 'approve' : 'reject'}`, { method: 'PUT' });
+      if (result.notification?.emailSent === false) emailFailures += 1;
     }
-    showAdminToast(`${selected.length} application${selected.length > 1 ? 's were' : ' was'} ${action === 'approve' ? 'approved' : 'rejected'}.`, 'success');
+    const actionMessage = `${selected.length} application${selected.length > 1 ? 's were' : ' was'} ${action === 'approve' ? 'approved' : 'rejected'}.`;
+    showAdminToast(
+      emailFailures
+        ? `${actionMessage} Email notification failed for ${emailFailures} applicant${emailFailures > 1 ? 's' : ''}.`
+        : actionMessage,
+      emailFailures ? 'danger' : 'success'
+    );
     await loadAdminDashboard();
   } catch (err) {
     showAdminToast(err.message || 'Bulk action failed.', 'danger');
@@ -844,8 +852,12 @@ async function handleCreateAccountForApplication(id) {
 async function handleApplicationAction(action, id) {
   try {
     const endpoint = action === "approve" ? `/applications/${id}/approve` : `/applications/${id}/reject`;
-    await requestJson(endpoint, { method: "PUT" });
-    showAdminToast(action === 'approve' ? 'Application approved and moved to approved queue.' : 'Application revoked and moved to revoked queue.', action === 'approve' ? 'success' : 'danger');
+    const result = await requestJson(endpoint, { method: "PUT" });
+    const actionMessage = action === 'approve' ? 'Application approved and moved to approved queue.' : 'Application revoked and moved to revoked queue.';
+    showAdminToast(
+      result.notification?.emailSent === false ? `${actionMessage} Email notification was not delivered.` : actionMessage,
+      result.notification?.emailSent === false ? 'danger' : action === 'approve' ? 'success' : 'danger'
+    );
     await loadAdminDashboard();
   } catch (err) {
     showAdminError(err.message);
