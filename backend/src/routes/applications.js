@@ -79,8 +79,8 @@ router.post('/submit', async (req, res) => {
           }
         }),
         logAudit(userId, 'APPLICATION_SUBMIT', 'application', app.id, 'success')
-      ]).catch((backgroundError) => {
-        console.error('Application submission follow-up failed:', backgroundError.message || backgroundError);
+      ]).catch(() => {
+        console.error('Application submission follow-up failed; check the EmailService delivery diagnostic.');
       });
     });
   } catch (err) {

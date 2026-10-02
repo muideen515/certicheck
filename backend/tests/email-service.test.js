@@ -142,6 +142,9 @@ test('SMTP transport authenticates with SMTP_USER and SMTP_PASS', () => {
     EmailService.initTransporter();
     assert.equal(transportOptions.auth.user, process.env.SMTP_USER);
     assert.equal(transportOptions.auth.pass, process.env.SMTP_PASS);
+    assert.equal(transportOptions.connectionTimeout, 10000);
+    assert.equal(transportOptions.greetingTimeout, 10000);
+    assert.equal(transportOptions.socketTimeout, 30000);
   } finally {
     EmailService.transporter = originalTransporter;
     nodemailer.createTransport = originalCreateTransport;
@@ -205,7 +208,7 @@ test('Gmail transport accepts EMAIL_USER and EMAIL_PASS and sendEmail uses the c
   delete process.env.SMTP_PASS;
   delete process.env.EMAIL_PASSWORD;
   process.env.EMAIL_USER = 'sender@gmail.com';
-  process.env.EMAIL_PASS = 'example-test-app-password';
+  process.env.EMAIL_PASS = 'abcd efgh ijkl mnop';
   process.env.EMAIL_FROM = 'CertiCheck <sender@gmail.com>';
   EmailService.transporter = null;
   nodemailer.createTransport = options => {
@@ -221,7 +224,10 @@ test('Gmail transport accepts EMAIL_USER and EMAIL_PASS and sendEmail uses the c
     });
     assert.equal(transportOptions.service, 'gmail');
     assert.equal(transportOptions.auth.user, process.env.EMAIL_USER);
-    assert.equal(transportOptions.auth.pass, process.env.EMAIL_PASS);
+    assert.equal(transportOptions.auth.pass, 'abcdefghijklmnop');
+    assert.equal(transportOptions.connectionTimeout, 10000);
+    assert.equal(transportOptions.greetingTimeout, 10000);
+    assert.equal(transportOptions.socketTimeout, 30000);
     assert.equal(message.from, process.env.EMAIL_FROM);
     assert.equal(message.to, 'recipient@example.org');
     assert.equal(result.messageId, 'test-message');
@@ -235,9 +241,32 @@ test('Gmail transport accepts EMAIL_USER and EMAIL_PASS and sendEmail uses the c
   }
 });
 
+test('Gmail credentials containing only whitespace are treated as missing', () => {
+  const originalEnv = Object.fromEntries([
+    'SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'EMAIL_USER', 'EMAIL_PASSWORD', 'EMAIL_PASS'
+  ].map(name => [name, process.env[name]]));
+  delete process.env.SMTP_HOST;
+  delete process.env.SMTP_USER;
+  delete process.env.SMTP_PASS;
+  process.env.EMAIL_USER = 'sender@gmail.com';
+  process.env.EMAIL_PASSWORD = '   ';
+  delete process.env.EMAIL_PASS;
+
+  try {
+    assert.equal(EmailService.getConfigurationStatus().mode, 'console');
+  } finally {
+    for (const [name, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
 test('startup transport verification reports success and sanitizes provider errors', async () => {
   const originalTransporter = EmailService.transporter;
   const originalConfig = EmailService.getConfigurationStatus;
+  const originalVerificationIssue = EmailService.lastVerificationIssue;
+  const originalSmtpVerified = EmailService.smtpVerified;
   const originalLog = console.log;
   const originalError = console.error;
   const logs = [];
@@ -252,15 +281,21 @@ test('startup transport verification reports success and sanitizes provider erro
     assert.equal(EmailService.getReadiness().verified, true);
     assert.match(logs[0], /SMTP connection verified/);
 
-    const secretBearingError = new Error('authentication failed for secret@example.org with raw-password');
+    const secretBearingError = Object.assign(
+      new Error('authentication failed for secret@example.org with raw-password'),
+      { code: 'EAUTH' }
+    );
     EmailService.transporter = { verify: async () => { throw secretBearingError; } };
     assert.equal(await EmailService.verifyTransporter(), false);
     assert.equal(EmailService.getReadiness().verified, false);
-    assert.match(errors[0], /SMTP connection verification failed/);
+    assert.match(errors[0], /Gmail.*app password/);
+    assert.match(EmailService.getReadiness().issue, /Gmail.*app password/);
     assert.equal(errors[0].includes('raw-password'), false);
   } finally {
     EmailService.transporter = originalTransporter;
     EmailService.getConfigurationStatus = originalConfig;
+    EmailService.lastVerificationIssue = originalVerificationIssue;
+    EmailService.smtpVerified = originalSmtpVerified;
     console.log = originalLog;
     console.error = originalError;
   }
@@ -270,10 +305,10 @@ test('missing SMTP configuration fails clearly in production and falls back in d
   const originalTransporter = EmailService.transporter;
   const originalEnv = Object.fromEntries([
     'NODE_ENV', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER',
-    'SMTP_PASS', 'EMAIL_USER', 'EMAIL_PASSWORD', 'EMAIL_FROM'
+    'SMTP_PASS', 'EMAIL_USER', 'EMAIL_PASSWORD', 'EMAIL_PASS', 'EMAIL_FROM'
   ].map(name => [name, process.env[name]]));
   const originalLog = console.log;
-  for (const name of ['SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASS', 'EMAIL_USER', 'EMAIL_PASSWORD', 'EMAIL_FROM']) {
+  for (const name of ['SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_PASS', 'EMAIL_USER', 'EMAIL_PASSWORD', 'EMAIL_PASS', 'EMAIL_FROM']) {
     delete process.env[name];
   }
   EmailService.transporter = null;
@@ -284,6 +319,8 @@ test('missing SMTP configuration fails clearly in production and falls back in d
       () => EmailService.initTransporter(),
       error => error.code === 'EMAIL_NOT_CONFIGURED' && /SMTP_HOST/.test(error.message)
     );
+    assert.equal(EmailService.getReadiness().status, 'not_configured');
+    assert.equal(EmailService.getReadiness().verified, false);
 
     process.env.NODE_ENV = 'development';
     EmailService.transporter = null;

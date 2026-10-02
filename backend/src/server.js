@@ -211,7 +211,8 @@ async function startServer() {
 
     const emailReady = await EmailService.verifyTransporter();
     if (!emailReady && process.env.NODE_ENV === 'production') {
-      throw new Error('SMTP is not configured and verified. Set valid SMTP environment variables before running in production.');
+      const emailStatus = EmailService.getReadiness();
+      throw new Error(emailStatus.issue || 'SMTP is not configured and verified. Check the backend email environment variables.');
     }
 
     app.listen(PORT, HOST, () => {

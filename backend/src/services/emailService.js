@@ -6,6 +6,31 @@ function configuredSmtpUser() {
   return process.env.SMTP_USER || process.env.EMAIL_USER;
 }
 
+function configuredSmtpPassword() {
+  return String(process.env.SMTP_PASS || process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS || '')
+    .replace(/\s+/g, '');
+}
+
+function getSmtpFailureReason(error) {
+  const code = String(error?.code || '').toUpperCase();
+  if (code === 'EMAIL_NOT_CONFIGURED') {
+    return 'Email credentials are missing. Configure a provider username and password in the backend environment.';
+  }
+  if (code === 'EMAIL_FROM_MISMATCH') {
+    return 'EMAIL_FROM must match the authenticated email account.';
+  }
+  if (code === 'EAUTH' || code === 'AUTHENTICATIONFAILED' || code === '534') {
+    return 'The email provider rejected authentication. For Gmail, use an app password with 2-Step Verification enabled.';
+  }
+  if (code === 'ETIMEDOUT' || code === 'ECONNECTION' || code === 'ESOCKET' || code === 'EDNS') {
+    return 'The backend could not connect to the email provider. Check the provider, host, port, TLS settings, and outbound network access.';
+  }
+  if (code === 'EENVELOPE' || code === 'EMESSAGE') {
+    return 'The provider rejected the sender or message. Check the sender account and recipient address.';
+  }
+  return 'Email provider verification or delivery failed. Check backend logs and provider configuration.';
+}
+
 function escapeMarkup(value) {
   return String(value ?? '—').replace(/[&<>"']/g, char => ({
     '&': '&amp;',
@@ -56,6 +81,7 @@ function buildMiniCertificateSvg({ holderName, certificateId, certificateType, i
 class EmailService {
   static transporter = null;
   static smtpVerified = false;
+  static lastVerificationIssue = null;
   static memoryStore = new Map(); // For testing and development reference
 
   /**
@@ -81,9 +107,9 @@ class EmailService {
     if (this.transporter) return;
 
     const smtpUser = configuredSmtpUser();
-    const smtpPassword = process.env.SMTP_PASS || String(process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS || '').replace(/\s+/g, '');
+    const smtpPassword = configuredSmtpPassword();
     const hasCustomSmtp = Boolean(process.env.SMTP_HOST && smtpUser && smtpPassword);
-    const hasEmailService = Boolean(process.env.EMAIL_USER && (process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS));
+    const hasEmailService = Boolean(process.env.EMAIL_USER && smtpPassword);
 
     // 1. Custom SMTP configuration
     if (hasCustomSmtp) {
@@ -95,6 +121,9 @@ class EmailService {
         secure: process.env.SMTP_SECURE === undefined
           ? port === 465
           : process.env.SMTP_SECURE.toLowerCase() === 'true',
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 30000,
         auth: {
           user: smtpUser,
           pass: smtpPassword
@@ -105,9 +134,13 @@ class EmailService {
 
     // 2. Pre-configured email service (e.g. Gmail)
     if (hasEmailService) {
-      console.log(`✓ EmailService: Using ${process.env.EMAIL_SERVICE || 'gmail'} with user ${process.env.EMAIL_USER}`);
+      const service = process.env.EMAIL_SERVICE || 'gmail';
+      console.log(`✓ EmailService: Using ${service} transport`);
       this.transporter = nodemailer.createTransport({
-        service: process.env.EMAIL_SERVICE || 'gmail',
+        service,
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 30000,
         auth: {
           user: process.env.EMAIL_USER,
           pass: smtpPassword
@@ -141,13 +174,12 @@ class EmailService {
 
   static getConfigurationStatus() {
     const smtpUser = configuredSmtpUser();
-    const smtpPassword = process.env.SMTP_PASS || process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS;
+    const smtpPassword = configuredSmtpPassword();
     const hasCustomSmtp = Boolean(process.env.SMTP_HOST && smtpUser && smtpPassword);
-    const hasEmailService = Boolean(process.env.EMAIL_USER && (process.env.EMAIL_PASSWORD || process.env.EMAIL_PASS));
+    const hasEmailService = Boolean(process.env.EMAIL_USER && smtpPassword);
     return {
       mode: hasCustomSmtp || hasEmailService ? 'smtp' : 'console',
-      provider: hasCustomSmtp ? 'custom-smtp' : hasEmailService ? (process.env.EMAIL_SERVICE || 'gmail') : 'console',
-      sender: this.getFromAddress()
+      provider: hasCustomSmtp ? 'custom-smtp' : hasEmailService ? (process.env.EMAIL_SERVICE || 'gmail') : 'console'
     };
   }
 
@@ -158,31 +190,42 @@ class EmailService {
 
   static async verifyTransporter() {
     this.smtpVerified = false;
+    this.lastVerificationIssue = null;
     try {
       this.initTransporter();
       if (this.getConfigurationStatus().mode !== 'smtp') return false;
+      this.getFromAddress();
       await this.transporter.verify();
       this.smtpVerified = true;
       console.log('✓ EmailService: SMTP connection verified and ready to send messages.');
       return true;
     } catch (err) {
-      const message = err.code === 'EMAIL_NOT_CONFIGURED' || err.code === 'EMAIL_FROM_MISMATCH'
-        ? err.message
-        : 'SMTP connection verification failed. Check email configuration and provider connectivity.';
-      console.error(`EmailService configuration error: ${message}`);
+      this.lastVerificationIssue = getSmtpFailureReason(err);
+      console.error(`EmailService configuration error: ${this.lastVerificationIssue}`);
       return false;
     }
   }
 
   static getReadiness() {
-    try {
-      return {
-        configured: this.getConfigurationStatus().mode === 'smtp',
-        verified: this.smtpVerified
-      };
-    } catch {
-      return { configured: false, verified: false };
-    }
+    const config = this.getConfigurationStatus();
+    const configured = config.mode === 'smtp';
+    return {
+      configured,
+      verified: configured && this.smtpVerified,
+      provider: config.provider,
+      status: !configured ? 'not_configured' : this.smtpVerified ? 'ready' : 'not_verified',
+      issue: !configured
+        ? 'Email provider username and password are not configured.'
+        : this.smtpVerified ? null : this.lastVerificationIssue || 'SMTP connection has not been verified.'
+    };
+  }
+
+  static recordDeliveryFailure(error, context) {
+    const reason = getSmtpFailureReason(error);
+    this.lastVerificationIssue = reason;
+    this.smtpVerified = false;
+    console.error(`EmailService ${context} failed: ${reason}`);
+    return reason;
   }
 
   static getFromAddress() {
@@ -207,12 +250,17 @@ class EmailService {
     if (!this.isValidEmail(normalizedEmail)) {
       throw new Error('A valid recipient email address is required.');
     }
-    return this.transporter.sendMail({
-      from: this.getFromAddress(),
-      to: normalizedEmail,
-      subject,
-      html
-    });
+    try {
+      return await this.transporter.sendMail({
+        from: this.getFromAddress(),
+        to: normalizedEmail,
+        subject,
+        html
+      });
+    } catch (err) {
+      this.recordDeliveryFailure(err, 'message delivery');
+      throw err;
+    }
   }
 
   static async sendOTP(email, otp, otpType = 'signup') {
@@ -269,7 +317,7 @@ class EmailService {
 
       return { success: true, info };
     } catch (err) {
-      console.error('Error sending OTP email:', err);
+      this.recordDeliveryFailure(err, 'OTP delivery');
       throw err;
     }
   }
@@ -291,12 +339,17 @@ class EmailService {
       </div>
     `;
 
-    return this.transporter.sendMail({
-      from: this.getFromAddress(),
-      to: normalizedEmail,
-      subject: 'Welcome to CertiCheck',
-      html
-    });
+    try {
+      return await this.transporter.sendMail({
+        from: this.getFromAddress(),
+        to: normalizedEmail,
+        subject: 'Welcome to CertiCheck',
+        html
+      });
+    } catch (err) {
+      this.recordDeliveryFailure(err, 'welcome email delivery');
+      throw err;
+    }
   }
 
   static async sendApplicationReceived(email, applicantName, organizationName) {
@@ -323,8 +376,8 @@ class EmailService {
         html
       });
     } catch (err) {
-      console.error('Error sending application received email.');
-      return null;
+      this.recordDeliveryFailure(err, 'application receipt delivery');
+      throw err;
     }
   }
 
@@ -359,8 +412,8 @@ class EmailService {
         subject,
         html
       });
-    } catch {
-      console.error('Error sending application decision email.');
+    } catch (err) {
+      this.recordDeliveryFailure(err, 'application decision delivery');
       return null;
     }
   }
@@ -444,8 +497,8 @@ class EmailService {
       const mode = this.getConfigurationStatus().mode;
       return { success: true, sent: mode === 'smtp', mode };
     } catch (err) {
-      console.error('Error sending certificate notification:', err.message || err);
-      return { success: false, sent: false, mode: 'error', error: err.message || 'Email delivery failed' };
+      const reason = this.recordDeliveryFailure(err, 'certificate notification delivery');
+      return { success: false, sent: false, mode: 'error', error: reason };
     }
   }
 
