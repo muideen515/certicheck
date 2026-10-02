@@ -95,34 +95,23 @@ const localApiOrigin = ["localhost", "127.0.0.1"].includes(window.location.hostn
   : null;
 const API_BASE_URL = window.CERTICHECK_API_BASE_URL ||
   (localApiOrigin ? `${localApiOrigin}/api` : "https://certicheck-backend-8hu3.onrender.com/api");
-let solanaWeb3Loading;
+const CERTIFICATE_PROGRAM_ID = '4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob';
+let anchorLoading;
 
-function loadSolanaWeb3() {
-  const existing = window.solanaWeb3 || window.SolanaWeb3;
-  if (existing) return Promise.resolve(existing);
-  if (solanaWeb3Loading) return solanaWeb3Loading;
-
-  solanaWeb3Loading = new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = 'https://unpkg.com/@solana/web3.js@1.90.0/lib/index.iife.min.js';
-    script.async = true;
-    script.onload = () => {
-      const library = window.solanaWeb3 || window.SolanaWeb3;
-      if (library) {
-        resolve(library);
-      } else {
-        solanaWeb3Loading = null;
-        reject(new Error('Solana web3 browser library did not load correctly.'));
-      }
-    };
-    script.onerror = () => {
-      solanaWeb3Loading = null;
-      reject(new Error('Unable to load the Solana web3 browser library.'));
-    };
-    document.head.appendChild(script);
-  });
-
-  return solanaWeb3Loading;
+function loadAnchor() {
+  if (window.anchor) return Promise.resolve(window.anchor);
+  if (!anchorLoading) {
+    anchorLoading = import('https://esm.sh/@coral-xyz/anchor@0.29.0?bundle')
+      .then((anchor) => {
+        window.anchor = anchor;
+        return anchor;
+      })
+      .catch((error) => {
+        anchorLoading = null;
+        throw new Error(`Unable to load the Anchor browser client: ${error.message}`);
+      });
+  }
+  return anchorLoading;
 }
 
 const nativeFetch = window.fetch.bind(window);
@@ -592,89 +581,136 @@ async function issueCertificateWithPhantomWallet(payload, token) {
     throw new Error('Phantom wallet is not installed or connected.');
   }
 
-  const publicKey = provider.publicKey || payload.issuerWallet;
+  const publicKey = provider.publicKey?.toString?.() || '';
   if (!publicKey) {
     throw new Error('Connect your Phantom wallet before issuing certificates on-chain.');
   }
+  if (payload.issuerWallet && payload.issuerWallet !== publicKey) {
+    throw new Error('The connected Phantom wallet does not match the issuer wallet in this session.');
+  }
+  if (!token) throw new Error('Sign in again before issuing a certificate.');
+  if (!payload.certificateId || new TextEncoder().encode(payload.certificateId).length > 32) {
+    throw new Error('Certificate IDs must contain between 1 and 32 UTF-8 bytes.');
+  }
 
-  const solanaWeb3 = await loadSolanaWeb3();
-  const { Connection, PublicKey, SystemProgram } = solanaWeb3.Web3 || solanaWeb3;
+  const anchor = await loadAnchor();
+  const { Connection, PublicKey, SystemProgram } = anchor.web3;
   if (!Connection || !PublicKey || !SystemProgram) {
-    throw new Error('Solana web3 browser library did not load correctly.');
+    throw new Error('Anchor browser client does not include the Solana web3 APIs.');
   }
 
-  if (!window.anchor) {
-    throw new Error('Anchor browser library did not load correctly.');
-  }
-
-  const connection = new Connection(solanaWeb3.clusterApiUrl('devnet'), 'confirmed');
+  const connection = new Connection('https://api.devnet.solana.com', 'confirmed');
   const wallet = {
     publicKey: new PublicKey(publicKey),
     signTransaction: async (tx) => provider.signTransaction(tx),
     signAllTransactions: async (txs) => provider.signAllTransactions(txs)
   };
-  const providerInstance = new window.anchor.AnchorProvider(connection, wallet, { commitment: 'confirmed' });
-  const idl = await fetch('/solana-program/idl/certificate_system.json').then((res) => res.json());
-  const programId = new PublicKey('4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob');
-  const program = new window.anchor.Program(idl, programId, providerInstance);
+  const issuedAt = new Date().toISOString();
+  const metadataDetails = { ...(payload.metadata || {}) };
+  const attachment = metadataDetails.attachment || null;
+  delete metadataDetails.attachment;
+  const metadataToPin = {
+    certificateId: payload.certificateId,
+    ...metadataDetails,
+    holderName: payload.holderName,
+    holderEmail: payload.holderEmail,
+    certificateType: payload.certificateType,
+    issuerName: payload.issuerName,
+    issuerWallet: publicKey,
+    issuedAt,
+    status: 'valid',
+    metadata: metadataDetails,
+    attachment
+  };
+  const pinResponse = await fetch(`${API_BASE_URL}/certificates/pin`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ metadata: metadataToPin })
+  });
+  const pinResult = await pinResponse.json().catch(() => ({}));
+  if (!pinResponse.ok) throw new Error(pinResult.error || 'Unable to pin certificate metadata to IPFS.');
+  if (pinResult.source !== 'pinata' || !pinResult.cid) {
+    throw new Error('On-chain issuance requires a real IPFS pin. Configure PINATA_JWT on the backend and try again.');
+  }
+
+  const pinnedMetadata = pinResult.metadata || metadataToPin;
+  const metadataUri = `ipfs://${pinResult.cid}`;
+  const programId = new PublicKey(CERTIFICATE_PROGRAM_ID);
+  const providerInstance = new anchor.AnchorProvider(connection, wallet, { commitment: 'confirmed' });
+  const idl = await fetch('/solana-program/idl/certificate_system.json').then((res) => {
+    if (!res.ok) throw new Error('Unable to load the deployed certificate program interface.');
+    return res.json();
+  });
+  const program = new anchor.Program(idl, programId, providerInstance);
 
   const [issuerPda] = await PublicKey.findProgramAddress([Buffer.from('issuer'), wallet.publicKey.toBuffer()], program.programId);
   const [certificatePda] = await PublicKey.findProgramAddress([Buffer.from('certificate'), issuerPda.toBuffer(), Buffer.from(payload.certificateId)], program.programId);
 
-  const holderPublicKey = payload.holderWallet ? new PublicKey(payload.holderWallet) : wallet.publicKey;
-  const metadataUri = payload.ipfsCid ? `ipfs://${payload.ipfsCid}` : '';
-
-  try {
-    const signature = await program.methods
-      .issueCertificate(
-        payload.certificateId,
-        payload.holderName || '',
-        payload.certificateType || '',
-        metadataUri,
-        payload.ipfsCid || ''
-      )
+  let holderPublicKey = wallet.publicKey;
+  let holderWallet = null;
+  if (payload.holderWallet) {
+    try {
+      holderPublicKey = new PublicKey(payload.holderWallet);
+      holderWallet = holderPublicKey.toBase58();
+    } catch {
+      holderPublicKey = wallet.publicKey;
+    }
+  }
+  const existingIssuer = await program.account.issuerProfile.fetchNullable(issuerPda);
+  if (!existingIssuer) {
+    await program.methods
+      .initializeIssuer(payload.issuerName || 'Certicheck Issuer', metadataUri)
       .accounts({
         issuer: issuerPda,
-        holder: holderPublicKey,
-        certificate: certificatePda,
         authority: wallet.publicKey,
         systemProgram: SystemProgram.programId
       })
       .rpc();
-
-    return { signature, issuerPda: issuerPda.toBase58(), certificatePda: certificatePda.toBase58() };
-  } catch (err) {
-    if (String(err?.message || '').includes('AccountNotFound') || String(err?.message || '').includes('not found')) {
-      const initializeSignature = await program.methods
-        .initializeIssuer(payload.issuerName || 'Certicheck Issuer', metadataUri)
-        .accounts({
-          issuer: issuerPda,
-          authority: wallet.publicKey,
-          systemProgram: SystemProgram.programId
-        })
-        .rpc();
-
-      const afterInitialize = await program.methods
-        .issueCertificate(
-          payload.certificateId,
-          payload.holderName || '',
-          payload.certificateType || '',
-          metadataUri,
-          payload.ipfsCid || ''
-        )
-        .accounts({
-          issuer: issuerPda,
-          holder: holderPublicKey,
-          certificate: certificatePda,
-          authority: wallet.publicKey,
-          systemProgram: SystemProgram.programId
-        })
-        .rpc();
-
-      return { signature: afterInitialize, issuerPda: issuerPda.toBase58(), certificatePda: certificatePda.toBase58(), initializedIssuer: initializeSignature };
-    }
-    throw err;
   }
+
+  const signature = await program.methods
+    .issueCertificate(
+      payload.certificateId,
+      payload.holderName || '',
+      payload.certificateType || '',
+      metadataUri,
+      pinResult.cid
+    )
+    .accounts({
+      issuer: issuerPda,
+      holder: holderPublicKey,
+      certificate: certificatePda,
+      authority: wallet.publicKey,
+      systemProgram: SystemProgram.programId
+    })
+    .rpc();
+  await connection.confirmTransaction(signature, 'confirmed');
+
+  const recordResponse = await fetch(`${API_BASE_URL}/certificates/issue-client-signed`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      ...payload,
+      holderWallet,
+      issuerWallet: publicKey,
+      ipfsCid: pinResult.cid,
+      ipfsUri: pinResult.uri,
+      ipfsSource: pinResult.source,
+      blockchainTransactionId: signature,
+      metadata: pinnedMetadata
+    })
+  });
+  const recordResult = await recordResponse.json().catch(() => ({}));
+  if (!recordResponse.ok) {
+    throw new Error(`On-chain certificate issued (${signature}), but backend recording failed: ${recordResult.error || 'please contact support with the transaction signature'}`);
+  }
+  return recordResult;
 }
 
 async function revokeCertificateWithPhantomWallet(certificateId, reason, issuerWallet) {
@@ -683,23 +719,26 @@ async function revokeCertificateWithPhantomWallet(certificateId, reason, issuerW
     throw new Error('Phantom wallet is not installed or connected.');
   }
 
-  const publicKey = provider.publicKey || issuerWallet;
+  const publicKey = provider.publicKey?.toString?.() || '';
   if (!publicKey) {
     throw new Error('Connect your wallet before revoking a certificate.');
   }
+  if (issuerWallet && issuerWallet !== publicKey) {
+    throw new Error('The connected wallet does not match the certificate issuer.');
+  }
 
-  const solanaWeb3 = await loadSolanaWeb3();
-  const { Connection, PublicKey } = solanaWeb3.Web3 || solanaWeb3;
-  const connection = new Connection(solanaWeb3.clusterApiUrl('devnet'), 'confirmed');
+  const anchor = await loadAnchor();
+  const { Connection, PublicKey } = anchor.web3;
+  const connection = new Connection('https://api.devnet.solana.com', 'confirmed');
   const wallet = {
     publicKey: new PublicKey(publicKey),
     signTransaction: async (tx) => provider.signTransaction(tx),
     signAllTransactions: async (txs) => provider.signAllTransactions(txs)
   };
-  const anchorProvider = new window.anchor.AnchorProvider(connection, wallet, { commitment: 'confirmed' });
+  const anchorProvider = new anchor.AnchorProvider(connection, wallet, { commitment: 'confirmed' });
   const idl = await fetch('/solana-program/idl/certificate_system.json').then((res) => res.json());
-  const programId = new PublicKey('4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob');
-  const program = new window.anchor.Program(idl, programId, anchorProvider);
+  const programId = new PublicKey(CERTIFICATE_PROGRAM_ID);
+  const program = new anchor.Program(idl, programId, anchorProvider);
 
   const issuerPubkey = new PublicKey(publicKey);
   const [issuerPda] = await PublicKey.findProgramAddress([Buffer.from('issuer'), issuerPubkey.toBuffer()], program.programId);
@@ -1100,6 +1139,122 @@ function readFileAsDataUrl(file) {
   });
 }
 
+function escapeCertificateMarkup(value) {
+  return String(value ?? '—').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[character]);
+}
+
+function getMiniCertificateSvg(certificate) {
+  const escapeXml = (value) => escapeCertificateMarkup(value);
+  const issuedAt = certificate.issuedAt || certificate.issued_at || certificate.created_at;
+  const date = issuedAt
+    ? new Date(issuedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })
+    : 'Date not provided';
+  const status = String(certificate.status || certificate.verification_status || 'valid').toLowerCase() === 'revoked'
+    ? 'REVOKED'
+    : 'VALID';
+  const statusColor = status === 'VALID' ? '#059669' : '#dc2626';
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520" role="img" aria-labelledby="title description">
+  <title id="title">Certicheck mini certificate for ${escapeXml(certificate.holderName || certificate.holder_name)}</title>
+  <desc id="description">${escapeXml(certificate.certificateType || certificate.certificate_type || 'Certificate')}, issued by ${escapeXml(certificate.issuerName || certificate.issuer_name)}.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff" /><stop offset="1" stop-color="#f4f0ff" /></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7c3aed" /><stop offset="1" stop-color="#4338ca" /></linearGradient>
+  </defs>
+  <rect width="900" height="520" rx="32" fill="#ede9fe" />
+  <rect x="18" y="18" width="864" height="484" rx="25" fill="url(#paper)" stroke="#7c3aed" stroke-width="3" />
+  <path d="M52 58h796" stroke="#ddd6fe" stroke-width="2" />
+  <circle cx="92" cy="100" r="31" fill="url(#accent)" />
+  <path d="M78 100 88 110 107 87" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+  <text x="140" y="94" fill="#312e81" font-family="Arial,sans-serif" font-size="18" font-weight="700" letter-spacing="3">CERTICHECK · SOLANA CREDENTIAL</text>
+  <text x="450" y="190" text-anchor="middle" fill="#6d28d9" font-family="Arial,sans-serif" font-size="15" font-weight="700" letter-spacing="5">CERTIFICATE OF ACHIEVEMENT</text>
+  <text x="450" y="252" text-anchor="middle" fill="#1e1b4b" font-family="Arial,sans-serif" font-size="34" font-weight="700">${escapeXml(certificate.certificateType || certificate.certificate_type || 'Certificate')}</text>
+  <text x="450" y="302" text-anchor="middle" fill="#64748b" font-family="Arial,sans-serif" font-size="17">Proudly presented to</text>
+  <text x="450" y="352" text-anchor="middle" fill="#312e81" font-family="Arial,sans-serif" font-size="30" font-weight="700">${escapeXml(certificate.holderName || certificate.holder_name || 'Certificate holder')}</text>
+  <text x="450" y="397" text-anchor="middle" fill="#64748b" font-family="Arial,sans-serif" font-size="16">Issued by ${escapeXml(certificate.issuerName || certificate.issuer_name || 'Certicheck issuer')} · ${escapeXml(date)}</text>
+  <path d="M52 434h796" stroke="#ddd6fe" stroke-width="2" />
+  <text x="60" y="470" fill="#475569" font-family="monospace" font-size="15">ID: ${escapeXml(certificate.certificateId || certificate.certificate_id)}</text>
+  <text x="840" y="470" text-anchor="end" fill="${statusColor}" font-family="Arial,sans-serif" font-size="15" font-weight="700">● ${status}</text>
+</svg>`;
+}
+
+function downloadMiniCertificate(certificate) {
+  const blob = new Blob([getMiniCertificateSvg(certificate)], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `certicheck-mini-certificate-${String(certificate.certificateId || certificate.certificate_id || 'certificate').replace(/[^a-zA-Z0-9_-]/g, '_')}.svg`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function getCertificateIssuanceSuccessMarkup(certificate, notification, warnings = []) {
+  const holderName = escapeCertificateMarkup(certificate.holderName || certificate.holder_name);
+  const certificateId = escapeCertificateMarkup(certificate.certificateId || certificate.certificate_id);
+  const certificateType = escapeCertificateMarkup(certificate.certificateType || certificate.certificate_type || 'Certificate');
+  const issuerName = escapeCertificateMarkup(certificate.issuerName || certificate.issuer_name || 'Certicheck issuer');
+  const issuedAt = certificate.issuedAt || certificate.issued_at || certificate.created_at;
+  const status = String(certificate.status || certificate.verification_status || 'valid').toLowerCase() === 'revoked' ? 'Revoked' : 'Valid';
+  const transaction = certificate.transaction || certificate.blockchainTransactionId || certificate.blockchain_transaction_id;
+  const ipfsCid = certificate.ipfsCid || certificate.ipfs_cid;
+  const ipfsSource = certificate.ipfsSource || certificate.ipfs_source;
+  const transactionMarkup = transaction
+    ? `<span class="celebration-break"><strong>Transaction:</strong> ${escapeCertificateMarkup(transaction)} · <a href="https://explorer.solana.com/tx/${encodeURIComponent(transaction)}?cluster=devnet" target="_blank" rel="noopener noreferrer">View on Solana Explorer</a></span>`
+    : '';
+  const ipfsMarkup = ipfsCid
+    ? `<span class="celebration-break"><strong>${ipfsSource === 'pinata' ? 'IPFS CID:' : 'IPFS record:'}</strong> ${ipfsSource === 'pinata' ? `<a href="https://gateway.pinata.cloud/ipfs/${encodeURIComponent(ipfsCid)}" target="_blank" rel="noopener noreferrer">${escapeCertificateMarkup(ipfsCid)}</a>` : escapeCertificateMarkup(ipfsCid)}</span>`
+    : '';
+  const emailMessage = getHolderNotificationMessage(notification);
+  const confetti = Array.from({ length: 28 }, (_, index) => `<span class="celebration-confetti-piece piece-${index % 7}"></span>`).join('');
+
+  return `<section class="issuance-celebration" aria-labelledby="issuanceCelebrationTitle">
+    <div class="celebration-scene" aria-hidden="true">
+      <span class="celebration-flare flare-one"></span>
+      <span class="celebration-flare flare-two"></span>
+      <span class="celebration-glitter"></span>
+      <div class="celebration-confetti">${confetti}</div>
+    </div>
+    <div class="issuance-celebration-content">
+      <div class="celebration-kicker"><span aria-hidden="true">✦</span> On-chain issuance complete</div>
+      <h3 id="issuanceCelebrationTitle">Congratulations, ${holderName}!</h3>
+      <p class="celebration-subtitle">Your ${certificateType} certificate is now issued.</p>
+      <div class="mini-certificate-preview" aria-label="Mini certificate preview">
+        <div class="mini-certificate-brand"><span class="mini-certificate-seal" aria-hidden="true">✓</span><span>Certicheck <small>Solana credential</small></span></div>
+        <div class="mini-certificate-heading">Certificate of Achievement</div>
+        <div class="mini-certificate-type">${certificateType}</div>
+        <div class="mini-certificate-recipient">Proudly presented to <strong>${holderName}</strong></div>
+        <div class="mini-certificate-issuer">Issued by ${issuerName}${issuedAt ? ` · ${escapeCertificateMarkup(new Date(issuedAt).toLocaleDateString())}` : ''}</div>
+        <div class="mini-certificate-footer"><span>ID: ${certificateId}</span><span class="mini-certificate-status">${status}</span></div>
+      </div>
+      <div class="celebration-actions">
+        <button class="btn-primary" type="button" data-download-mini-certificate>Download mini-certificate</button>
+      </div>
+      <p class="celebration-email-note">${escapeCertificateMarkup(emailMessage)}</p>
+      <div class="celebration-issuance-details">
+        <span><strong>Status:</strong> ${escapeCertificateMarkup(status)}</span>
+        ${issuedAt ? `<span><strong>Issued:</strong> ${escapeCertificateMarkup(new Date(issuedAt).toLocaleString())}</span>` : ''}
+        ${transactionMarkup}
+        ${ipfsMarkup}
+      </div>
+      ${warnings.length ? `<div class="issuance-warnings">${warnings.map((warning) => `<div class="alert alert-info">${escapeCertificateMarkup(warning)}</div>`).join('')}</div>` : ''}
+    </div>
+  </section>`;
+}
+
+function wireMiniCertificateDownload(container, certificate) {
+  container?.querySelector('[data-download-mini-certificate]')?.addEventListener('click', () => {
+    downloadMiniCertificate(certificate);
+  });
+}
+
 function getHolderNotificationMessage(notification) {
   if (notification?.sent) return 'The holder notification was sent by email.';
   if (notification?.mode === 'console') return 'Development mode: the holder email was logged to the backend console, not delivered.';
@@ -1348,16 +1503,7 @@ function renderRoleLandingHome() {
               </div>
             </form>
             <div id="issuerDashboardNotice" style="display:none;margin-top:10px;font-size:13px;color:var(--text-secondary);"></div>
-            <div id="issuerDashboardResult" style="margin-top:14px;">${latestIssuerResult ? `
-              <div class="alert alert-success" style="margin-bottom:0;">
-                <strong>${latestIssuerResult.title || 'Certificate issued successfully.'}</strong>
-                <div style="margin-top:12px;display:grid;gap:8px;font-size:13px;">
-                  <div><strong>Certificate ID:</strong> ${latestIssuerResult.certificateId || 'N/A'}</div>
-                  <div class="issuer-cid"><strong>${latestIssuerResult.ipfsSource === 'pinata' ? 'IPFS CID:' : 'Fallback ID:'}</strong> <span>${latestIssuerResult.ipfsCid || 'N/A'}</span></div>
-                  <div><strong>Transaction:</strong> ${latestIssuerResult.transaction || 'N/A'}</div>
-                </div>
-              </div>
-            ` : ''}</div>
+            <div id="issuerDashboardResult" style="margin-top:14px;">${latestIssuerResult ? getCertificateIssuanceSuccessMarkup(latestIssuerResult, latestIssuerResult.holderNotification) : ''}</div>
           </div>
 
           <div style="background:var(--bg-subtle);border:1px solid var(--border-light);border-radius:18px;padding:18px;margin-bottom:18px;">
@@ -1415,6 +1561,8 @@ function renderRoleLandingHome() {
         await handleWalletConnect(walletConnectBtn);
       };
     }
+    const savedIssuerResult = document.getElementById('issuerDashboardResult');
+    if (latestIssuerResult) wireMiniCertificateDownload(savedIssuerResult, latestIssuerResult);
 
     document.querySelectorAll('.revoke-certificate').forEach(button => {
       button.addEventListener('click', async () => {
@@ -1429,13 +1577,18 @@ function renderRoleLandingHome() {
           if (!token || !isVerifiedIssuer()) {
             throw new Error('Issuer approval required');
           }
+          const blockchainTransactionId = await revokeCertificateWithPhantomWallet(
+            certificateId,
+            reason || 'Revoked by issuer',
+            getConnectedWalletAddress()
+          );
           const response = await fetch(`${API_BASE_URL}/certificates/my-issued/${encodeURIComponent(certificateId)}/revoke`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${token}`
             },
-            body: JSON.stringify({ reason: reason || 'Revoked by issuer' })
+            body: JSON.stringify({ reason: reason || 'Revoked by issuer', blockchainTransactionId })
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || 'Revoke failed');
@@ -1543,22 +1696,11 @@ function renderRoleLandingHome() {
             issuerName: institution,
             issuerWallet: connectedWallet || '',
             metadata,
-            onChain: false
+            onChain: true
           };
 
-          const response = await fetch(`${API_BASE_URL}/certificates/issue`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`
-            },
-            body: JSON.stringify(payload)
-          });
-
-          let data = null;
-          try { data = await response.json(); } catch (e) { console.warn('Non-JSON response from issuance endpoint', e); }
-
-          if (!response.ok) throw new Error((data && (data.error || data.message)) || 'Certificate issuance failed');
+          if (!connectedWallet) throw new Error('Connect the approved issuer wallet before issuing on-chain.');
+          const data = await issueCertificateWithPhantomWallet(payload, token);
 
           const issued = data.certificate || {};
           const nextId = issued.certificate_id;
@@ -1567,33 +1709,25 @@ function renderRoleLandingHome() {
           const ipfsSource = issued.ipfs_source || 'fallback';
           const txSig = issued.blockchain_transaction_id || '';
           const issuedAt = issued.issued_at || issued.created_at;
-          setLastIssuerResult({
+          const successDetails = {
             title: 'Certificate issued successfully.',
             certificateId: nextId,
             ipfsCid,
             ipfsSource,
-            transaction: txSig || 'Not issued on-chain'
-          }, user);
+            transaction: txSig,
+            holderName,
+            holderEmail,
+            certificateType,
+            issuerName: institution,
+            issuedAt,
+            status: issued.status || 'valid',
+            holderNotification: data.holder_notification
+          };
+          setLastIssuerResult(successDetails, user);
 
           notice.style.display = 'none';
-          result.innerHTML = `
-            <div class="alert alert-success" style="margin-bottom:0;">
-              <strong>Certificate issued successfully.</strong>
-              <div style="margin-top:8px;font-size:13px;">${getHolderNotificationMessage(data.holder_notification)}</div>
-              <div style="margin-top:12px;display:grid;gap:8px;font-size:13px;">
-                <div><strong>Certificate ID:</strong> ${nextId}</div>
-              <div><strong>Status:</strong> ${String(issued.status || 'valid').toLowerCase() === 'revoked' ? 'Revoked' : 'Valid'}</div>
-              <div><strong>Issued:</strong> ${issuedAt ? new Date(issuedAt).toLocaleString() : '—'}</div>
-              ${ipfsCid ? `<div class="issuer-cid"><strong>${issued.ipfs_source === 'pinata' ? 'IPFS CID:' : 'Fallback ID:'}</strong> ${issued.ipfs_source === 'pinata' ? `<a href="https://gateway.pinata.cloud/ipfs/${encodeURIComponent(ipfsCid)}" target="_blank" rel="noopener noreferrer">${ipfsCid}</a>` : `<span>${ipfsCid}</span>`}</div>` : '<div>IPFS metadata is not available.</div>'}
-              ${issued.attachment_cid ? `<div><strong>Supporting file:</strong> ${issued.attachment_filename || 'Attachment'} ${issued.attachment_source === 'pinata' ? `<a href="https://gateway.pinata.cloud/ipfs/${encodeURIComponent(issued.attachment_cid)}" target="_blank" rel="noopener noreferrer">${issued.attachment_cid}</a>` : `${issued.attachment_cid} (fallback)`}</div>` : ''}
-              ${txSig ? `<div><strong>Transaction:</strong> ${txSig}</div>` : ''}
-              ${(data.warnings || []).map(warning => `<div class="alert alert-info">${warning}</div>`).join('')}
-              </div>
-              <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
-                <button type="button" class="btn-ghost" onclick="downloadCertificateArtifact({ certificateId: '${nextId}', certificateType: '${certificateType}', metadata: ${JSON.stringify(metadata).replace(/'/g, "&apos;")}})">Download certificate</button>
-              </div>
-            </div>
-          `;
+          result.innerHTML = getCertificateIssuanceSuccessMarkup(successDetails, data.holder_notification, data.warnings || []);
+          wireMiniCertificateDownload(result, successDetails);
           issuerDashboardForm.reset();
           try {
             await refreshIssuerDashboardCertificates(user);
@@ -1856,9 +1990,8 @@ async function verifyCertificate() {
     }
     await renderVerifyResult(data, certificateId);
   } catch (err) {
-    const demoData = getDemoCertificateData(certificateId);
     await renderVerifyResult(
-      demoData ? { success: true, certificate: demoData } : { success: false, status: 'not_found', error: 'Certificate verification is unavailable right now.' },
+      { success: false, status: 'unavailable', error: 'Certificate verification is temporarily unavailable. Please try again.' },
       certificateId
     );
   }
@@ -2365,10 +2498,15 @@ async function initIssuerDashboard() {
         const token = getAuthToken();
         try {
           if (!token || !isVerifiedIssuer()) throw new Error('Issuer approval required');
+          const blockchainTransactionId = await revokeCertificateWithPhantomWallet(
+            certId,
+            'Revoked via issuer dashboard',
+            getConnectedWalletAddress()
+          );
           const res = await fetch(`${API_BASE_URL}/certificates/my-issued/${encodeURIComponent(certId)}/revoke`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ reason: 'Revoked via issuer dashboard' })
+            body: JSON.stringify({ reason: 'Revoked via issuer dashboard', blockchainTransactionId })
           });
           const json = await res.json();
           if (!res.ok) throw new Error(json.error || 'Revoke failed');
@@ -2462,19 +2600,8 @@ async function initIssuerDashboard() {
         } : null
       };
 
-      const response = await fetch(`${API_BASE_URL}/certificates/issue`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "Certificate issuance failed");
-      }
+      payload.issuerWallet = getConnectedWalletAddress() || '';
+      const data = await issueCertificateWithPhantomWallet(payload, getAuthToken());
 
       const certificate = data.certificate || {};
       const certificateId = certificate.certificate_id || payload.certificateId;
@@ -2490,7 +2617,6 @@ async function initIssuerDashboard() {
       const txId = certificate.blockchain_transaction_id || 'Not issued on-chain';
       const issuedAt = certificate.issued_at || certificate.created_at || new Date().toISOString();
       const ipfsSource = certificate.ipfs_source || 'fallback';
-      const explorerLink = certificate.blockchainExplorerUrl ? `<a href="${certificate.blockchainExplorerUrl}" target="_blank" rel="noopener noreferrer">View on Solana Explorer</a>` : '';
 
       // Append to issuer certificate list in localStorage for dashboard rendering
       try {
@@ -2515,20 +2641,20 @@ async function initIssuerDashboard() {
         setIssuerIssuedCertificates(arr, user);
       } catch (e) { console.warn('Failed to store issued certificate locally', e); }
 
-      resultEl.innerHTML = `
-        <div class="alert alert-success">
-          <strong>Certificate issued successfully.</strong>
-          <div class="issuer-result-card" style="margin-top:12px;padding:14px;border:1px solid rgba(5,118,210,.12);border-radius:12px;">
-            <div><strong>ID:</strong> ${certificateId}</div>
-            <div><strong>Status:</strong> ${status}</div>
-            <div><strong>Issued:</strong> ${new Date(issuedAt).toLocaleString()}</div>
-            <div><strong>Transaction:</strong> ${txId}</div>
-            ${explorerLink ? `<div>${explorerLink}</div>` : ''}
-            ${certificate.ipfs_cid ? `<div class="issuer-cid"><strong>${ipfsSource === 'pinata' ? 'IPFS CID:' : 'Fallback ID:'}</strong> ${ipfsSource === 'pinata' ? `<a href="https://gateway.pinata.cloud/ipfs/${encodeURIComponent(certificate.ipfs_cid)}" target="_blank" rel="noopener noreferrer">${certificate.ipfs_cid}</a>` : `<span>${certificate.ipfs_cid}</span>`}</div>` : '<div>IPFS metadata is not available.</div>'}
-            ${(data.warnings || []).map(warning => `<div class="alert alert-info">${warning}</div>`).join('')}
-            <div>${getHolderNotificationMessage(data.holder_notification)}</div>
-          </div>
-        </div>`;
+      const successDetails = {
+        certificateId,
+        holderName: payload.holderName,
+        certificateType: payload.certificateType,
+        issuerName: payload.issuerName,
+        issuedAt,
+        status,
+        transaction: txId,
+        ipfsCid: certificate.ipfs_cid,
+        ipfsSource,
+        holderNotification: data.holder_notification
+      };
+      resultEl.innerHTML = getCertificateIssuanceSuccessMarkup(successDetails, data.holder_notification, data.warnings || []);
+      wireMiniCertificateDownload(resultEl, successDetails);
 
       // Refresh issuer list view if visible
       try { renderIssuerCertificatesList(); } catch (e) {}

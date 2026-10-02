@@ -1,9 +1,13 @@
 .env
 .env.*
 !.env.example
+.solana-devnet.json
 backend/.env
 backend/.env.*
 !backend/.env.example
 backend/src/data/demo-admins.json
+/solana-program/.anchor/
+/solana-program/target/
+/solana-program/test-ledger/
 solana-program/target/deploy/certicheck-keypair.json
 solana-program/target/deploy/certi_check_program-keypair.json

@@ -84,7 +84,7 @@
         <!-- Live preview links removed per request -->
 
         <h1 class="hero-title">
-          # Verify Any<br/>
+          Verify Any<br/>
           <span class="gradient-text">Certificate</span><br/>
           Instantly
         </h1>
@@ -656,7 +656,7 @@
       <div class="page-header">
         <div class="page-tag">Issuer Dashboard</div>
         <h1 class="page-title">Issue a <span class="gradient-text">Certificate</span></h1>
-        <p class="page-desc">Save a certificate in Certicheck, pin its metadata to IPFS when available, and optionally submit it on-chain.</p>
+        <p class="page-desc">Pin certificate metadata to IPFS, then issue it on Solana devnet with the approved issuer wallet.</p>
       </div>
 
       <div class="form-card">
@@ -708,13 +708,7 @@
             <label class="field-label" for="issuerWallet">Issuer Wallet</label>
             <input class="field-input font-mono" id="issuerWallet" placeholder="Optional wallet address" type="text"/>
           </div>
-          <div class="field field-checkbox">
-            <label class="field-label" for="issuerOnChain">
-              <input id="issuerOnChain" type="checkbox" style="margin-right:8px;vertical-align:middle;"/>
-              Issue on-chain (devnet/mainnet)
-            </label>
-            <p style="margin:6px 0 0 28px;color:var(--text-secondary);font-size:13px;">Enable this to submit the certificate to the deployed Anchor program.</p>
-          </div>
+          <p class="small-text">Issuance requires a connected Phantom wallet on devnet and an IPFS pinning service configured by the backend.</p>
           <div id="issuerError" style="color:var(--red);font-size:13px;margin-bottom:16px;display:none;"></div>
           <button class="btn-primary" id="issuerSubmitBtn" style="width:100%">Issue Certificate</button>
           <div id="issuerResult" style="margin-top:16px"></div>

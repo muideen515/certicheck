@@ -58,23 +58,19 @@ PINATA_JWT=
 # Solana
 SOLANA_ENABLE=true
 SOLANA_CLUSTER=devnet
-SOLANA_RPC_URL=
-SOLANA_KEYPAIR_PATH=~/.config/solana/id.json
-SOLANA_PAYER_SECRET=
-CERTIFICATE_PROGRAM_ID=
+SOLANA_RPC_URL=https://api.devnet.solana.com
+CERTIFICATE_PROGRAM_ID=4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob
 ```
 
 On first admin authentication, the backend seeds three individual admin accounts: `admin@certicheck.com`, `admin2@certicheck.com`, and `admin3@certicheck.com`. Their default password is `password`; change each account's password before exposing a deployment publicly. Admin names, avatars, and password changes are personal to each account. The Admin Dashboard provides email OTP recovery for an individual admin.
 
 Signup, login, and password reset accept valid email addresses from any domain. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, and `SMTP_PASS` in your deployment environment, or use `EMAIL_USER` and `EMAIL_PASSWORD` (also accepted as `EMAIL_PASS`) for the Gmail service transport. Set `EMAIL_FROM` to the same mailbox used to authenticate with SMTP. On Render, add these under the backend service's **Environment** settings (store passwords there, never in a tracked file), then redeploy. The backend verifies SMTP at startup and refuses to start in production if email is missing or cannot be verified; `/health` reports only whether SMTP is configured and verified. Application submissions remain recorded if the confirmation message cannot be sent, and the response reports `notification.emailSent: false`. Configure SPF/DKIM with your mail provider. Development mode logs OTPs to the backend console instead of sending email. Password-reset OTPs expire after 10 minutes, allow at most five attempts, and are consumed after a successful reset.
 
-With `PINATA_JWT` configured, certificate issuance pins the metadata JSON and any uploaded supporting file to Pinata, then stores each CID, gateway URI, source, and attachment filename on the certificate record. Without `PINATA_JWT`, metadata keeps a fallback hash marked with `ipfs_source: "fallback"` and no Pinata gateway URI; attachments remain unpinned and retain their filename. Metadata-pin errors are logged and surfaced as issuance warnings with source `pinata-failed`; the service does not substitute a fallback hash when configured Pinata metadata pinning fails. Attachment-only failures are recorded as `attachment_source: "pinata-failed"`. Never commit the JWT.
+With `PINATA_JWT` configured, approved issuers pin the complete certificate metadata and any supporting file before signing issuance with their connected Phantom wallet. On-chain issuance is stopped if Pinata returns a fallback hash or fails to pin; a fallback hash is never treated as an IPFS CID. The backend verifies the resulting certificate account, instruction arguments, issuer signature, and confirmed transaction before recording it. After successful issuance, the issuer dashboard displays a celebratory mini-certificate preview and download; the holder notification email includes the same mini-certificate as an SVG attachment. Never commit the JWT.
 
-Without `SOLANA_ENABLE=true`, `SOLANA_KEYPAIR_PATH` or `SOLANA_PAYER_SECRET`, and a deployed `CERTIFICATE_PROGRAM_ID`, on-chain issuance is disabled and the Solana test is skipped.
+The configured devnet program ID is `4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob`. Set `SOLANA_ENABLE=true`, `SOLANA_CLUSTER=devnet`, `SOLANA_RPC_URL=https://api.devnet.solana.com`, and `CERTIFICATE_PROGRAM_ID` in the backend environment. Issuance and revocation are signed by the approved issuer wallet in the browser; the backend does not need a copy of an issuer's private key. Confirm that the program is deployed and upgraded before enabling this setting in a production backend.
 
-If you want on-chain certificate issuance and revocation, set `SOLANA_ENABLE=true` and provide either `SOLANA_KEYPAIR_PATH` or `SOLANA_PAYER_SECRET`.
-
-If you have deployed the Anchor certificate program, set `CERTIFICATE_PROGRAM_ID` to the deployed program ID. This value should match the `declare_id!` value in `solana-program/src/lib.rs` and is used by backend monitoring and Solana integration. When configured, certificate verification will first query the deployed Anchor program state on Solana for matching certificate accounts, then fall back to local or DB records if the on-chain lookup returns nothing.
+When on-chain mode is enabled, public certificate verification reads the deployed Anchor account first and uses its status as authoritative. Database metadata supplements the chain record but cannot override its valid/revoked state. RPC failures are returned as verification errors; the backend does not claim a database-only record is verified on-chain.
 
 ### 4. Initialize Database
 

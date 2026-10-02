@@ -2,7 +2,12 @@ const express = require('express');
 const pool = require('../db/connection');
 const { verifyToken, verifyIssuer, logAudit } = require('../middleware/auth');
 const { pinJsonToIpfs, pinFileToIpfs } = require('../services/ipfsService');
-const { issueCertificateOnChain, revokeCertificateOnChain, lookupCertificateOnChain, getTransactionStatus } = require('../services/solanaService');
+const {
+  lookupCertificateOnChain,
+  verifyIssuedCertificateOnChain,
+  verifyProgramTransaction,
+  getTransactionStatus
+} = require('../services/solanaService');
 const { getDemoCertificate } = require('../services/demoCertificateService');
 const { CertificateStore } = require('../services/certificateStore');
 const EmailService = require('../services/emailService');
@@ -147,6 +152,12 @@ async function safeQuery(text, params = []) {
 
 router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
   try {
+    if (process.env.SOLANA_ENABLE === 'true') {
+      return res.status(409).json({
+        error: 'On-chain issuance must be signed by the approved issuer wallet. Use the IPFS pin and wallet-signed issuance flow.'
+      });
+    }
+
     const {
       certificateId,
       holderName,
@@ -276,26 +287,8 @@ router.post('/issue', verifyToken, verifyIssuer, async (req, res) => {
         : 'Certificate was saved, but IPFS metadata could not be pinned.');
     }
 
-    if (ipfsCid && ipfsSource === 'pinata' && (onChain === true || process.env.SOLANA_ENABLE === 'true')) {
-      try {
-        blockchainTransactionId = await issueCertificateOnChain({
-          certificateId: trimmedCertificateId,
-          ipfsCid,
-          certificateType: trimmedCertificateType,
-          issuerWallet: trimmedIssuerWallet,
-          holderWallet: null,
-          holderName: trimmedHolderName,
-          holderEmail: trimmedHolderEmail,
-          issuerName: trimmedIssuerName,
-          metadataHash: ipfsCid
-        });
-        issuancePath = process.env.CERTIFICATE_PROGRAM_ID ? 'onchain' : 'memo';
-      } catch (chainErr) {
-        console.warn('Certificate issuance transaction failed, recording database/IPFS only:', chainErr.message);
-        warnings.push('Certificate saved, but on-chain issuance failed.');
-      }
-    } else if ((onChain === true || process.env.SOLANA_ENABLE === 'true') && ipfsSource !== 'pinata') {
-      warnings.push('On-chain issuance was skipped because a Pinata-pinned metadata CID is unavailable.');
+    if (onChain === true) {
+      warnings.push('This endpoint does not issue on-chain. Enable Solana mode and use the issuer wallet-signed flow.');
     }
 
     if (dbCertificate) {
@@ -440,6 +433,7 @@ router.post('/pin', verifyToken, verifyIssuer, async (req, res) => {
       cid: ipfsCid,
       uri: pinResult.uri || null,
       source: pinResult.source || 'fallback',
+      metadata: prepared.metadata,
       attachment: prepared.attachment,
       warnings: prepared.warning ? [prepared.warning] : []
     });
@@ -459,6 +453,7 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
       certificateType,
       issuerName,
       issuerWallet,
+      holderWallet,
       ipfsCid,
       ipfsUri: suppliedIpfsUri,
       ipfsSource: suppliedIpfsSource,
@@ -467,23 +462,63 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
     } = req.body;
 
     const trimmedCertificateId = typeof certificateId === 'string' ? certificateId.trim() : '';
-    if (!trimmedCertificateId || !holderName || !holderEmail || !EmailService.isValidEmail(holderEmail) || !certificateType || !issuerName || !ipfsCid || !blockchainTransactionId) {
+    if (!trimmedCertificateId || !holderName || !holderEmail || !EmailService.isValidEmail(holderEmail) || !certificateType || !issuerName || !issuerWallet || !ipfsCid || !blockchainTransactionId) {
       return res.status(400).json({ error: 'Missing required fields for client-signed issuance' });
+    }
+
+    if (process.env.SOLANA_ENABLE !== 'true') {
+      return res.status(409).json({ error: 'On-chain certificate issuance is not enabled on this backend.' });
+    }
+    if (req.user.issuer_wallet && req.user.issuer_wallet !== issuerWallet) {
+      return res.status(403).json({ error: 'The connected wallet does not match the approved issuer wallet.' });
     }
 
     const normalizedMetadata = typeof metadata === 'object' && metadata !== null ? metadata : {};
     const attachmentError = getCertificateAttachmentError(normalizedMetadata);
     if (attachmentError) return res.status(400).json({ error: attachmentError });
     const ipfsSource = suppliedIpfsSource === 'pinata' ? 'pinata' : 'fallback';
+    if (ipfsSource !== 'pinata') {
+      return res.status(400).json({ error: 'Certificate metadata must be pinned to IPFS before on-chain issuance.' });
+    }
     const ipfsUri = ipfsSource === 'pinata'
       ? (suppliedIpfsUri || `https://gateway.pinata.cloud/ipfs/${encodeURIComponent(ipfsCid)}`)
       : null;
-    const preparedAttachment = await pinCertificateAttachment(normalizedMetadata);
-    const storedMetadata = preparedAttachment.metadata;
-    const attachment = preparedAttachment.attachment || {};
-    const warnings = preparedAttachment.warning ? [preparedAttachment.warning] : [];
+    const storedMetadata = getPublicCertificateMetadata(normalizedMetadata);
+    const attachment = storedMetadata.attachment && typeof storedMetadata.attachment === 'object'
+      ? storedMetadata.attachment
+      : {};
+    const warnings = [];
 
     const issuedAt = new Date().toISOString();
+    const [chainCertificate, transactionStatus] = await Promise.all([
+      verifyIssuedCertificateOnChain({
+        certificateId: trimmedCertificateId,
+        issuerWallet,
+        holderWallet,
+        holderName,
+        certificateType,
+        ipfsCid
+      }),
+      getTransactionStatus(blockchainTransactionId)
+    ]);
+    if (!chainCertificate || chainCertificate.verification_status !== 'valid') {
+      return res.status(409).json({ error: 'The submitted certificate does not exist as a valid certificate on-chain.' });
+    }
+    if (!transactionStatus || transactionStatus.err) {
+      return res.status(409).json({ error: 'The issuance transaction is not confirmed successfully on Solana.' });
+    }
+    await verifyProgramTransaction({
+      signature: blockchainTransactionId,
+      instructionName: 'issueCertificate',
+      expectedArgs: [
+        ['certId', trimmedCertificateId],
+        ['holderName', holderName],
+        ['certType', certificateType],
+        ['metadataUri', `ipfs://${ipfsCid}`],
+        ['metadataHash', ipfsCid]
+      ],
+      issuerWallet
+    });
 
     let dbCertificate = null;
     try {
@@ -505,7 +540,7 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
           ipfsUri,
           ipfsSource,
           attachment.cid || null,
-          attachment.filename || null,
+          attachment.filename || attachment.name || null,
           attachment.uri || null,
           attachment.source || null,
           blockchainTransactionId,
@@ -544,7 +579,7 @@ router.post('/issue-client-signed', verifyToken, verifyIssuer, async (req, res) 
         holderEmail,
         certificateType,
         issuerName,
-        issuerWallet: issuerWallet || null,
+        issuerWallet:         issuerWallet,
         ipfsCid,
         ipfsUri,
         ipfsSource,
@@ -731,20 +766,36 @@ async function revokeIssuerCertificate(req, res) {
       return res.status(404).json({ error: 'Certificate not found' });
     }
 
-    let blockchainTransactionId = process.env.SOLANA_ENABLE === 'true'
-      ? null
-      : suppliedTransactionId || null;
-    if (process.env.SOLANA_ENABLE === 'true' && process.env.CERTIFICATE_PROGRAM_ID) {
+    let blockchainTransactionId = suppliedTransactionId || null;
+    if (process.env.SOLANA_ENABLE === 'true') {
+      const issuerWallet = certificate.issuer_wallet || req.user.issuer_wallet;
+      if (!issuerWallet || !suppliedTransactionId) {
+        return res.status(400).json({ error: 'Connect the issuing wallet and submit its on-chain revocation transaction first.' });
+      }
       try {
-        blockchainTransactionId = await revokeCertificateOnChain({
-          certificateId,
-          issuerWallet: certificate.issuer_wallet || req.user.issuer_wallet,
-          reason
+        const [chainCertificate, transactionStatus] = await Promise.all([
+          lookupCertificateOnChain(certificateId, issuerWallet),
+          getTransactionStatus(suppliedTransactionId)
+        ]);
+        if (
+          !chainCertificate ||
+          chainCertificate.verification_status !== 'revoked' ||
+          chainCertificate.revoke_reason !== reason ||
+          !transactionStatus ||
+          transactionStatus.err
+        ) {
+          return res.status(409).json({ error: 'The supplied revocation transaction is not reflected on-chain.' });
+        }
+        await verifyProgramTransaction({
+          signature: suppliedTransactionId,
+          instructionName: 'revokeCertificate',
+          expectedArgs: [['reason', reason]],
+          issuerWallet
         });
       } catch (chainErr) {
-        console.error('On-chain issuer revoke failed; database status remains unchanged:', chainErr.message);
+        console.error('On-chain issuer revoke validation failed; database status remains unchanged:', chainErr.message);
         return res.status(502).json({
-          error: 'On-chain revocation failed. The certificate remains valid on-chain; please retry.'
+          error: 'On-chain revocation could not be verified. The database status remains unchanged.'
         });
       }
     }
@@ -851,7 +902,8 @@ router.put('/revoke/:certificateId', verifyToken, verifyIssuer, revokeIssuerCert
 router.get('/lookup/:certificateId', async (req, res) => {
   try {
     const { certificateId } = req.params;
-
+    let storedCertificate = null;
+    let databaseError = null;
     try {
       const result = await safeQuery(
         `SELECT certificate_id, certificate_type, status, ipfs_cid, ipfs_uri, ipfs_source,
@@ -861,39 +913,78 @@ router.get('/lookup/:certificateId', async (req, res) => {
          FROM certificates WHERE certificate_id = $1 LIMIT 1`,
         [certificateId]
       );
-      if (result.rows[0]) {
-        const certificate = result.rows[0];
-        return res.json({
-          success: true,
-          certificate: {
-            ...certificate,
-            metadata: getPublicCertificateMetadata(certificate.metadata),
-            verification_status: certificate.status
-          },
-          status: certificate.status,
-          onChain: Boolean(certificate.blockchain_transaction_id),
-          blockchainTransactionStatus: await safeTransactionStatus(certificate.blockchain_transaction_id),
-          verifiedAt: certificate.issued_at
-        });
-      }
+      storedCertificate = result.rows[0] || null;
     } catch (dbErr) {
+      databaseError = dbErr;
       console.warn('Certificate lookup in certificates table failed:', dbErr.message);
     }
 
-    try {
+    const requireOnChain = process.env.SOLANA_ENABLE === 'true' ||
+      Boolean(storedCertificate?.blockchain_transaction_id);
+    if (requireOnChain) {
       const onChainCertificate = await lookupCertificateOnChain(certificateId);
-      if (onChainCertificate) {
-        return res.json({
-          success: true,
-          certificate: onChainCertificate,
-          status: onChainCertificate.verification_status,
-          onChain: true,
-          blockchainTransactionStatus: null,
-          verifiedAt: new Date(onChainCertificate.issued_at * 1000).toISOString()
+      if (!onChainCertificate) {
+        return res.status(404).json({
+          success: false,
+          status: 'not_found',
+          error: 'Certificate is not present in the deployed Solana program.'
         });
       }
-    } catch (chainErr) {
-      console.warn('On-chain lookup failed, falling back to local/DB:', chainErr.message);
+
+      const status = onChainCertificate.verification_status;
+      const certificate = {
+        ...(storedCertificate || {}),
+        ...onChainCertificate,
+        certificate_type: onChainCertificate.cert_type,
+        status,
+        verification_status: status,
+        ipfs_cid: onChainCertificate.metadata_uri?.startsWith('ipfs://')
+          ? onChainCertificate.metadata_uri.slice('ipfs://'.length)
+          : storedCertificate?.ipfs_cid || null,
+        metadata: getPublicCertificateMetadata(storedCertificate?.metadata)
+      };
+      return res.json({
+        success: true,
+        certificate,
+        status,
+        onChain: true,
+        blockchainTransactionStatus: await safeTransactionStatus(storedCertificate?.blockchain_transaction_id),
+        verifiedAt: new Date(onChainCertificate.issued_at * 1000).toISOString()
+      });
+    }
+
+    if (storedCertificate) {
+      return res.json({
+        success: true,
+        certificate: {
+          ...storedCertificate,
+          metadata: getPublicCertificateMetadata(storedCertificate.metadata),
+          verification_status: storedCertificate.status
+        },
+        status: storedCertificate.status,
+        onChain: false,
+        blockchainTransactionStatus: null,
+        verifiedAt: storedCertificate.issued_at
+      });
+    }
+
+    if (databaseError && process.env.DEMO_MODE !== 'true') {
+      try {
+        const onChainCertificate = await lookupCertificateOnChain(certificateId);
+        if (onChainCertificate) {
+          return res.json({
+            success: true,
+            certificate: onChainCertificate,
+            status: onChainCertificate.verification_status,
+            onChain: true,
+            blockchainTransactionStatus: null,
+            verifiedAt: new Date(onChainCertificate.issued_at * 1000).toISOString()
+          });
+        }
+      } catch (chainErr) {
+        console.error('On-chain lookup failed while the database is unavailable:', chainErr.message);
+        return res.status(503).json({ success: false, error: 'Certificate verification is temporarily unavailable' });
+      }
     }
 
     const demoCertificate = getDemoCertificate(certificateId);
