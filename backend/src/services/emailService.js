@@ -9,6 +9,7 @@ function configuredSmtpUser() {
 // Email service for sending OTPs and notification emails
 class EmailService {
   static transporter = null;
+  static smtpVerified = false;
   static memoryStore = new Map(); // For testing and development reference
 
   /**
@@ -110,10 +111,12 @@ class EmailService {
   }
 
   static async verifyTransporter() {
+    this.smtpVerified = false;
     try {
       this.initTransporter();
       if (this.getConfigurationStatus().mode !== 'smtp') return false;
       await this.transporter.verify();
+      this.smtpVerified = true;
       console.log('✓ EmailService: SMTP connection verified and ready to send messages.');
       return true;
     } catch (err) {
@@ -122,6 +125,17 @@ class EmailService {
         : 'SMTP connection verification failed. Check email configuration and provider connectivity.';
       console.error(`EmailService configuration error: ${message}`);
       return false;
+    }
+  }
+
+  static getReadiness() {
+    try {
+      return {
+        configured: this.getConfigurationStatus().mode === 'smtp',
+        verified: this.smtpVerified
+      };
+    } catch {
+      return { configured: false, verified: false };
     }
   }
 
@@ -267,7 +281,7 @@ class EmailService {
         html
       });
     } catch (err) {
-      console.error('Error sending application received email:', err);
+      console.error('Error sending application received email.');
       return null;
     }
   }

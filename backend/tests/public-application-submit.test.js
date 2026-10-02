@@ -10,6 +10,7 @@ const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'certicheck-applications-'
 const applicationEmails = [];
 const originalSendApplicationReceived = EmailService.sendApplicationReceived;
 const originalSendApplicationDecision = EmailService.sendApplicationDecision;
+const originalGetConfigurationStatus = EmailService.getConfigurationStatus;
 
 async function startServer() {
   const app = require('../src/server');
@@ -26,6 +27,7 @@ test.before(async () => {
     applicationEmails.push({ type: 'received', args });
     return { messageId: 'test-received' };
   };
+  EmailService.getConfigurationStatus = () => ({ mode: 'smtp' });
   EmailService.sendApplicationDecision = async (...args) => {
     applicationEmails.push({ type: 'decision', args });
     return { messageId: 'test-decision' };
@@ -37,6 +39,7 @@ test.after(async () => {
   if (server) await new Promise(resolve => server.close(resolve));
   EmailService.sendApplicationReceived = originalSendApplicationReceived;
   EmailService.sendApplicationDecision = originalSendApplicationDecision;
+  EmailService.getConfigurationStatus = originalGetConfigurationStatus;
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -63,6 +66,7 @@ test('public application submissions are visible to admin review queue', async (
   const submitData = await submitResponse.json();
   assert.equal(submitResponse.status, 201, `Unexpected submit status: ${JSON.stringify(submitData)}`);
   assert.ok(submitData.success, `Submission should succeed: ${JSON.stringify(submitData)}`);
+  assert.equal(submitData.notification.emailSent, true);
   assert.ok(applicationEmails.some(email =>
     email.type === 'received' && email.args[0] === 'ada@acme.edu'
   ), 'Successful submission should send a receipt to the applicant contact email');
@@ -101,6 +105,7 @@ test('public application submissions do not require a use case or wallet address
   const data = await response.json();
   assert.equal(response.status, 201, `Unexpected submit status: ${JSON.stringify(data)}`);
   assert.ok(data.success, `Submission should succeed: ${JSON.stringify(data)}`);
+  assert.equal(data.notification.emailSent, true);
 });
 
 test('admin dashboard reflects approved applications in demo mode', async () => {

@@ -63,13 +63,18 @@ router.post('/submit', async (req, res) => {
       userId, orgName, orgType, website, contactName, contactEmail, generatedEmail, contactRole, volume, useCase, wallet
     );
 
-    await EmailService.sendApplicationReceived(contactEmail, contactName, orgName);
+    const emailResult = await EmailService.sendApplicationReceived(contactEmail, contactName, orgName);
+    const emailSent = EmailService.getConfigurationStatus().mode === 'smtp' && Boolean(emailResult);
+    if (!emailSent) {
+      console.error('Application confirmation email was not delivered.');
+    }
 
     await logAudit(userId, 'APPLICATION_SUBMIT', 'application', app.id, 'success');
 
     res.status(201).json({
       success: true,
       message: 'Application submitted successfully',
+      notification: { emailSent },
       application: { ...app, generated_email: app.generated_email || generatedEmail }
     });
   } catch (err) {

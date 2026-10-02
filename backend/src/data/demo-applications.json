@@ -1019,5 +1019,28 @@
     "processed_by_admin_profile_picture_url": null,
     "action_type": "REJECTED",
     "processed_at": "2026-10-01T19:20:14.807Z"
+  },
+  {
+    "id": "demo-app-1790922103272-0w47oi",
+    "issuer_id": 1,
+    "organization_name": "tt",
+    "organization_type": "college",
+    "organization_website": "",
+    "contact_name": "ff",
+    "contact_email": "muideen515@gmail.com",
+    "generated_email": "muideen515@gmail.com",
+    "contact_role": "Founder",
+    "certificate_volume": "101 – 1,000 certificates",
+    "use_case": "",
+    "wallet_address": "",
+    "status": "pending",
+    "submitted_at": "2026-10-02T06:21:43.272Z",
+    "reviewed_at": null,
+    "reviewer_id": null,
+    "processed_by_admin_id": null,
+    "processed_by_admin_name": null,
+    "processed_by_admin_profile_picture_url": null,
+    "action_type": null,
+    "processed_at": null
   }
 ]

@@ -238,11 +238,13 @@ test('startup transport verification reports success and sanitizes provider erro
   try {
     EmailService.transporter = { verify: async () => true };
     assert.equal(await EmailService.verifyTransporter(), true);
+    assert.equal(EmailService.getReadiness().verified, true);
     assert.match(logs[0], /SMTP connection verified/);
 
     const secretBearingError = new Error('authentication failed for secret@example.org with raw-password');
     EmailService.transporter = { verify: async () => { throw secretBearingError; } };
     assert.equal(await EmailService.verifyTransporter(), false);
+    assert.equal(EmailService.getReadiness().verified, false);
     assert.match(errors[0], /SMTP connection verification failed/);
     assert.equal(errors[0].includes('raw-password'), false);
   } finally {

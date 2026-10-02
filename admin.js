@@ -32,7 +32,7 @@ function startAdminDashboardPolling() {
     if (isAdminLoggedIn()) {
       loadAdminDashboard().catch(() => {});
     }
-  }, 15000);
+  }, 5000);
 }
 
 function stopAdminDashboardPolling() {
