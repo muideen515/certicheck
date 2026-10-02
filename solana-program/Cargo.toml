@@ -5,6 +5,7 @@ description = "Anchor-based Solana certificate issuance and revocation program"
 edition = "2021"
 
 [lib]
+name = "certi_check"
 crate-type = ["cdylib", "lib"]
 
 [features]

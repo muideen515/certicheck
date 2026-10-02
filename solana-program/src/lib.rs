@@ -3,6 +3,15 @@ use anchor_lang::prelude::*;
 
 declare_id!("4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob");
 
+const MAX_ISSUER_NAME_LEN: usize = 128;
+const MAX_ISSUER_URI_LEN: usize = 200;
+const MAX_CERT_ID_LEN: usize = 32;
+const MAX_HOLDER_NAME_LEN: usize = 128;
+const MAX_CERT_TYPE_LEN: usize = 128;
+const MAX_METADATA_URI_LEN: usize = 200;
+const MAX_METADATA_HASH_LEN: usize = 128;
+const MAX_REVOCATION_REASON_LEN: usize = 256;
+
 #[program]
 pub mod certi_check {
     use super::*;
@@ -12,6 +21,9 @@ pub mod certi_check {
         name: String,
         uri: String,
     ) -> Result<()> {
+        require!(name.len() <= MAX_ISSUER_NAME_LEN, ErrorCode::IssuerNameTooLong);
+        require!(uri.len() <= MAX_ISSUER_URI_LEN, ErrorCode::IssuerUriTooLong);
+
         let issuer = &mut ctx.accounts.issuer;
         issuer.authority = ctx.accounts.authority.key();
         issuer.name = name;
@@ -30,6 +42,13 @@ pub mod certi_check {
         metadata_uri: String,
         metadata_hash: String,
     ) -> Result<()> {
+        require!(!cert_id.is_empty(), ErrorCode::EmptyCertificateId);
+        require!(cert_id.len() <= MAX_CERT_ID_LEN, ErrorCode::CertificateIdTooLong);
+        require!(holder_name.len() <= MAX_HOLDER_NAME_LEN, ErrorCode::HolderNameTooLong);
+        require!(cert_type.len() <= MAX_CERT_TYPE_LEN, ErrorCode::CertificateTypeTooLong);
+        require!(metadata_uri.len() <= MAX_METADATA_URI_LEN, ErrorCode::MetadataUriTooLong);
+        require!(metadata_hash.len() <= MAX_METADATA_HASH_LEN, ErrorCode::MetadataHashTooLong);
+
         let issuer = &ctx.accounts.issuer;
         require!(issuer.is_active, ErrorCode::InactiveIssuer);
 
@@ -52,7 +71,7 @@ pub mod certi_check {
         issuer.cert_count = issuer
             .cert_count
             .checked_add(1)
-            .unwrap_or(issuer.cert_count);
+            .ok_or(ErrorCode::CertificateCountOverflow)?;
         Ok(())
     }
 
@@ -62,7 +81,7 @@ pub mod certi_check {
         let cert = &mut ctx.accounts.certificate;
         require_keys_eq!(cert.issuer, issuer.key(), ErrorCode::UnauthorizedRevocation);
         require!(cert.status == 0, ErrorCode::AlreadyRevoked);
-        require!(reason.len() <= 256, ErrorCode::RevocationReasonTooLong);
+        require!(reason.len() <= MAX_REVOCATION_REASON_LEN, ErrorCode::RevocationReasonTooLong);
 
         cert.status = 1;
         cert.is_revoked = true;
@@ -117,7 +136,12 @@ pub struct InitializeIssuer<'info> {
 #[derive(Accounts)]
 #[instruction(cert_id: String, holder_name: String, cert_type: String, metadata_uri: String, metadata_hash: String)]
 pub struct IssueCertificate<'info> {
-    #[account(mut, has_one = authority)]
+    #[account(
+        mut,
+        has_one = authority,
+        seeds = [b"issuer", authority.key().as_ref()],
+        bump = issuer.bump,
+    )]
     pub issuer: Account<'info, IssuerProfile>,
     /// CHECK: holder public key is recorded but does not need to sign for issuance
     pub holder: AccountInfo<'info>,
@@ -136,9 +160,19 @@ pub struct IssueCertificate<'info> {
 
 #[derive(Accounts)]
 pub struct RevokeCertificate<'info> {
-    #[account(mut, has_one = issuer)]
+    #[account(
+        mut,
+        has_one = issuer,
+        seeds = [b"certificate", issuer.key().as_ref(), certificate.cert_id.as_bytes()],
+        bump = certificate.bump,
+    )]
     pub certificate: Account<'info, CertificateAccount>,
-    #[account(mut, has_one = authority)]
+    #[account(
+        mut,
+        has_one = authority,
+        seeds = [b"issuer", authority.key().as_ref()],
+        bump = issuer.bump,
+    )]
     pub issuer: Account<'info, IssuerProfile>,
     #[account(mut)]
     pub authority: Signer<'info>,
@@ -146,6 +180,24 @@ pub struct RevokeCertificate<'info> {
 
 #[error_code]
 pub enum ErrorCode {
+    #[msg("Issuer name cannot exceed 128 bytes")]
+    IssuerNameTooLong,
+    #[msg("Issuer metadata URI cannot exceed 200 bytes")]
+    IssuerUriTooLong,
+    #[msg("Certificate ID cannot be empty")]
+    EmptyCertificateId,
+    #[msg("Certificate ID cannot exceed 32 bytes")]
+    CertificateIdTooLong,
+    #[msg("Holder name cannot exceed 128 bytes")]
+    HolderNameTooLong,
+    #[msg("Certificate type cannot exceed 128 bytes")]
+    CertificateTypeTooLong,
+    #[msg("Metadata URI cannot exceed 200 bytes")]
+    MetadataUriTooLong,
+    #[msg("Metadata hash cannot exceed 128 bytes")]
+    MetadataHashTooLong,
+    #[msg("Issuer certificate counter overflow")]
+    CertificateCountOverflow,
     #[msg("Certificate is already revoked")]
     AlreadyRevoked,
     #[msg("Issuer account is not active")]

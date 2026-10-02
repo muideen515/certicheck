@@ -178,6 +178,7 @@ async function verifyIssuer(req, res, next) {
     req.user.userType = user.user_type;
     req.user.is_active = user.is_active;
     req.user.issuer_status = user.issuer_status;
+    req.user.issuer_wallet = user.issuer_wallet;
     next();
   } catch (err) {
     console.error('Issuer verification failed:', err.message);

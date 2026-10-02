@@ -6,6 +6,52 @@ function configuredSmtpUser() {
   return process.env.SMTP_USER || process.env.EMAIL_USER;
 }
 
+function escapeMarkup(value) {
+  return String(value ?? '—').replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[char]);
+}
+
+function buildMiniCertificateSvg({ holderName, certificateId, certificateType, issuerName, issuedAt }) {
+  const holder = escapeMarkup(holderName || 'Certificate holder');
+  const id = escapeMarkup(certificateId);
+  const type = escapeMarkup(certificateType || 'Certificate');
+  const issuer = escapeMarkup(issuerName || 'Certicheck issuer');
+  const date = escapeMarkup(issuedAt ? new Date(issuedAt).toLocaleDateString('en', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC'
+  }) : 'Date not provided');
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520" role="img" aria-labelledby="title description">
+  <title id="title">Certicheck mini certificate for ${holder}</title>
+  <desc id="description">${type}, issued to ${holder} by ${issuer}.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff" /><stop offset="1" stop-color="#f4f0ff" /></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7c3aed" /><stop offset="1" stop-color="#4338ca" /></linearGradient>
+  </defs>
+  <rect width="900" height="520" rx="32" fill="#ede9fe" />
+  <rect x="18" y="18" width="864" height="484" rx="25" fill="url(#paper)" stroke="#7c3aed" stroke-width="3" />
+  <path d="M52 58h796" stroke="#ddd6fe" stroke-width="2" />
+  <circle cx="92" cy="100" r="31" fill="url(#accent)" />
+  <path d="M78 100 88 110 107 87" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+  <text x="140" y="94" fill="#312e81" font-family="Arial,sans-serif" font-size="18" font-weight="700" letter-spacing="3">CERTICHECK · SOLANA CREDENTIAL</text>
+  <text x="450" y="190" text-anchor="middle" fill="#6d28d9" font-family="Arial,sans-serif" font-size="15" font-weight="700" letter-spacing="5">CERTIFICATE OF ACHIEVEMENT</text>
+  <text x="450" y="252" text-anchor="middle" fill="#1e1b4b" font-family="Arial,sans-serif" font-size="34" font-weight="700">${type}</text>
+  <text x="450" y="302" text-anchor="middle" fill="#64748b" font-family="Arial,sans-serif" font-size="17">Proudly presented to</text>
+  <text x="450" y="352" text-anchor="middle" fill="#312e81" font-family="Arial,sans-serif" font-size="30" font-weight="700">${holder}</text>
+  <text x="450" y="397" text-anchor="middle" fill="#64748b" font-family="Arial,sans-serif" font-size="16">Issued by ${issuer} · ${date}</text>
+  <path d="M52 434h796" stroke="#ddd6fe" stroke-width="2" />
+  <text x="60" y="470" fill="#475569" font-family="monospace" font-size="15">ID: ${id}</text>
+  <text x="840" y="470" text-anchor="end" fill="#059669" font-family="Arial,sans-serif" font-size="15" font-weight="700">● VALID</text>
+</svg>`;
+}
+
 // Email service for sending OTPs and notification emails
 class EmailService {
   static transporter = null;
@@ -323,13 +369,7 @@ class EmailService {
     const to = String(holderEmail || '').trim().toLowerCase();
     if (!this.isValidEmail(to)) return { success: false, sent: false, error: 'A valid holder email is required' };
 
-    const escapeHtml = value => String(value ?? '—').replace(/[&<>"']/g, char => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;'
-    })[char]);
+    const escapeHtml = escapeMarkup;
     const metadataRows = Object.entries(metadata && typeof metadata === 'object' ? metadata : {})
       .filter(([key, value]) => !['attachment', 'media', 'dataUrl', 'imageData', 'generatedBy'].includes(key) && (value === null || ['string', 'number', 'boolean'].includes(typeof value)))
       .slice(0, 16)
@@ -346,6 +386,18 @@ class EmailService {
           contentType: String(supportingFile.type || attachmentMatch[1]).replace(/[^a-zA-Z0-9!#$&^_.+-/]/g, '')
         }]
       : [];
+    const miniCertificateSvg = buildMiniCertificateSvg({
+      holderName,
+      certificateId,
+      certificateType,
+      issuerName,
+      issuedAt
+    });
+    attachments.push({
+      filename: `certicheck-mini-certificate-${String(certificateId || 'credential').replace(/[^a-zA-Z0-9_-]/g, '_')}.svg`,
+      content: Buffer.from(miniCertificateSvg),
+      contentType: 'image/svg+xml'
+    });
     const subject = `Certificate issued: ${String(certificateType || 'Certificate')}`;
     const html = `
       <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;color:#0f172a;line-height:1.55">
@@ -353,6 +405,15 @@ class EmailService {
           <h2 style="margin:0 0 8px;color:#312e81">Your certificate has been issued</h2>
           <p>Hello ${escapeHtml(holderName)},</p>
           <p>${escapeHtml(issuerName)} has issued you a ${escapeHtml(certificateType)} certificate.</p>
+          <div style="margin:20px 0;padding:22px 16px;border:2px solid #7c3aed;border-radius:16px;background:linear-gradient(135deg,#fff 0%,#f4f0ff 100%);text-align:center">
+            <div style="font-size:11px;font-weight:700;letter-spacing:3px;color:#6d28d9">CERTICHECK · SOLANA CREDENTIAL</div>
+            <div style="margin-top:12px;font-size:21px;font-weight:700;color:#312e81">${escapeHtml(certificateType || 'Certificate')}</div>
+            <div style="margin-top:6px;color:#64748b;font-size:13px">Proudly presented to</div>
+            <div style="margin-top:5px;font-size:19px;font-weight:700;color:#1e1b4b">${escapeHtml(holderName)}</div>
+            <div style="margin-top:13px;font-size:12px;color:#475569">${escapeHtml(issuerName)} · ${escapeHtml(issuedAt)}</div>
+            <div style="margin-top:12px;padding-top:10px;border-top:1px solid #ddd6fe;font-family:monospace;font-size:12px;color:#475569">Certificate ID: ${escapeHtml(certificateId)} · <strong style="color:#059669">VALID</strong></div>
+          </div>
+          <p style="color:#64748b;font-size:13px">Your mini-certificate is attached as an SVG image that you can save, print, or share.</p>
           <table style="width:100%;border-collapse:collapse;margin:18px 0">
             <tr><th style="padding:7px 10px;text-align:left;color:#475569;border-bottom:1px solid #e2e8f0">Certificate ID</th><td style="padding:7px 10px;border-bottom:1px solid #e2e8f0">${escapeHtml(certificateId)}</td></tr>
             <tr><th style="padding:7px 10px;text-align:left;color:#475569;border-bottom:1px solid #e2e8f0">Type</th><td style="padding:7px 10px;border-bottom:1px solid #e2e8f0">${escapeHtml(certificateType)}</td></tr>

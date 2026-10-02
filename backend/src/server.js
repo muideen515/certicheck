@@ -194,10 +194,8 @@ async function startServer() {
 
     // Solana on-chain configuration validation
     if (process.env.SOLANA_ENABLE === 'true') {
-      const hasKeyPath = !!process.env.SOLANA_KEYPAIR_PATH;
-      const hasSecret = !!process.env.SOLANA_PAYER_SECRET;
-      if (!hasKeyPath && !hasSecret) {
-        console.error('SOLANA_ENABLE=true but no SOLANA_KEYPAIR_PATH or SOLANA_PAYER_SECRET provided. Aborting startup.');
+      if (!process.env.CERTIFICATE_PROGRAM_ID) {
+        console.error('SOLANA_ENABLE=true but CERTIFICATE_PROGRAM_ID is not configured. Aborting startup.');
         process.exit(1);
       }
     }

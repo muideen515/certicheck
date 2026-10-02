@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "test": "anchor test",
-    "test:mocha": "mocha -r ts-node/register tests/**/*.ts --timeout 100000"
+    "test": "npm run test:mocha",
+    "test:mocha": "node ./node_modules/mocha/bin/mocha.js -r ts-node/register tests/**/*.ts --timeout 100000"
   },
   "devDependencies": {
     "@coral-xyz/anchor": "^0.29.0",

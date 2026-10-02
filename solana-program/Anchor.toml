@@ -1,3 +1,6 @@
+[workspace]
+members = ["."]
+
 [features]
 default = []
 seeds = false
@@ -5,9 +8,12 @@ seeds = false
 [programs.devnet]
 certi_check = "4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob"
 
+[programs.localnet]
+certi_check = "4aCWiNjpLPtMa1gQd3Tu5jfSpKEFDR3PbANP5br8Fmob"
+
 [provider]
-cluster = "devnet"
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "anchor test"
+test = "npm run test:mocha"

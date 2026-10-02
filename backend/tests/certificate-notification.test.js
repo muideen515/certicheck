@@ -51,6 +51,36 @@ test('certificate issuance email includes details, status terms, and generic att
   assert.equal(message.attachments[0].filename, 'degree.pdf');
   assert.equal(message.attachments[0].contentType, 'application/pdf');
   assert.equal(message.attachments[0].content.toString(), '%PDF-1.4');
+  assert.match(message.html, /Your mini-certificate is attached as an SVG/i);
+  assert.equal(message.attachments[1].filename, 'certicheck-mini-certificate-CERT-2026-123.svg');
+  assert.equal(message.attachments[1].contentType, 'image/svg+xml');
+  assert.match(message.attachments[1].content.toString(), /Avery Holder/);
+  assert.match(message.attachments[1].content.toString(), /CERT-2026-123/);
+});
+
+test('mini-certificate email attachment safely escapes certificate details', async () => {
+  let message;
+  EmailService.transporter = {
+    async sendMail(options) {
+      message = options;
+      return { response: '250 accepted' };
+    }
+  };
+  EmailService.getConfigurationStatus = () => ({ mode: 'smtp' });
+
+  await EmailService.sendCertificateIssued({
+    holderEmail: 'holder@example.com',
+    holderName: '<script>alert(1)</script>',
+    certificateId: 'CERT-ESCAPE-001',
+    certificateType: 'Degree & Diploma',
+    issuerName: 'Example <University>'
+  });
+
+  const svg = message.attachments[0].content.toString();
+  assert.match(svg, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.doesNotMatch(svg, /<script>/);
+  assert.match(svg, /Degree &amp; Diploma/);
+  assert.match(message.html, /Example &lt;University&gt;/);
 });
 
 test('certificate issuance email rejects invalid holder email', async () => {

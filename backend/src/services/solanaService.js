@@ -53,40 +53,6 @@ function getAnchorIdlPath() {
   return idlPath;
 }
 
-function loadPayerKeypair() {
-  const { Keypair } = getWeb3();
-  const envSecret = process.env.SOLANA_PAYER_SECRET;
-  const keypairPath = process.env.SOLANA_KEYPAIR_PATH;
-  let secretKeyData = null;
-
-  if (envSecret) {
-    try {
-      secretKeyData = JSON.parse(envSecret);
-    } catch (err) {
-      throw new Error('Invalid SOLANA_PAYER_SECRET format. It must be a JSON array.');
-    }
-  } else if (keypairPath) {
-    const resolvedPath = keypairPath.replace(/^~(?=$|\/|\\)/, process.env.HOME || process.env.USERPROFILE || '');
-    const absolutePath = path.isAbsolute(resolvedPath) ? resolvedPath : path.resolve(process.cwd(), resolvedPath);
-    if (!fs.existsSync(absolutePath)) {
-      throw new Error(`Solana keypair file not found at ${absolutePath}`);
-    }
-
-    const raw = fs.readFileSync(absolutePath, 'utf8');
-    try {
-      secretKeyData = JSON.parse(raw);
-    } catch (err) {
-      throw new Error(`Unable to parse Solana keypair file at ${absolutePath}: ${err.message}`);
-    }
-  }
-
-  if (!secretKeyData) {
-    return null;
-  }
-
-  return Keypair.fromSecretKey(Uint8Array.from(secretKeyData));
-}
-
 function isValidSolanaAddress(address) {
   try {
     new (getWeb3().PublicKey)(address);
@@ -103,59 +69,100 @@ function getProgramClient() {
   return { programId, idl };
 }
 
-async function initializeIssuerOnChain(program, issuerAuthority, issuerPda, issuerName = 'Certicheck Issuer', issuerMetadataUri = '') {
-  const current = await program.provider.connection.getAccountInfo(issuerPda);
-  if (current) {
-    return null;
+async function lookupCertificateOnChain(certificateId, issuerWallet) {
+  const { Keypair, PublicKey } = getWeb3();
+  const connection = getConnection();
+  const { programId, idl } = getProgramClient();
+  const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(Keypair.generate()), { commitment: 'confirmed' });
+  const program = new anchor.Program(idl, programId, provider);
+
+  if (issuerWallet) {
+    const issuerPubkey = new PublicKey(issuerWallet);
+    const [issuerPda] = await PublicKey.findProgramAddress([Buffer.from('issuer'), issuerPubkey.toBuffer()], program.programId);
+    const [certificatePda] = await PublicKey.findProgramAddress(
+      [Buffer.from('certificate'), issuerPda.toBuffer(), Buffer.from(certificateId)],
+      program.programId
+    );
+
+    const cert = await program.account.certificateAccount.fetchNullable(certificatePda);
+    return normalizeOnChainCertificate(cert);
   }
 
-  const txSignature = await program.methods
-    .initializeIssuer(issuerName, issuerMetadataUri)
-    .accounts({
-      issuer: issuerPda,
-      authority: issuerAuthority,
-      systemProgram: anchor.web3.SystemProgram.programId
-    })
-    .rpc();
-
-  await program.provider.connection.confirmTransaction(txSignature, 'confirmed');
-  return txSignature;
+  const certificateAccounts = await program.account.certificateAccount.all();
+  const matches = certificateAccounts.filter(({ account }) => account && account.certId === certificateId);
+  if (matches.length > 1) {
+    throw new Error(`Certificate ID ${certificateId} exists under multiple issuer accounts; provide its issuer wallet.`);
+  }
+  return normalizeOnChainCertificate(matches[0]?.account);
 }
 
-async function lookupCertificateOnChain(certificateId, issuerWallet) {
-  if (!web3 || !anchor) {
-    return null;
+async function verifyIssuedCertificateOnChain({ certificateId, issuerWallet, holderWallet, holderName, certificateType, ipfsCid }) {
+  const { PublicKey } = getWeb3();
+  const cert = await lookupCertificateOnChain(certificateId, issuerWallet);
+  if (!cert) return null;
+
+  const [issuerPda] = await PublicKey.findProgramAddress(
+    [Buffer.from('issuer'), new PublicKey(issuerWallet).toBuffer()],
+    new PublicKey(getCertificateProgramId())
+  );
+  const expectedHolder = holderWallet || issuerWallet;
+  if (
+    cert.issuer !== issuerPda.toBase58() ||
+    cert.holder !== new PublicKey(expectedHolder).toBase58() ||
+    cert.holder_name !== holderName ||
+    cert.cert_type !== certificateType ||
+    cert.metadata_uri !== `ipfs://${ipfsCid}` ||
+    cert.metadata_hash !== ipfsCid
+  ) {
+    throw new Error('On-chain certificate data does not match the submitted issuance details.');
+  }
+  return cert;
+}
+
+async function verifyProgramTransaction({ signature, instructionName, expectedArgs, issuerWallet }) {
+  const connection = getConnection();
+  const { programId, idl } = getProgramClient();
+  const { Keypair, PublicKey } = getWeb3();
+  const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(Keypair.generate()), { commitment: 'confirmed' });
+  const program = new anchor.Program(idl, programId, provider);
+  const transaction = await connection.getTransaction(signature, {
+    commitment: 'confirmed',
+    maxSupportedTransactionVersion: 0
+  });
+
+  if (!transaction || transaction.meta?.err) {
+    throw new Error('The supplied Solana transaction was not confirmed successfully.');
   }
 
-  try {
-    const { Keypair, PublicKey } = getWeb3();
-    const connection = getConnection();
-    const { programId, idl } = getProgramClient();
-    const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(Keypair.generate()), { commitment: 'confirmed' });
-    const program = new anchor.Program(idl, programId, provider);
+  const message = transaction.transaction.message;
+  const accountKeys = message.accountKeys || message.staticAccountKeys;
+  const instructions = message.compiledInstructions || message.instructions || [];
+  const authorityPosition = instructionName === 'issueCertificate' ? 3 : 2;
+  const expectedAuthority = new PublicKey(issuerWallet);
 
-    if (issuerWallet) {
-      const issuerPubkey = new PublicKey(issuerWallet);
-      const [issuerPda] = await PublicKey.findProgramAddress([Buffer.from('issuer'), issuerPubkey.toBuffer()], program.programId);
-      const [certificatePda] = await PublicKey.findProgramAddress(
-        [Buffer.from('certificate'), issuerPda.toBuffer(), Buffer.from(certificateId)],
-        program.programId
-      );
+  for (const instruction of instructions) {
+    const instructionProgramId = instruction.programId ||
+      accountKeys[instruction.programIdIndex];
+    if (!instructionProgramId || !new PublicKey(instructionProgramId).equals(programId)) continue;
 
-      const cert = await program.account.certificateAccount.fetch(certificatePda);
-      return normalizeOnChainCertificate(cert);
+    const decoded = program.coder.instruction.decode(instruction.data, 'base58');
+    if (!decoded || decoded.name !== instructionName) continue;
+    if (!expectedArgs.every(([name, value]) => decoded.data[name] === value)) continue;
+
+    const accountIndexes = instruction.accountKeyIndexes || instruction.accounts || [];
+    const authorityIndex = accountIndexes[authorityPosition];
+    const authority = accountKeys[authorityIndex];
+    const numRequiredSignatures = message.header?.numRequiredSignatures || 0;
+    if (
+      authority &&
+      authorityIndex < numRequiredSignatures &&
+      new PublicKey(authority).equals(expectedAuthority)
+    ) {
+      return true;
     }
-
-    const certificateAccounts = await program.account.certificateAccount.all();
-    const match = certificateAccounts.find(({ account }) => account && account.certId === certificateId);
-    if (!match) {
-      return null;
-    }
-
-    return normalizeOnChainCertificate(match.account);
-  } catch (err) {
-    return null;
   }
+
+  throw new Error(`The supplied transaction does not contain the expected ${instructionName} instruction signed by the issuer.`);
 }
 
 function normalizeOnChainCertificate(cert) {
@@ -173,6 +180,7 @@ function normalizeOnChainCertificate(cert) {
     holder_name: cert.holderName,
     cert_type: cert.certType,
     metadata_uri: cert.metadataUri,
+    metadata_hash: cert.metadataHash,
     is_revoked: cert.isRevoked === true || Number(cert.status || 0) === 1,
     status: Number(cert.status || 0),
     revoke_reason: cert.revokeReason,
@@ -183,99 +191,13 @@ function normalizeOnChainCertificate(cert) {
   };
 }
 
-async function issueCertificateOnChain({ certificateId, ipfsCid, certificateType, issuerWallet, holderWallet, holderName, holderEmail, issuerName, metadataHash }) {
-  const { PublicKey } = getWeb3();
-  const payer = loadPayerKeypair();
-  if (!payer) {
-    throw new Error('SOLANA_PAYER_SECRET or SOLANA_KEYPAIR_PATH must be configured to issue certificates on-chain.');
-  }
-
-  const connection = getConnection();
-  const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(payer), { commitment: 'confirmed' });
-  anchor.setProvider(provider);
-
-  const { programId, idl } = getProgramClient();
-  const program = new anchor.Program(idl, programId, provider);
-
-  const issuerPubkey = issuerWallet ? new PublicKey(issuerWallet) : payer.publicKey;
-
-  const [issuerPda] = await PublicKey.findProgramAddress([Buffer.from('issuer'), issuerPubkey.toBuffer()], program.programId);
-  const [certificatePda] = await PublicKey.findProgramAddress(
-    [Buffer.from('certificate'), issuerPda.toBuffer(), Buffer.from(certificateId)],
-    program.programId
-  );
-
-  const issuerInfo = await connection.getAccountInfo(issuerPda);
-  if (!issuerInfo) {
-    const issuerMetadataUri = ipfsCid ? `ipfs://${ipfsCid}` : '';
-    await initializeIssuerOnChain(program, payer.publicKey, issuerPda, issuerName || 'Certicheck Issuer', issuerMetadataUri);
-  }
-
-  const holderPubkey = holderWallet ? new PublicKey(holderWallet) : payer.publicKey;
-  const metadataUri = ipfsCid ? `ipfs://${ipfsCid}` : '';
-  const sig = await program.methods
-    .issueCertificate(
-      certificateId,
-      holderName || '',
-      certificateType || '',
-      metadataUri,
-      metadataHash || ipfsCid || ''
-    )
-    .accounts({
-      issuer: issuerPda,
-      holder: holderPubkey,
-      certificate: certificatePda,
-      authority: payer.publicKey,
-      systemProgram: anchor.web3.SystemProgram.programId
-    })
-    .rpc();
-
-  await connection.confirmTransaction(sig, 'confirmed');
-  return sig;
-}
-
-async function revokeCertificateOnChain({ certificateId, issuerWallet, reason = 'Revoked by issuer' }) {
-  const { PublicKey } = getWeb3();
-  const payer = loadPayerKeypair();
-  if (!payer) {
-    throw new Error('SOLANA_PAYER_SECRET or SOLANA_KEYPAIR_PATH must be configured to revoke certificates on-chain.');
-  }
-
-  const connection = getConnection();
-  const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(payer), { commitment: 'confirmed' });
-  anchor.setProvider(provider);
-
-  const { programId, idl } = getProgramClient();
-  const program = new anchor.Program(idl, programId, provider);
-
-  const issuerPubkey = issuerWallet ? new PublicKey(issuerWallet) : payer.publicKey;
-
-  const [issuerPda] = await PublicKey.findProgramAddress([Buffer.from('issuer'), issuerPubkey.toBuffer()], program.programId);
-  const [certificatePda] = await PublicKey.findProgramAddress(
-    [Buffer.from('certificate'), issuerPda.toBuffer(), Buffer.from(certificateId)],
-    program.programId
-  );
-
-  const sig = await program.methods
-    .revokeCertificate(reason)
-    .accounts({
-      certificate: certificatePda,
-      issuer: issuerPda,
-      authority: payer.publicKey
-    })
-    .rpc();
-
-  await connection.confirmTransaction(sig, 'confirmed');
-  return sig;
-}
-
 async function getTransactionStatus(signature) {
   if (!signature) {
     return null;
   }
 
   const connection = getConnection();
-  const result = await connection.getSignatureStatuses([signature]);
+  const result = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true });
   return result?.value?.[0] || null;
 }
 
@@ -303,8 +225,8 @@ async function getProgramStats() {
 module.exports = {
   isValidSolanaAddress,
   lookupCertificateOnChain,
+  verifyIssuedCertificateOnChain,
+  verifyProgramTransaction,
   getProgramStats,
-  issueCertificateOnChain,
-  revokeCertificateOnChain,
   getTransactionStatus
 };
