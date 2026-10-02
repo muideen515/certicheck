@@ -13,6 +13,15 @@ const originalSendApplicationDecision = EmailService.sendApplicationDecision;
 const originalGetConfigurationStatus = EmailService.getConfigurationStatus;
 const originalGetReadiness = EmailService.getReadiness;
 
+async function waitFor(predicate, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.ok(predicate(), 'Expected asynchronous application follow-up to complete');
+}
+
 async function startServer() {
   const app = require('../src/server');
   return new Promise((resolve, reject) => {
@@ -68,7 +77,11 @@ test('public application submissions are visible to admin review queue', async (
   const submitData = await submitResponse.json();
   assert.equal(submitResponse.status, 201, `Unexpected submit status: ${JSON.stringify(submitData)}`);
   assert.ok(submitData.success, `Submission should succeed: ${JSON.stringify(submitData)}`);
-  assert.equal(submitData.notification.emailSent, true);
+  assert.equal(submitData.notification.emailSent, false);
+  assert.equal(submitData.notification.emailPending, true);
+  await waitFor(() => applicationEmails.some(email =>
+    email.type === 'received' && email.args[0] === 'ada@acme.edu'
+  ));
   assert.ok(applicationEmails.some(email =>
     email.type === 'received' && email.args[0] === 'ada@acme.edu'
   ), 'Successful submission should send a receipt to the applicant contact email');
@@ -107,7 +120,50 @@ test('public application submissions do not require a use case or wallet address
   const data = await response.json();
   assert.equal(response.status, 201, `Unexpected submit status: ${JSON.stringify(data)}`);
   assert.ok(data.success, `Submission should succeed: ${JSON.stringify(data)}`);
-  assert.equal(data.notification.emailSent, true);
+  assert.equal(data.notification.emailSent, false);
+  assert.equal(data.notification.emailPending, true);
+  await waitFor(() => applicationEmails.some(email =>
+    email.type === 'received' && email.args[0] === 'alex@optional-fields.example'
+  ));
+});
+
+test('issuer application response does not wait for email delivery', async () => {
+  const originalSendApplicationReceived = EmailService.sendApplicationReceived;
+  let releaseDelivery;
+  let markStarted;
+  const deliveryStarted = new Promise(resolve => { markStarted = resolve; });
+  const delivery = new Promise(resolve => { releaseDelivery = resolve; });
+  EmailService.sendApplicationReceived = async () => {
+    markStarted();
+    await delivery;
+    return { messageId: 'delayed-email' };
+  };
+
+  try {
+    const startedAt = Date.now();
+    const response = await fetch(`http://localhost:${process.env.TEST_SERVER_PORT}/api/applications/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orgName: 'Fast Response University',
+        orgType: 'university',
+        contactName: 'Taylor Applicant',
+        contactEmail: 'taylor@fast-response.example',
+        contactRole: 'Registrar',
+        volume: '1 – 100 certificates'
+      })
+    });
+
+    assert.equal(response.status, 201);
+    const data = await response.json();
+    assert.equal(data.notification.emailPending, true);
+    assert.ok(Date.now() - startedAt < 1000, 'Submission should not wait on slow SMTP delivery');
+
+    await deliveryStarted;
+  } finally {
+    releaseDelivery();
+    EmailService.sendApplicationReceived = originalSendApplicationReceived;
+  }
 });
 
 test('admin dashboard reflects approved applications in demo mode', async () => {
@@ -194,7 +250,7 @@ test('rejected applications send a decision email to the applicant contact email
     })
   });
 
-  test('application decision remains successful and reports when notification delivery fails', async () => {
+  {
     const port = process.env.TEST_SERVER_PORT;
     const base = `http://localhost:${port}`;
     const createResponse = await fetch(`${base}/api/applications/submit`, {
@@ -229,7 +285,7 @@ test('rejected applications send a decision email to the applicant contact email
     } finally {
       EmailService.sendApplicationDecision = originalSend;
     }
-  });
+  }
   const created = await createResponse.json();
   assert.equal(createResponse.status, 201, `Unexpected create status: ${JSON.stringify(created)}`);
 

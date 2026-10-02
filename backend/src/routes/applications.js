@@ -63,19 +63,25 @@ router.post('/submit', async (req, res) => {
       userId, orgName, orgType, website, contactName, contactEmail, generatedEmail, contactRole, volume, useCase, wallet
     );
 
-    const emailResult = await EmailService.sendApplicationReceived(contactEmail, contactName, orgName);
-    const emailSent = EmailService.getReadiness().configured && Boolean(emailResult);
-    if (!emailSent) {
-      console.error('Application confirmation email was not delivered.');
-    }
-
-    await logAudit(userId, 'APPLICATION_SUBMIT', 'application', app.id, 'success');
-
     res.status(201).json({
       success: true,
       message: 'Application submitted successfully',
-      notification: { emailSent },
+      notification: { emailSent: false, emailPending: true },
       application: { ...app, generated_email: app.generated_email || generatedEmail }
+    });
+
+    setImmediate(() => {
+      Promise.all([
+        EmailService.sendApplicationReceived(contactEmail, contactName, orgName).then((emailResult) => {
+          const emailSent = EmailService.getReadiness().configured && Boolean(emailResult);
+          if (!emailSent) {
+            console.error('Application confirmation email was not delivered.');
+          }
+        }),
+        logAudit(userId, 'APPLICATION_SUBMIT', 'application', app.id, 'success')
+      ]).catch(() => {
+        console.error('Application submission follow-up failed; check the EmailService delivery diagnostic.');
+      });
     });
   } catch (err) {
     console.error('Application submit error:', err);
