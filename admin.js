@@ -1,13 +1,14 @@
 "use strict";
 
+const DEFAULT_API_BASE_URL = "https://certicheck-backend-8hu3.onrender.com";
 const localApiOrigin = ["localhost", "127.0.0.1"].includes(window.location.hostname)
   ? (["3000", "5000"].includes(window.location.port)
     ? window.location.origin
-    : "http://127.0.0.1:5000")
+    : null)
   : null;
 const API_BASE_URL = window.CERTICHECK_API_BASE_URL
   ? window.CERTICHECK_API_BASE_URL.replace(/\/api\/?$/, "")
-  : localApiOrigin || "https://certicheck-backend-8hu3.onrender.com";
+  : localApiOrigin || DEFAULT_API_BASE_URL;
 const apiFetch = (url, options = {}) => fetch(url, { ...options, credentials: "include" });
 const ADMIN_SESSION_KEY = "certicheck_admin_logged_in";
 const ADMIN_TOKEN_KEY = "certicheck_admin_token";
@@ -784,10 +785,6 @@ function renderAdminDashboard() {
       if (action === 'approve' || action === 'reject') handleApplicationAction(action, id);
     });
   });
-<<<<<<< HEAD
-  renderPendingUserAccounts();
-=======
->>>>>>> c6bfbf741cb7e9f78ca3ad746786c2fe2f4540fb
 }
 
 async function handleCreateAccountForApplication(id) {
@@ -833,52 +830,28 @@ async function loadAdminDashboard() {
 
   adminDashboardRequest = loadAdminDashboardData();
   try {
-<<<<<<< HEAD
     await adminDashboardRequest;
   } finally {
     adminDashboardRequest = null;
   }
 }
-=======
-    const results = await Promise.allSettled([
-      requestJson("/admin/dashboard"),
-      requestJson("/applications/pending?limit=50&offset=0"),
-      requestJson("/applications/rejected?limit=50&offset=0"),
-      requestJson("/applications/approved?limit=50&offset=0"),
-      requestJson("/verify/history?limit=50&offset=0"),
-      requestJson("/verify/revoked?limit=50&offset=0"),
-      requestJson("/admin/audit-log?limit=50&offset=0")
-    ]);
-
-    const valueAt = index => results[index].status === 'fulfilled' ? results[index].value : {};
-    const dashboardData = valueAt(0);
-    const pendingData = valueAt(1);
-    const rejectedData = valueAt(2);
-    const approvedData = valueAt(3);
-    const historyData = valueAt(4);
-    const revokedData = valueAt(5);
-    const auditData = valueAt(6);
->>>>>>> c6bfbf741cb7e9f78ca3ad746786c2fe2f4540fb
 
 async function loadAdminDashboardData() {
   try {
     const dashboardData = await requestJson("/admin/dashboard");
     adminState.stats = dashboardData.stats || adminState.stats || null;
-<<<<<<< HEAD
-    adminState.pendingApps = getApplicationList({ applications: dashboardData.pendingApplications });
-    adminState.rejectedApps = getApplicationList({ applications: dashboardData.rejectedApplications });
-    adminState.approvedApps = getApplicationList({ applications: dashboardData.approvedApplications });
+    adminState.pendingApps = getApplicationList({
+      applications: dashboardData.pendingApplications ?? dashboardData.pendingApps ?? dashboardData.pending
+    });
+    adminState.rejectedApps = getApplicationList({
+      applications: dashboardData.rejectedApplications ?? dashboardData.rejectedApps ?? dashboardData.rejected
+    });
+    adminState.approvedApps = getApplicationList({
+      applications: dashboardData.approvedApplications ?? dashboardData.approvedApps ?? dashboardData.approved
+    });
     adminState.checks = Array.isArray(dashboardData.history) ? dashboardData.history : [];
     adminState.revoked = Array.isArray(dashboardData.revoked) ? dashboardData.revoked : [];
     adminState.auditLog = Array.isArray(dashboardData.auditLog) ? dashboardData.auditLog : [];
-=======
-    if (results[1].status === 'fulfilled') adminState.pendingApps = getApplicationList(pendingData);
-    if (results[2].status === 'fulfilled') adminState.rejectedApps = getApplicationList(rejectedData);
-    if (results[3].status === 'fulfilled') adminState.approvedApps = getApplicationList(approvedData);
-    if (results[4].status === 'fulfilled') adminState.checks = Array.isArray(historyData.history) ? historyData.history : [];
-    if (results[5].status === 'fulfilled') adminState.revoked = Array.isArray(revokedData.revoked) ? revokedData.revoked : [];
-    if (results[6].status === 'fulfilled') adminState.auditLog = Array.isArray(auditData.auditLog) ? auditData.auditLog : [];
->>>>>>> c6bfbf741cb7e9f78ca3ad746786c2fe2f4540fb
 
     requestJson("/admin/access-log", {
       method: "POST",
