@@ -3661,7 +3661,7 @@ async function submitApplyForm() {
     clearPendingApplicationDraft();
     const hidden = document.getElementById('contactEmail');
     if (hidden) hidden.value = email;
-    showSuccessMessage(email, data.notification?.emailSent !== false);
+    showSuccessMessage(email, data.notification || {});
   } catch (error) {
     console.error('Error submitting application:', error);
     saveApplicationLocally(applicationData);
@@ -3707,7 +3707,7 @@ function clearPendingApplicationDraft() {
   try { localStorage.removeItem('certicheck_pending_application_draft'); } catch (e) {}
 }
 
-function showSuccessMessage(officialEmail, confirmationEmailSent = true) {
+function showSuccessMessage(officialEmail, notification = {}) {
   navigate("apply");
   document.getElementById(`form-step-${applyStep}`)?.classList.remove("active");
   document.getElementById("form-step-success")?.classList.add("active");
@@ -3715,10 +3715,12 @@ function showSuccessMessage(officialEmail, confirmationEmailSent = true) {
 
   const msg = document.getElementById("successMsg");
   if (msg) {
-    const emailNotice = confirmationEmailSent
-      ? ''
-      : '<div style="margin-top:12px;color:var(--red);">Your application was submitted, but we could not send the confirmation email. Please contact support if you need confirmation.</div>';
-    msg.innerHTML = `<div style="font-weight:800;font-size:18px;color:var(--purple-mid);">WAITING FOR REVIEW</div><div style="margin-top:16px;text-align:left;background:var(--bg-subtle);padding:14px;border-radius:8px;"><strong>Official contact:</strong> ${officialEmail}</div>${emailNotice}`;
+    const emailNotice = notification.emailPending
+      ? `<div style="margin-top:12px;color:var(--text-secondary);">Your application is in the review queue. A confirmation email is being sent to ${escapeCertificateMarkup(officialEmail)} and may take a few moments to arrive.</div>`
+      : notification.emailSent === false
+        ? '<div style="margin-top:12px;color:var(--red);">Your application was submitted, but we could not send the confirmation email. Please contact support if you need confirmation.</div>'
+        : '';
+    msg.innerHTML = `<div style="font-weight:800;font-size:18px;color:var(--purple-mid);">WAITING FOR REVIEW</div><div style="margin-top:16px;text-align:left;background:var(--bg-subtle);padding:14px;border-radius:8px;"><strong>Official contact:</strong> ${escapeCertificateMarkup(officialEmail)}</div>${emailNotice}`;
   }
 
   // Mark all steps done

@@ -37,7 +37,7 @@ test('application form buttons do not submit the page', () => {
 test('application confirmation does not show an auto-generated CertiCheck email', () => {
   assert.doesNotMatch(indexHtml, /generatedEmailCard|Your CertiCheck email/);
   assert.doesNotMatch(scriptJs, /generateCertiCheckEmail|generatedEmailCard/);
-  assert.match(scriptJs, /showSuccessMessage\(officialEmail, confirmationEmailSent = true\)/);
+  assert.match(scriptJs, /showSuccessMessage\(officialEmail, notification = \{\}\)/);
 });
 
 test('signup communicates welcome-email delivery failures', () => {
@@ -54,8 +54,9 @@ test('failed application submissions show an error instead of a false success st
   const successIndex = submitFunction.indexOf('showSuccessMessage(email,');
   const catchIndex = submitFunction.indexOf('} catch (error) {');
   assert.ok(successIndex >= 0 && successIndex < catchIndex, 'Success should only be shown before the failure handler');
-  assert.match(submitFunction, /data\.notification\?\.emailSent !== false/);
-  assert.match(scriptJs, /confirmationEmailSent = true/);
+  assert.match(submitFunction, /showSuccessMessage\(email, data\.notification \|\| \{\}\)/);
+  assert.match(scriptJs, /notification\.emailPending/);
+  assert.match(scriptJs, /confirmation email is being sent/i);
   assert.match(scriptJs, /we could not send the confirmation email/i);
 });
 
