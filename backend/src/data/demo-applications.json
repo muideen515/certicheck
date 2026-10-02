@@ -488,10 +488,15 @@
     "certificate_volume": "1 – 100 certificates",
     "use_case": "Academic credential issuance",
     "wallet_address": "demo-wallet",
-    "status": "pending",
+    "status": "approved",
     "submitted_at": "2026-09-23T17:34:46.615Z",
-    "reviewed_at": null,
-    "reviewer_id": null
+    "reviewed_at": "2026-10-02T10:38:51.044Z",
+    "reviewer_id": 1,
+    "processed_by_admin_id": 1,
+    "processed_by_admin_name": "Admin User",
+    "processed_by_admin_profile_picture_url": null,
+    "action_type": "APPROVED",
+    "processed_at": "2026-10-02T10:38:51.044Z"
   },
   {
     "id": "demo-app-1790184886671-j9c6eg",
@@ -863,15 +868,15 @@
     "certificate_volume": "1 – 100 certificates",
     "use_case": "Academic credential issuance",
     "wallet_address": "demo-wallet",
-    "status": "pending",
+    "status": "approved",
     "submitted_at": "2026-10-01T18:06:11.724Z",
-    "reviewed_at": null,
-    "reviewer_id": null,
-    "processed_by_admin_id": null,
-    "processed_by_admin_name": null,
+    "reviewed_at": "2026-10-02T10:34:00.161Z",
+    "reviewer_id": 1,
+    "processed_by_admin_id": 1,
+    "processed_by_admin_name": "Admin User",
     "processed_by_admin_profile_picture_url": null,
-    "action_type": null,
-    "processed_at": null
+    "action_type": "APPROVED",
+    "processed_at": "2026-10-02T10:34:00.161Z"
   },
   {
     "id": "demo-app-1790877972154-p0v5dj",
@@ -883,15 +888,15 @@
     "generated_email": "alex@optional-fields.example",
     "contact_role": "Registrar",
     "certificate_volume": "1 – 100 certificates",
-    "status": "pending",
+    "status": "approved",
     "submitted_at": "2026-10-01T18:06:12.154Z",
-    "reviewed_at": null,
-    "reviewer_id": null,
-    "processed_by_admin_id": null,
-    "processed_by_admin_name": null,
+    "reviewed_at": "2026-10-02T10:34:00.052Z",
+    "reviewer_id": 1,
+    "processed_by_admin_id": 1,
+    "processed_by_admin_name": "Admin User",
     "processed_by_admin_profile_picture_url": null,
-    "action_type": null,
-    "processed_at": null
+    "action_type": "APPROVED",
+    "processed_at": "2026-10-02T10:34:00.052Z"
   },
   {
     "id": "demo-app-1790877972176-uon8ck",
@@ -948,15 +953,15 @@
     "certificate_volume": "1 – 100 certificates",
     "use_case": "Academic credential issuance",
     "wallet_address": "demo-wallet",
-    "status": "pending",
+    "status": "approved",
     "submitted_at": "2026-10-01T19:20:14.722Z",
-    "reviewed_at": null,
-    "reviewer_id": null,
-    "processed_by_admin_id": null,
-    "processed_by_admin_name": null,
+    "reviewed_at": "2026-10-02T10:36:58.766Z",
+    "reviewer_id": 1,
+    "processed_by_admin_id": 1,
+    "processed_by_admin_name": "Admin User",
     "processed_by_admin_profile_picture_url": null,
-    "action_type": null,
-    "processed_at": null
+    "action_type": "APPROVED",
+    "processed_at": "2026-10-02T10:36:58.766Z"
   },
   {
     "id": "demo-app-1790882414748-38v12d",
@@ -968,15 +973,15 @@
     "generated_email": "alex@optional-fields.example",
     "contact_role": "Registrar",
     "certificate_volume": "1 – 100 certificates",
-    "status": "pending",
+    "status": "rejected",
     "submitted_at": "2026-10-01T19:20:14.748Z",
-    "reviewed_at": null,
-    "reviewer_id": null,
-    "processed_by_admin_id": null,
-    "processed_by_admin_name": null,
+    "reviewed_at": "2026-10-02T10:38:28.716Z",
+    "reviewer_id": 1,
+    "processed_by_admin_id": 1,
+    "processed_by_admin_name": "Admin User",
     "processed_by_admin_profile_picture_url": null,
-    "action_type": null,
-    "processed_at": null
+    "action_type": "REJECTED",
+    "processed_at": "2026-10-02T10:38:28.716Z"
   },
   {
     "id": "demo-app-1790882414756-80fu02",
@@ -1021,6 +1026,9 @@
     "processed_at": "2026-10-01T19:20:14.807Z"
   },
   {
+<<<<<<< HEAD
+    "id": "demo-app-1790885882032-dm89df",
+=======
     "id": "demo-app-1790922103272-0w47oi",
     "issuer_id": 1,
     "organization_name": "tt",
@@ -1045,6 +1053,7 @@
   },
   {
     "id": "demo-app-1790935837668-5b6sww",
+>>>>>>> c6bfbf741cb7e9f78ca3ad746786c2fe2f4540fb
     "issuer_id": 1,
     "organization_name": "v",
     "organization_type": "university",
@@ -1052,6 +1061,15 @@
     "contact_name": "certified ibm",
     "contact_email": "muideen515@gmail.com",
     "generated_email": "muideen515@gmail.com",
+<<<<<<< HEAD
+    "contact_role": "Registrar",
+    "certificate_volume": "1 – 100 certificates",
+    "use_case": "",
+    "wallet_address": "",
+    "status": "approved",
+    "submitted_at": "2026-10-01T20:18:02.032Z",
+    "reviewed_at": "2026-10-01T20:23:34.004Z",
+=======
     "contact_role": "Founder",
     "certificate_volume": "1 – 100 certificates",
     "use_case": "",
@@ -1059,10 +1077,32 @@
     "status": "rejected",
     "submitted_at": "2026-10-02T10:10:37.668Z",
     "reviewed_at": "2026-10-02T10:14:44.446Z",
+>>>>>>> c6bfbf741cb7e9f78ca3ad746786c2fe2f4540fb
     "reviewer_id": 1,
     "processed_by_admin_id": 1,
     "processed_by_admin_name": "Admin User",
     "processed_by_admin_profile_picture_url": null,
+<<<<<<< HEAD
+    "action_type": "APPROVED",
+    "processed_at": "2026-10-01T20:23:34.004Z"
+  },
+  {
+    "id": "demo-app-1790885885722-m4vven",
+    "issuer_id": 1,
+    "organization_name": "v",
+    "organization_type": "university",
+    "organization_website": "",
+    "contact_name": "certified ibm",
+    "contact_email": "muideen515@gmail.com",
+    "generated_email": "muideen515@gmail.com",
+    "contact_role": "Registrar",
+    "certificate_volume": "1 – 100 certificates",
+    "use_case": "",
+    "wallet_address": "",
+    "status": "approved",
+    "submitted_at": "2026-10-01T20:18:05.722Z",
+    "reviewed_at": "2026-10-01T20:23:29.578Z",
+=======
     "action_type": "REJECTED",
     "processed_at": "2026-10-02T10:14:44.446Z"
   },
@@ -1082,11 +1122,16 @@
     "status": "approved",
     "submitted_at": "2026-10-02T10:12:08.960Z",
     "reviewed_at": "2026-10-02T10:14:28.744Z",
+>>>>>>> c6bfbf741cb7e9f78ca3ad746786c2fe2f4540fb
     "reviewer_id": 1,
     "processed_by_admin_id": 1,
     "processed_by_admin_name": "Admin User",
     "processed_by_admin_profile_picture_url": null,
     "action_type": "APPROVED",
+<<<<<<< HEAD
+    "processed_at": "2026-10-01T20:23:29.578Z"
+=======
     "processed_at": "2026-10-02T10:14:28.744Z"
+>>>>>>> c6bfbf741cb7e9f78ca3ad746786c2fe2f4540fb
   }
 ]

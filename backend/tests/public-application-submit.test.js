@@ -160,6 +160,12 @@ test('admin dashboard reflects approved applications in demo mode', async () => 
   const dashboard = await dashboardResponse.json();
   assert.equal(dashboardResponse.status, 200, `Dashboard should work in demo mode: ${JSON.stringify(dashboard)}`);
   assert.ok(dashboard.stats?.approvedApplications >= 1, `Approved count should reflect approved applications: ${JSON.stringify(dashboard)}`);
+  assert.ok(dashboard.approvedApplications?.some(app => app.contact_email === 'grace@demo-approved.example'), 'Dashboard overview should include approved applications');
+  assert.ok(Array.isArray(dashboard.pendingApplications), 'Dashboard overview should include pending applications');
+  assert.ok(Array.isArray(dashboard.rejectedApplications), 'Dashboard overview should include rejected applications');
+  assert.ok(Array.isArray(dashboard.history), 'Dashboard overview should include verification history');
+  assert.ok(Array.isArray(dashboard.revoked), 'Dashboard overview should include revoked certificates');
+  assert.ok(Array.isArray(dashboard.auditLog), 'Dashboard overview should include audit entries');
 
   const approvedListResponse = await fetch(`${base}/api/applications/approved?limit=50&offset=0`, {
     headers: {

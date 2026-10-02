@@ -158,7 +158,7 @@ Signup accepts valid email addresses from any domain and creates accounts in a p
 
 ### Admin Dashboard
 
-- `GET /api/admin/dashboard` - Get dashboard stats & recent audit log (admin only)
+- `GET /api/admin/dashboard` - Get dashboard stats and the first 50 pending, approved, rejected, verification, revoked, and audit entries in one response (admin only)
 - `POST /api/admin/access-log` - Log admin access
 - `GET /api/admin/audit-log` - Get audit log with filtering (admin only)
 - `GET /api/admin/login-attempts` - Get login attempts summary (admin only)

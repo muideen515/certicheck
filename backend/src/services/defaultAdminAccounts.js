@@ -5,7 +5,7 @@ function normalizeEmail(email) {
 const DEFAULT_ADMIN_PASSWORD = 'password';
 const DEFAULT_ADMIN_ACCOUNTS = [
   {
-    email: normalizeEmail(process.env.ADMIN_EMAIL || 'admin@certicheck.com'),
+    email: 'admin@certicheck.com',
     password: DEFAULT_ADMIN_PASSWORD,
     firstName: 'Admin',
     lastName: 'User',

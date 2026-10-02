@@ -1,0 +1,65 @@
+Attached Element Context from Integrated Browser
+
+Element: div.role-stat
+
+URL: http://localhost:5500/index.html
+
+HTML Path: div#page-home.page.active > div#roleHomePanel.role-workspace-shell > div.page-wrap > div#roleHomeStats.stats-grid.role-stats-grid > div.role-stat
+
+Outer HTML:
+```html
+<div class="role-stat">
+        <div class="role-stat-label">Revoked</div>
+        <div class="role-stat-value">0</div>
+      </div>
+```
+
+Dimensions:
+- top: 400px
+- left: 18px
+- width: 197px
+- height: 90px
+
+CSS:
+```css
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+.role-stat { background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-lg);
+  padding: 18px 18px 16px;
+  box-shadow: var(--shadow-sm); }
+.role-stat { padding: 16px 14px; }
+
+/* Pseudo-elements */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-thumb { background: var(--purple-soft); border-radius: 99px; }
+::-webkit-scrollbar-track { background: var(--bg-subtle); }
+
+/* Inherited */
+body { color: var(--text-primary); font-family: var(--font-body); font-size: 15px; line-height: 1.6 }
+
+/* Resolved values */
+margin: 0px;
+padding: 16px 14px;
+border-radius: 20px;
+box-shadow: rgba(0, 0, 0, 0.2) 0px 1px 3px 0px, rgba(59, 130, 246, 0.08) 0px 4px 12px 0px;
+box-sizing: border-box;
+color: rgb(226, 232, 240);
+display: block;
+font-family: "Instrument Sans", sans-serif;
+font-size: 15px;
+height: 90.1875px;
+line-height: 24px;
+unicode-bidi: isolate /*UA*/;
+width: 197px;
+
+/* CSS variables */
+--shadow-sm: 0 1px 3px rgba(0,0,0,0.20), 0 4px 12px rgba(59,130,246,0.08);
+--bg-subtle: #111827;
+--text-primary: #e2e8f0;
+--font-body: 'Instrument Sans', sans-serif;
+--purple-soft: #8b5cf6;
+--panel-border: rgba(148, 163, 184, 0.16);
+--radius-lg: 20px;
+--panel-bg: rgba(15, 23, 42, 0.95);
+```
